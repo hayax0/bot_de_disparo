@@ -14,7 +14,7 @@ Este documento fornece as instruções para subir a aplicação em qualquer serv
 
 ### 1. Clonar o repositório no servidor
 ```bash
-git clone <URL_DO_SEU_REPOSITORIO> /opt/saas-bot
+git clone https://github.com/hayax0/bot_de_disparo.git /opt/saas-bot
 cd /opt/saas-bot
 ```
 
