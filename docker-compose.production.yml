@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # Banco de Dados PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: saas_bot_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-saas_bot_db}
+      POSTGRES_USER: ${POSTGRES_USER:-saas_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-saas_admin} -d ${POSTGRES_DB:-saas_bot_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para Fila de Disparos BullMQ
+  redis:
+    image: redis:7-alpine
+    container_name: saas_bot_redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend Node.js API + BullMQ Worker
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: saas_bot_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-saas_admin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-saas_bot_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET seguro no .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+    volumes:
+      - ./backend/.wwebjs_auth:/app/.wwebjs_auth
+      - ./backend/uploads:/app/uploads
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    networks:
+      - internal_network
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}
+    container_name: saas_bot_frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    networks:
+      - internal_network
+
+networks:
+  internal_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

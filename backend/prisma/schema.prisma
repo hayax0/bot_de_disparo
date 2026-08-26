@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaces Workspace[]
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns  Campaign[]
+  whatsapp   WhatsappSession?
+}
+
+model WhatsappSession {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  status      String   @default("DISCONNECTED") // DISCONNECTED, QRCODE, CONNECTED
+  sessionData String?  // Stores authentication data
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Campaign {
+  id             String   @id @default(uuid())
+  workspaceId    String
+  name           String
+  status         String   @default("PAUSED")
+  messageComSite String?
+  messageSemSite String?
+  delayMin       Int      @default(90) // seconds
+  delayMax       Int      @default(180) // seconds
+  createdAt      DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads     Lead[]
+}
+
+model Lead {
+  id             String    @id @default(uuid())
+  campaignId     String
+  title          String
+  phone          String
+  website        String?
+  neighborhood   String?
+  status         String    @default("PENDING") // PENDING, SENT, REPLIED, ERROR, IGNORED
+  errorMessage   String?
+  messageContent String?
+  attempts       Int       @default(0)
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, phone])
+}
