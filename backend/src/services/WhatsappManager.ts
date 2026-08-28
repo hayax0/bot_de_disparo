@@ -1,5 +1,7 @@
 import { Client, LocalAuth, Chat } from 'whatsapp-web.js';
 import qrcode from 'qrcode';
+import fs from 'fs';
+import path from 'path';
 import { prisma } from '../lib/prisma';
 
 // This map holds the active Whatsapp clients in memory
@@ -13,14 +15,19 @@ export class WhatsappManager {
       return sessions.get(workspaceId)!;
     }
 
-    // Initialize a new client
+    // Initialize a new client with modern web version cache and user-agent
     const client = new Client({
       authStrategy: new LocalAuth({
         clientId: workspaceId,
         dataPath: './.wwebjs_auth' // Stores sessions locally inside backend folder
       }),
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-js/main/dist/wppconnect-wa.js'
+      },
       puppeteer: {
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -185,12 +192,25 @@ export class WhatsappManager {
     const client = sessions.get(workspaceId);
     if (client) {
       try {
-        await client.logout();
+        await client.logout().catch(() => {});
+        await client.destroy().catch(() => {});
       } catch (e) {
-        console.error('Error logging out', e);
+        console.error('Error logging out client', e);
       }
       sessions.delete(workspaceId);
     }
+
+    // Limpa a pasta de cache do Chromium para permitir nova conexão limpa
+    try {
+      const sessionDir = path.join(process.cwd(), '.wwebjs_auth', `session-${workspaceId}`);
+      if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log(`[WHATSAPP CLEANUP] Pasta de sessão limpa para workspace ${workspaceId}`);
+      }
+    } catch (fsErr) {
+      console.warn('Não foi possível remover pasta de sessão:', fsErr);
+    }
+
     await prisma.whatsappSession.update({
       where: { workspaceId },
       data: { status: 'DISCONNECTED', sessionData: null }
