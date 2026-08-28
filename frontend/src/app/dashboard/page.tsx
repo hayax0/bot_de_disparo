@@ -33,7 +33,13 @@ import {
   Globe, 
   MapPin, 
   Check, 
-  AlertCircle 
+  AlertCircle,
+  MessageSquare,
+  Users,
+  Send,
+  Zap,
+  Layers,
+  Activity
 } from 'lucide-react';
 
 interface Campaign {
@@ -269,7 +275,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      addToast('success', `Campanha criada! ${importRes.data.imported} leads importados com sucesso (${importRes.data.skipped} ignorados/duplicados).`);
+      addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
       setIsModalOpen(false);
       setNewCampaign({ 
         name: '', 
@@ -354,480 +360,665 @@ export default function Dashboard() {
     });
   }, [campaignDetails, leadFilterStatus, leadSearchTerm]);
 
+  // Cálculos de métricas globais
+  const totalLeadsGlobal = useMemo(() => {
+    return campaigns.reduce((acc, c) => acc + (c._count?.leads || 0), 0);
+  }, [campaigns]);
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row relative">
+    <div className="min-h-screen bg-[#08090D] text-slate-100 flex flex-col md:flex-row relative selection:bg-purple-500/30 selection:text-purple-200">
       
-      {/* Toast Notifications Container */}
-      <div className="fixed top-4 right-4 left-4 sm:left-auto z-50 flex flex-col gap-2 sm:max-w-sm w-auto pointer-events-none">
+      {/* Luz ambiente difusa no topo */}
+      <div className="glow-ambient" />
+
+      {/* Barra de Notificações Toast */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-3">
         {toasts.map(t => (
           <div 
             key={t.id} 
-            className={`pointer-events-auto p-4 rounded-2xl shadow-lg border flex items-start gap-3 transition-all duration-300 animate-in slide-in-from-top-2 ${
-              t.type === 'success' 
-                ? 'bg-emerald-950 text-emerald-100 border-emerald-800' 
-                : t.type === 'error' 
-                ? 'bg-red-950 text-red-100 border-red-800' 
-                : 'bg-slate-900 text-white border-slate-700'
+            className={`pointer-events-auto p-3.5 rounded-2xl text-xs font-medium backdrop-blur-2xl shadow-2xl flex items-center gap-2.5 animate-in slide-in-from-bottom-2 border ${
+              t.type === 'success' ? 'bg-emerald-950/80 text-emerald-200 border-emerald-500/30' : 
+              t.type === 'error' ? 'bg-red-950/80 text-red-200 border-red-500/30' : 
+              'bg-purple-950/80 text-purple-200 border-purple-500/30'
             }`}
           >
-            {t.type === 'success' && <CheckCircle2 size={18} className="text-emerald-400 shrink-0 mt-0.5" />}
-            {t.type === 'error' && <AlertCircle size={18} className="text-red-400 shrink-0 mt-0.5" />}
-            {t.type === 'info' && <Info size={18} className="text-brand-400 shrink-0 mt-0.5" />}
-            <div className="text-xs leading-relaxed font-medium flex-1">{t.message}</div>
+            {t.type === 'success' && <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />}
+            {t.type === 'error' && <AlertCircle size={16} className="text-red-400 shrink-0" />}
+            {t.type === 'info' && <Info size={16} className="text-purple-400 shrink-0" />}
+            <span>{t.message}</span>
           </div>
         ))}
       </div>
 
-      {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b border-slate-200 p-3.5 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+      {/* Header Mobile Minimalista */}
+      <header className="md:hidden flex items-center justify-between p-4 glass-panel border-b border-white/[0.06] sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-brand-600 text-white rounded-xl flex items-center justify-center shadow-xs">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-purple-500/20">
             <Bot size={18} />
           </div>
-          <span className="font-bold text-slate-900 text-sm">Disparador de Mensagens</span>
+          <span className="font-bold text-sm tracking-tight text-white">Disparador</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <button 
-            onClick={logout}
-            title="Sair da conta"
-            aria-label="Sair da conta"
-            className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-          >
-            <LogOut size={18} />
-          </button>
-          <button 
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-            aria-label="Abrir Menu"
-          >
-            <Menu size={20} />
-          </button>
-        </div>
-      </div>
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+          className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+          aria-label="Abrir menu"
+        >
+          {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </header>
 
-      {/* Sidebar (Desktop & Mobile Drawer) */}
+      {/* Sidebar Desktop Minimalista e Translúcida */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 sm:w-64 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 md:static md:translate-x-0 shadow-2xl md:shadow-none
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+        fixed inset-y-0 left-0 z-40 w-64 glass-panel border-r border-white/[0.06] flex flex-col justify-between p-5 transition-transform duration-300 md:translate-x-0 md:static
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        {/* Brand Header */}
-        <div className="p-4 sm:p-5 flex items-center justify-between border-b border-slate-100/80">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-brand-600 text-white rounded-xl flex items-center justify-center shadow-xs">
-              <Bot size={20} />
+        <div>
+          {/* Logo */}
+          <div className="flex items-center gap-3 mb-8 px-2">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-purple-500/25 border border-white/20">
+              <Bot size={20} strokeWidth={2} />
             </div>
             <div>
-              <span className="font-bold text-slate-900 tracking-tight block text-sm leading-tight">Disparador</span>
-              <span className="text-[11px] text-brand-600 font-semibold block leading-tight">de Mensagens</span>
+              <span className="font-bold text-sm tracking-tight text-white block">Disparador</span>
+              <span className="text-[10px] text-purple-400 font-mono">PROSPECTOR SAAS</span>
             </div>
           </div>
-          {/* Botão de Fechar no Mobile */}
-          <button 
-            onClick={() => setIsMobileMenuOpen(false)}
-            aria-label="Fechar menu lateral"
-            className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-          >
-            <X size={18} />
-          </button>
+
+          {/* Navegação */}
+          <nav className="space-y-1.5">
+            <div className="px-3 py-2 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white flex items-center gap-3 text-xs font-semibold shadow-inner">
+              <Activity size={16} className="text-purple-400" />
+              <span>Painel Geral</span>
+            </div>
+            <button
+              onClick={() => setIsTutorialOpen(true)}
+              className="w-full px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer"
+            >
+              <BookOpen size={16} className="text-slate-500" />
+              <span>Tutorial Apify</span>
+            </button>
+          </nav>
         </div>
 
-        {/* User Account Card com Botão de Sair no Topo */}
-        <div className="p-3 mx-3 mt-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-2 shadow-2xs">
-          <div className="min-w-0 flex-1 pl-1">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Conta</span>
-            <span suppressHydrationWarning className="text-xs font-semibold text-slate-800 block truncate">
-              {isHydrated && user ? (user.name || user.email || 'Minha Conta') : 'Minha Conta'}
-            </span>
+        {/* Perfil & Logout */}
+        <div className="pt-4 border-t border-white/[0.06] space-y-3">
+          <div className="px-2">
+            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono block mb-1">CONTA</span>
+            <p className="text-xs font-semibold text-slate-200 truncate">{user?.name || user?.email}</p>
+            <p className="text-[10px] text-slate-400 truncate font-mono mt-0.5">{user?.email}</p>
           </div>
           <button 
             onClick={() => {
-              setIsMobileMenuOpen(false);
               logout();
-            }}
-            title="Sair da conta"
-            aria-label="Sair da conta"
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer shrink-0"
+              router.push('/login');
+            }} 
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-red-300 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all cursor-pointer"
           >
             <LogOut size={14} />
-            <span>Sair</span>
+            <span>Encerrar Sessão</span>
           </button>
         </div>
-        
-        <nav className="flex-1 px-3 py-3 space-y-1">
-          <a 
-            href="#" 
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="flex items-center gap-3 px-3.5 py-2.5 text-sm font-semibold rounded-xl bg-brand-50 text-brand-600 shadow-xs"
-          >
-            <Smartphone size={18} />
-            Dashboard
-          </a>
-        </nav>
       </aside>
 
-      {/* Backdrop Mobile */}
-      {isMobileMenuOpen && (
-        <div 
-          onClick={() => setIsMobileMenuOpen(false)}
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 md:hidden animate-in fade-in"
-        />
-      )}
-
-      {/* Main Content */}
-      <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-auto">
-        <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
-          
-          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Visão Geral</h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">Conecte seu WhatsApp, importe leads do Apify e dispare com segurança anti-ban.</p>
-            </div>
+      {/* Conteúdo Principal */}
+      <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
+        
+        {/* Top Header com Botão de Ação */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Visão Geral</h1>
+            <p className="text-xs text-slate-400 mt-1">Gerencie suas campanhas de prospecção com automação e segurança anti-bloqueio.</p>
+          </div>
+          <div className="flex items-center gap-2.5">
             <button 
               onClick={() => setIsTutorialOpen(true)}
-              className="inline-flex items-center justify-center gap-2 text-xs font-semibold text-brand-600 bg-white border border-brand-200 px-4 py-2.5 rounded-xl hover:bg-brand-50 transition-all shadow-xs cursor-pointer w-full sm:w-auto"
+              className="btn-secondary-dark px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
             >
-              <HelpCircle size={15} />
-              Como gerar lista no Apify?
+              <HelpCircle size={14} className="text-purple-400" />
+              <span>Como extrair leads</span>
             </button>
-          </header>
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="btn-primary-dark px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus size={15} />
+              <span>Nova Campanha</span>
+            </button>
+          </div>
+        </div>
 
-          {/* Guia Rápido de 3 Passos */}
-          <section className="bg-gradient-to-br from-indigo-900 via-brand-900 to-slate-900 rounded-3xl p-5 sm:p-6 md:p-8 text-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
-            
-            <div className="flex items-center gap-2.5 text-brand-300 text-xs font-bold uppercase tracking-wider mb-2 sm:mb-3">
-              <Sparkles size={16} /> Fluxo de Prospecção
-            </div>
-            <h2 className="text-lg sm:text-xl md:text-2xl font-semibold mb-4 sm:mb-6">Disparos em 3 Etapas Simples</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
-              
-              {/* Passo 1 */}
-              <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 flex flex-col justify-between">
-                <div>
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-brand-500/30 text-brand-200 flex items-center justify-center font-bold text-xs sm:text-sm mb-2.5">
-                    1
-                  </div>
-                  <h3 className="font-semibold text-sm text-white mb-1">Conecte o WhatsApp</h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Escaneie o QR Code para parear o número que fará o disparo das mensagens.
-                  </p>
-                </div>
-                <div className="mt-3.5 flex items-center gap-1.5 text-[11px] font-medium text-brand-200">
-                  <ShieldCheck size={14} /> Digitação humana simulada
-                </div>
-              </div>
-
-              {/* Passo 2 */}
-              <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 flex flex-col justify-between">
-                <div>
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-brand-500/30 text-brand-200 flex items-center justify-center font-bold text-xs sm:text-sm mb-2.5">
-                    2
-                  </div>
-                  <h3 className="font-semibold text-sm text-white mb-1">Extraia Leads no Apify</h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Busque seu nicho no Google Maps Scraper do Apify e exporte a lista em formato <b>.JSON</b>.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setIsTutorialOpen(true)}
-                  className="mt-3.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-300 hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
-                >
-                  Ver tutorial passo a passo <ChevronRight size={12} />
-                </button>
-              </div>
-
-              {/* Passo 3 */}
-              <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 flex flex-col justify-between">
-                <div>
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-brand-500/30 text-brand-200 flex items-center justify-center font-bold text-xs sm:text-sm mb-2.5">
-                    3
-                  </div>
-                  <h3 className="font-semibold text-sm text-white mb-1">Inicie a Campanha</h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Faça o upload do JSON. O robô limpa razões sociais, valida sites reais e envia em lotes de 8.
-                  </p>
-                </div>
-                <div className="mt-3.5 flex items-center gap-1.5 text-[11px] font-medium text-emerald-300">
-                  <Clock size={14} /> Pausa de 15 min a cada 8 envios
-                </div>
-              </div>
-
-            </div>
-          </section>
-
-          {/* WhatsApp Status Card */}
-          <section className="card-premium flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Status do WhatsApp Minimalista com LED Neon */}
+        <section className="glass-panel rounded-3xl p-5 border border-white/[0.08] relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 ${waStatus?.status === 'CONNECTED' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
-                <Smartphone size={22} />
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${
+                waStatus?.status === 'CONNECTED' 
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.2)]' 
+                  : waStatus?.status === 'QRCODE'
+                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                  : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
+              }`}>
+                <Smartphone size={20} />
               </div>
               <div>
-                <h2 className="font-bold text-slate-900 text-sm sm:text-base">Status do WhatsApp</h2>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="relative flex h-2.5 w-2.5">
-                    {waStatus?.status === 'CONNECTED' && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
-                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${waStatus?.status === 'CONNECTED' ? 'bg-green-500' : 'bg-slate-300'}`}></span>
-                  </span>
-                  <span className="text-xs text-slate-500 font-medium">
-                    {waStatus?.status === 'CONNECTED' ? 'Conectado e Pronto' : waStatus?.status === 'QRCODE' ? 'Aguardando Leitura do QR Code' : 'Desconectado'}
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-sm sm:text-base text-white">WhatsApp de Disparo</h2>
+                  <span className="relative flex h-2 w-2">
+                    {waStatus?.status === 'CONNECTED' && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    )}
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                      waStatus?.status === 'CONNECTED' ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 
+                      waStatus?.status === 'QRCODE' ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'
+                    }`}></span>
                   </span>
                 </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {waStatus?.status === 'CONNECTED' 
+                    ? 'Conexão ativa e segura na VPS com simulação humana' 
+                    : waStatus?.status === 'QRCODE' 
+                    ? 'Aguardando leitura do QR Code no aplicativo' 
+                    : 'Nenhum número pareado no momento'}
+                </p>
               </div>
             </div>
 
-            <div className="w-full sm:w-auto flex items-center gap-2">
+            <div className="flex items-center gap-2">
               {waStatus?.status === 'DISCONNECTED' && (
-                <button onClick={handleConnect} className="btn-premium w-full sm:w-auto cursor-pointer">
-                  Conectar WhatsApp
+                <button 
+                  onClick={handleConnect} 
+                  className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer flex items-center gap-2"
+                >
+                  <QrCode size={15} />
+                  <span>Conectar WhatsApp</span>
                 </button>
               )}
               {waStatus?.status === 'QRCODE' && (
-                <>
+                <div className="flex items-center gap-2">
                   <button 
                     onClick={handleConnect} 
-                    className="w-full sm:w-auto px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 transition-colors cursor-pointer text-center"
+                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs cursor-pointer text-purple-300 border-purple-500/30 hover:bg-purple-500/10"
                   >
-                    🔄 Atualizar QR Code
+                    🔄 Atualizar QR
                   </button>
                   <button 
                     onClick={handleDisconnect} 
-                    className="w-full sm:w-auto px-3.5 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-center"
+                    className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors cursor-pointer"
                   >
                     Cancelar
                   </button>
-                </>
+                </div>
               )}
               {waStatus?.status === 'CONNECTED' && (
-                <button onClick={handleDisconnect} className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition-colors cursor-pointer text-center">
+                <button 
+                  onClick={handleDisconnect} 
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-all cursor-pointer"
+                >
                   Desconectar
                 </button>
               )}
             </div>
-          </section>
+          </div>
 
-          {/* QR Code display */}
+          {/* Exibição do QR Code quando ativo */}
           {waStatus?.status === 'QRCODE' && waStatus.qrCode && (
-            <div className="card-premium flex flex-col items-center justify-center py-6 sm:py-8">
-              <QrCode className="text-brand-500 mb-3" size={32} />
-              <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1.5 text-center">Escaneie o QR Code</h3>
-              <p className="text-xs text-slate-500 mb-5 text-center max-w-sm px-2">Abra o WhatsApp no celular, vá em <b>Aparelhos Conectados &gt; Conectar um aparelho</b> e aponte a câmera.</p>
-              <div className="bg-white p-3.5 rounded-2xl shadow-md border border-slate-100 relative group">
+            <div className="mt-5 pt-5 border-t border-white/[0.06] flex flex-col items-center justify-center animate-in fade-in">
+              <div className="p-3 bg-white rounded-2xl shadow-2xl border border-white/20">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
                   src={waStatus.qrCode} 
                   alt="QR Code WhatsApp" 
-                  className="w-56 h-56 sm:w-64 sm:h-64 rounded-xl object-contain"
+                  className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl object-contain"
                 />
               </div>
-              <div className="mt-4 flex items-center gap-3">
-                <button
-                  onClick={handleConnect}
-                  className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  🔄 QR Code expirou? Clique para gerar um novo
-                </button>
-              </div>
+              <p className="text-xs text-slate-400 mt-3 text-center">
+                Abra o WhatsApp no celular ➔ <b>Aparelhos Conectados</b> ➔ <b>Conectar um aparelho</b> e aponte a câmera.
+              </p>
             </div>
           )}
+        </section>
 
-          {/* Campaigns Section */}
-          <section className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Minhas Campanhas</h2>
-                <p className="text-xs text-slate-500">Gerencie seus disparos e acompanhe o status de cada contato.</p>
+        {/* Cards de Métricas (KPIs Globais) */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Campanhas</span>
+              <Layers size={15} className="text-purple-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-white">{campaigns.length}</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Configuradas na conta</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Total Leads</span>
+              <Users size={15} className="text-indigo-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-white">{totalLeadsGlobal}</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Importados do Apify</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Anti-Bloqueio</span>
+              <ShieldCheck size={15} className="text-emerald-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-400">Ativo</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Delays + Pausas de lote</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Servidor VPS</span>
+              <Zap size={15} className="text-amber-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-amber-400">24/7 Online</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Execução em background</div>
+          </div>
+        </section>
+
+        {/* Lista de Campanhas */}
+        <section className="space-y-3.5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">Minhas Campanhas</h2>
+            <span className="text-xs text-slate-500 font-mono">{campaigns.length} total</span>
+          </div>
+
+          {isLoading ? (
+            <div className="glass-panel rounded-2xl p-12 text-center text-slate-400">
+              <RefreshCw size={24} className="animate-spin mx-auto text-purple-400 mb-3" />
+              <p className="text-xs">Carregando suas campanhas...</p>
+            </div>
+          ) : campaigns.length === 0 ? (
+            <div className="glass-panel rounded-3xl p-10 sm:p-14 text-center border border-dashed border-white/[0.1] flex flex-col items-center">
+              <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mb-4">
+                <FileJson size={24} />
               </div>
+              <h3 className="text-base font-bold text-white mb-1">Nenhuma campanha criada ainda</h3>
+              <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
+                Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.
+              </p>
               <button 
-                onClick={() => setIsModalOpen(true)} 
-                className="flex items-center justify-center gap-2 text-xs font-semibold text-white bg-brand-600 px-4 py-2.5 rounded-xl hover:bg-brand-500 transition-all shadow-sm cursor-pointer w-full sm:w-auto"
+                onClick={() => setIsModalOpen(true)}
+                className="btn-primary-dark px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-2"
               >
-                <Plus size={16} /> Nova Campanha
+                <Plus size={15} />
+                <span>Criar Primeira Campanha</span>
               </button>
             </div>
-            
-            <div className="grid gap-3.5 sm:gap-4">
-              {isLoading ? (
-                <div className="card-premium text-center py-12 text-slate-400 flex items-center justify-center gap-2">
-                  <RefreshCw className="animate-spin text-brand-600" size={20} />
-                  <span className="text-sm">Carregando campanhas...</span>
-                </div>
-              ) : campaigns.length === 0 ? (
-                <div className="card-premium text-center py-10 sm:py-12 text-slate-500">
-                  <FileJson className="mx-auto text-slate-300 mb-3" size={36} />
-                  <p className="font-medium text-slate-700 text-sm sm:text-base">Nenhuma campanha criada ainda.</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">Extraia sua lista no Apify, clique em &quot;Nova Campanha&quot; e faça o upload do arquivo .json.</p>
-                  <button 
-                    onClick={() => setIsModalOpen(true)} 
-                    className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-brand-600 bg-brand-50 px-4 py-2.5 rounded-xl hover:bg-brand-100 transition-colors cursor-pointer"
-                  >
-                    <Plus size={14} /> Criar Primeira Campanha
-                  </button>
-                </div>
-              ) : (
-                campaigns.map(c => (
-                  <div key={c.id} className="card-premium flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2.5">
-                        <h3 className="font-bold text-slate-900 text-sm sm:text-base">{c.name}</h3>
-                        <span className={`text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
-                          c.status === 'RUNNING' 
-                            ? 'bg-green-100 text-green-700' 
-                            : c.status === 'PAUSED' 
-                            ? 'bg-amber-100 text-amber-700' 
-                            : c.status === 'COMPLETED'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {c.status === 'RUNNING' ? 'Em Disparo' : c.status === 'PAUSED' ? 'Pausada' : c.status === 'COMPLETED' ? 'Concluída' : c.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        <b className="text-slate-700">{c._count?.leads || 0} leads</b> • Delay: <b>{c.delayMin}s a {c.delayMax}s</b> • Pausa a cada 8 envios: <b>15 min</b>
-                      </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3.5">
+              {campaigns.map(camp => (
+                <div 
+                  key={camp.id} 
+                  className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.07] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h3 className="font-bold text-sm sm:text-base text-white">{camp.name}</h3>
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
+                        camp.status === 'RUNNING' 
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 animate-pulse' 
+                          : camp.status === 'COMPLETED'
+                          ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
+                          : 'bg-white/[0.05] text-slate-400 border border-white/[0.1]'
+                      }`}>
+                        {camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
+                      </span>
                     </div>
-                    
-                    <div className="flex flex-wrap items-center gap-2 pt-2 md:pt-0 border-t border-slate-100 md:border-t-0">
-                      <button 
-                        onClick={() => openCampaignDetails(c.id)}
-                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-brand-700 bg-brand-50 rounded-xl hover:bg-brand-100 transition-colors cursor-pointer"
-                        title="Ver Leads e Métricas"
-                      >
-                        <Eye size={14} /> Detalhes
-                      </button>
 
-                      {c.status === 'PAUSED' || c.status === 'DRAFT' ? (
-                        <button 
-                          onClick={() => handleStart(c.id)} 
-                          className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-green-700 bg-green-50 rounded-xl hover:bg-green-100 transition-colors cursor-pointer" 
-                          title="Iniciar Disparos"
-                        >
-                          <Play size={14} /> Iniciar
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={() => handlePause(c.id)} 
-                          className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-orange-700 bg-orange-50 rounded-xl hover:bg-orange-100 transition-colors cursor-pointer" 
-                          title="Pausar Disparos"
-                        >
-                          <Pause size={14} /> Pausar
-                        </button>
-                      )}
-                      
-                      <button 
-                        onClick={() => setCampaignToDelete(c)} 
-                        className="p-2 text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition-colors cursor-pointer shrink-0" 
-                        title="Excluir Campanha"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                    <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <Users size={13} className="text-slate-500" />
+                        <b>{camp._count?.leads || 0}</b> leads
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock size={13} className="text-slate-500" />
+                        Delay: <b>{camp.delayMin}s - {camp.delayMax}s</b>
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {new Date(camp.createdAt).toLocaleDateString('pt-BR')}
+                      </span>
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          </section>
 
-        </div>
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    {camp.status === 'RUNNING' ? (
+                      <button 
+                        onClick={() => handlePause(camp.id)}
+                        className="p-2 rounded-xl text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-all cursor-pointer"
+                        title="Pausar Campanha"
+                      >
+                        <Pause size={16} />
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => handleStart(camp.id)}
+                        disabled={waStatus?.status !== 'CONNECTED'}
+                        className="btn-primary-dark p-2 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Iniciar Campanha'}
+                      >
+                        <Play size={16} />
+                      </button>
+                    )}
+
+                    <button 
+                      onClick={() => openCampaignDetails(camp.id)}
+                      className="btn-secondary-dark px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye size={14} />
+                      <span>Ver Leads</span>
+                    </button>
+
+                    <button 
+                      onClick={() => setCampaignToDelete(camp)}
+                      className="p-2 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      title="Excluir Campanha"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
       </main>
 
-      {/* Modal de Detalhes da Campanha & Tabela de Leads */}
-      {selectedCampaignId && (
-        <div 
-          role="dialog" 
-          aria-modal="true" 
-          aria-labelledby="title-details-campaign"
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 animate-in fade-in"
-        >
-          <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
+      {/* Modal: Nova Campanha (Dark Glassmorphism) */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             
-            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="pr-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 id="title-details-campaign" className="text-lg sm:text-xl font-bold text-slate-900 truncate max-w-[240px] sm:max-w-md">
-                    {campaignDetails?.campaign.name || 'Detalhes da Campanha'}
-                  </h2>
-                  <span className={`text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
-                    campaignDetails?.campaign.status === 'RUNNING' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {campaignDetails?.campaign.status === 'RUNNING' ? 'Em Disparo' : 'Pausada'}
+            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-white">Criar Nova Campanha</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Importe seus leads e configure suas mensagens inteligentes.</p>
+              </div>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCampaign} className="p-5 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Nome da Campanha</label>
+                <input 
+                  type="text" 
+                  required
+                  autoFocus
+                  value={newCampaign.name}
+                  onChange={e => setNewCampaign({...newCampaign, name: e.target.value})}
+                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  placeholder="Ex: Clínicas Odontológicas - São Paulo"
+                />
+              </div>
+
+              {/* Upload de Arquivo */}
+              <div className="glass-card p-4 rounded-2xl border border-white/[0.08]">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                    Arquivo de Leads (.JSON ou .CSV)
+                  </label>
+                  <button 
+                    type="button" 
+                    onClick={() => setIsTutorialOpen(true)}
+                    className="text-xs text-purple-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <HelpCircle size={13} /> Como gerar?
+                  </button>
+                </div>
+                <input 
+                  type="file" 
+                  accept=".json,.csv,text/csv,application/json"
+                  required
+                  onChange={e => setNewCampaign({...newCampaign, file: e.target.files ? e.target.files[0] : null})}
+                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 file:transition-colors cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-500 mt-2 font-mono">
+                  Aceita arquivos .JSON do Apify Google Maps Scraper ou planilhas .CSV.
+                </p>
+              </div>
+
+              {/* Sugestões de Copys de Alta Conversão */}
+              <div className="glass-card p-4 rounded-2xl border border-purple-500/20 bg-purple-950/20">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                    💡 Sugestões de Copys Validadas
+                  </span>
+                  <span className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20">
+                    Clique para Inserir
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">Acompanhamento e auditoria de cada lead importado.</p>
+                <p className="text-[11px] text-slate-400 mb-3">
+                  Escreva seu próprio texto ou use uma das copys validadas abaixo:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({
+                      ...newCampaign,
+                      messageSemSite: defaultSemSite,
+                      messageComSite: defaultComSite
+                    })}
+                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-purple-600/30 border border-white/10 hover:border-purple-500/40 text-purple-200 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    🚀 Kit Completo (Com e Sem Site)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultSemSite })}
+                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    ✨ Venda de Site (Sem Site)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({ ...newCampaign, messageComSite: defaultComSite })}
+                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    🎯 Triagem WhatsApp (Com Site)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultB2B })}
+                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    💼 Prospecção B2B Direta
+                  </button>
+                </div>
+              </div>
+
+              {/* Delays */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Delay Mínimo (segundos)</label>
+                  <input 
+                    type="number" 
+                    required
+                    min={10}
+                    value={newCampaign.delayMin}
+                    onChange={e => setNewCampaign({...newCampaign, delayMin: Number(e.target.value)})}
+                    className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 font-mono">Recomendado: 90s</p>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Delay Máximo (segundos)</label>
+                  <input 
+                    type="number" 
+                    required
+                    min={10}
+                    value={newCampaign.delayMax}
+                    onChange={e => setNewCampaign({...newCampaign, delayMax: Number(e.target.value)})}
+                    className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 font-mono">Recomendado: 180s</p>
+                </div>
+              </div>
+
+              {/* Mensagem Principal / Sem Site */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                    Mensagem Principal <span className="text-purple-400 font-bold">(Para Sem Site ou Geral)</span>
+                  </label>
+                  <span className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                    {newCampaign.messageComSite.trim() ? 'Leads Sem Site' : 'Enviada para Todos'}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
+                  <span className="text-slate-500 text-[10px] mr-1">Inserir:</span>
+                  {[
+                    { tag: '{nome}', label: 'Nome' },
+                    { tag: '{bairro}', label: 'Bairro' },
+                    { tag: '{meuNome}', label: 'Meu Nome' },
+                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
+                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
+                  ].map(item => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: newCampaign.messageSemSite + item.tag })}
+                      className="px-1.5 py-0.5 bg-white/[0.05] hover:bg-purple-500/20 hover:text-purple-300 border border-white/[0.08] rounded text-[10px] font-mono text-slate-300 transition-colors cursor-pointer"
+                    >
+                      +{item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea 
+                  rows={4}
+                  value={newCampaign.messageSemSite}
+                  onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
+                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-xs sm:text-sm font-sans"
+                  placeholder="Escreva sua mensagem personalizada ou clique em um dos modelos acima..."
+                />
+              </div>
+
+              {/* Mensagem Opcional Com Site */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                    Mensagem Específica para quem <span className="text-emerald-400 font-bold">TEM SITE PRÓPRIO</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400 bg-white/[0.05] px-2 py-0.5 rounded border border-white/[0.08]">
+                    Opcional
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
+                  <span className="text-slate-500 text-[10px] mr-1">Inserir:</span>
+                  {[
+                    { tag: '{nome}', label: 'Nome' },
+                    { tag: '{website}', label: 'Website' },
+                    { tag: '{bairro}', label: 'Bairro' },
+                    { tag: '{meuNome}', label: 'Meu Nome' },
+                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
+                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
+                  ].map(item => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      onClick={() => setNewCampaign({ ...newCampaign, messageComSite: newCampaign.messageComSite + item.tag })}
+                      className="px-1.5 py-0.5 bg-white/[0.05] hover:bg-emerald-500/20 hover:text-emerald-300 border border-white/[0.08] rounded text-[10px] font-mono text-slate-300 transition-colors cursor-pointer"
+                    >
+                      +{item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea 
+                  rows={4}
+                  value={newCampaign.messageComSite}
+                  onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
+                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-xs sm:text-sm font-sans"
+                  placeholder="Se deixar em branco, o robô enviará a mensagem principal para todos os leads..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-white/[0.08]">
+                <button 
+                  type="button" 
+                  onClick={() => setIsModalOpen(false)}
+                  className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="btn-primary-dark px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Importando Leads...' : 'Criar e Importar Lista'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Detalhes dos Leads da Campanha */}
+      {selectedCampaignId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            
+            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-white">{campaignDetails?.campaign.name || 'Detalhes da Campanha'}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento em tempo real de disparos e respostas.</p>
               </div>
               <button 
                 onClick={() => setSelectedCampaignId(null)}
-                aria-label="Fechar detalhes da campanha"
-                className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
             {isLoadingDetails ? (
-              <div className="p-12 text-center text-slate-400 flex items-center justify-center gap-2">
-                <RefreshCw className="animate-spin text-brand-600" size={24} />
-                <span className="text-sm">Carregando leads...</span>
+              <div className="p-12 text-center text-slate-400">
+                <RefreshCw size={24} className="animate-spin mx-auto text-purple-400 mb-3" />
+                <p className="text-xs">Carregando contatos da campanha...</p>
               </div>
             ) : (
-              <div className="p-4 sm:p-6 overflow-y-auto space-y-5 sm:space-y-6 flex-1">
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
                 
-                {/* Cards de Métricas */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
-                  <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl">
-                    <span className="text-[11px] text-slate-500 font-medium">Total</span>
-                    <p className="text-lg sm:text-xl font-bold text-slate-900 mt-0.5">{campaignDetails?.counts.total || 0}</p>
+                {/* KPIs da Campanha */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Pendentes</span>
+                    <p className="text-lg font-bold text-amber-400 mt-0.5">{campaignDetails?.counts.pending || 0}</p>
                   </div>
-                  <div className="bg-amber-50 border border-amber-200/80 p-3 rounded-2xl">
-                    <span className="text-[11px] text-amber-700 font-medium">Pendentes</span>
-                    <p className="text-lg sm:text-xl font-bold text-amber-800 mt-0.5">{campaignDetails?.counts.pending || 0}</p>
+                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Enviados</span>
+                    <p className="text-lg font-bold text-emerald-400 mt-0.5">{campaignDetails?.counts.sent || 0}</p>
                   </div>
-                  <div className="bg-emerald-50 border border-emerald-200/80 p-3 rounded-2xl">
-                    <span className="text-[11px] text-emerald-700 font-medium">Enviados</span>
-                    <p className="text-lg sm:text-xl font-bold text-emerald-800 mt-0.5">{campaignDetails?.counts.sent || 0}</p>
+                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Respondidos</span>
+                    <p className="text-lg font-bold text-purple-400 mt-0.5">{campaignDetails?.counts.replied || 0}</p>
                   </div>
-                  <div className="bg-purple-50 border border-purple-200/80 p-3 rounded-2xl">
-                    <span className="text-[11px] text-purple-700 font-medium">Respondidos</span>
-                    <p className="text-lg sm:text-xl font-bold text-purple-800 mt-0.5">{campaignDetails?.counts.replied || 0}</p>
-                  </div>
-                  <div className="bg-red-50 border border-red-200/80 p-3 rounded-2xl col-span-2 sm:col-span-1">
-                    <span className="text-[11px] text-red-700 font-medium">Erros</span>
-                    <p className="text-lg sm:text-xl font-bold text-red-800 mt-0.5">{campaignDetails?.counts.error || 0}</p>
+                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Erros</span>
+                    <p className="text-lg font-bold text-red-400 mt-0.5">{campaignDetails?.counts.error || 0}</p>
                   </div>
                 </div>
 
-                {/* Barra de Progresso Visual */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-500 mb-1.5 font-medium">
-                    <span>Progresso dos Disparos</span>
-                    <span>
-                      {campaignDetails?.counts.total ? Math.round(((campaignDetails.counts.sent + campaignDetails.counts.replied) / campaignDetails.counts.total) * 100) : 0}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 sm:h-3 overflow-hidden flex">
-                    <div 
-                      className="bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${campaignDetails?.counts.total ? ((campaignDetails.counts.sent + campaignDetails.counts.replied) / campaignDetails.counts.total) * 100 : 0}%` }}
-                    />
-                    <div 
-                      className="bg-red-400 transition-all duration-500"
-                      style={{ width: `${campaignDetails?.counts.total ? (campaignDetails.counts.error / campaignDetails.counts.total) * 100 : 0}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Barra de Filtros e Busca */}
-                <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
-                  <div className="relative w-full sm:w-72">
-                    <Search size={15} className="absolute left-3 top-3 text-slate-400" />
+                {/* Filtros e Busca */}
+                <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between pt-2">
+                  <div className="relative w-full sm:w-64">
+                    <Search size={14} className="absolute left-3 top-3 text-slate-500" />
                     <input 
                       type="text" 
-                      placeholder="Buscar lead, telefone..."
+                      placeholder="Buscar lead ou telefone..."
                       value={leadSearchTerm}
                       onChange={e => setLeadSearchTerm(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                      className="w-full pl-9 pr-3 py-2 text-xs glass-input rounded-xl"
                     />
                   </div>
 
@@ -843,8 +1034,8 @@ export default function Dashboard() {
                         onClick={() => setLeadFilterStatus(f.key)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer shrink-0 ${
                           leadFilterStatus === f.key 
-                            ? 'bg-brand-600 text-white' 
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            ? 'bg-purple-600 text-white' 
+                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
                         }`}
                       >
                         {f.label}
@@ -853,56 +1044,56 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Tabela de Leads */}
-                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                {/* Tabela de Leads Dark Minimalista */}
+                <div className="glass-card rounded-2xl border border-white/[0.08] overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                      <thead className="bg-white/[0.03] border-b border-white/[0.08] text-slate-400 font-semibold">
                         <tr>
                           <th className="p-3">Empresa</th>
                           <th className="p-3">Telefone</th>
                           <th className="p-3">Site / Bairro</th>
                           <th className="p-3">Status</th>
-                          <th className="p-3">Envio / Detalhe</th>
+                          <th className="p-3">Envio / Detalhes</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/[0.04]">
                         {filteredLeads.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="p-8 text-center text-slate-400">
+                            <td colSpan={5} className="p-8 text-center text-slate-500">
                               Nenhum lead encontrado com os filtros atuais.
                             </td>
                           </tr>
                         ) : (
                           filteredLeads.map(lead => (
-                            <tr key={lead.id} className="hover:bg-slate-50/80 transition-colors">
-                              <td className="p-3 font-semibold text-slate-900 max-w-[160px] sm:max-w-[200px] truncate">{lead.title}</td>
-                              <td className="p-3 text-slate-600 font-mono whitespace-nowrap">{lead.phone}</td>
-                              <td className="p-3 text-slate-500 whitespace-nowrap">
+                            <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
+                              <td className="p-3 font-semibold text-slate-200 max-w-[180px] truncate">{lead.title}</td>
+                              <td className="p-3 text-slate-400 font-mono whitespace-nowrap">{lead.phone}</td>
+                              <td className="p-3 text-slate-400 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
                                   {lead.website ? (
-                                    <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium max-w-[120px] truncate">
+                                    <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium border border-emerald-500/20">
                                       <Globe size={11} /> Site
                                     </span>
                                   ) : (
-                                    <span className="text-slate-400 text-[11px]">Sem site</span>
+                                    <span className="text-slate-500 text-[11px]">Sem site</span>
                                   )}
                                   {lead.neighborhood && (
-                                    <span className="inline-flex items-center gap-0.5 text-slate-500 max-w-[100px] truncate text-[11px]">
-                                      <MapPin size={11} /> {lead.neighborhood}
+                                    <span className="inline-flex items-center gap-0.5 text-slate-400 text-[11px] truncate max-w-[120px]">
+                                      <MapPin size={11} className="text-slate-500" /> {lead.neighborhood}
                                     </span>
                                   )}
                                 </div>
                               </td>
                               <td className="p-3 whitespace-nowrap">
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold text-[10px] sm:text-xs ${
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold text-[10px] ${
                                   lead.status === 'SENT'
-                                    ? 'bg-emerald-100 text-emerald-700'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                     : lead.status === 'PENDING'
-                                    ? 'bg-amber-100 text-amber-700'
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                                     : lead.status === 'REPLIED'
-                                    ? 'bg-purple-100 text-purple-700'
-                                    : 'bg-red-100 text-red-700'
+                                    ? 'bg-purple-500/10 text-purple-300 border border-purple-500/20'
+                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
                                 }`}>
                                   {lead.status === 'SENT' && <Check size={11} />}
                                   {lead.status === 'PENDING' && <Clock size={11} />}
@@ -910,7 +1101,7 @@ export default function Dashboard() {
                                   {lead.status}
                                 </span>
                               </td>
-                              <td className="p-3 text-slate-400 text-[11px] max-w-[140px] truncate">
+                              <td className="p-3 text-slate-500 text-[11px] max-w-[140px] truncate font-mono">
                                 {lead.sentAt ? new Date(lead.sentAt).toLocaleTimeString() : (lead.errorMessage || '—')}
                               </td>
                             </tr>
@@ -924,428 +1115,129 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+            <div className="p-4 border-t border-white/[0.08] flex justify-end">
               <button 
                 onClick={() => setSelectedCampaignId(null)}
-                className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-center"
+                className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Fechar
               </button>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* Modal de Confirmação de Exclusão */}
+      {/* Modal Tutorial Apify (Dark Glassmorphism) */}
+      {isTutorialOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            
+            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
+                  <BookOpen size={18} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Como Extrair Leads no Apify</h2>
+                  <p className="text-xs text-slate-400">Gere sua lista de contatos do Google Maps em 3 minutos.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsTutorialOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1 text-xs text-slate-300">
+              
+              <div className="flex gap-3.5">
+                <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  1
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-white text-sm">Acesse o Apify e abra o Scraper</h3>
+                  <p className="text-slate-400 leading-relaxed">
+                    Acesse <a href="https://apify.com" target="_blank" rel="noreferrer" className="text-purple-400 hover:underline inline-flex items-center gap-0.5">apify.com <ExternalLink size={11} /></a> (crie conta gratuita com $5). No Store, procure por <b>&quot;Google Maps Scraper&quot;</b>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3.5">
+                <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  2
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-white text-sm">Defina o Nicho e a Região</h3>
+                  <p className="text-slate-400 leading-relaxed">
+                    No campo <b>Search Strings</b>, digite os nichos desejados (ex: <i>&quot;Dentistas em Curitiba&quot;</i>).
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3.5">
+                <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                  3
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-white text-sm">Exporte em .JSON ou .CSV</h3>
+                  <p className="text-slate-400 leading-relaxed">
+                    Ao concluir, clique em <b>Export Results</b> e selecione o formato <b>JSON</b> ou <b>CSV</b>.
+                  </p>
+                </div>
+              </div>
+
+            </div>
+
+            <div className="p-4 border-t border-white/[0.08] flex justify-end">
+              <button 
+                onClick={() => setIsTutorialOpen(false)}
+                className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+              >
+                Entendi, fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmar Exclusão */}
       {campaignToDelete && (
-        <div 
-          role="dialog" 
-          aria-modal="true" 
-          aria-labelledby="title-delete-campaign"
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
-        >
-          <div className="bg-white rounded-3xl w-full max-w-md p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center">
-              <AlertTriangle size={24} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-red-500/20 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-base">Excluir Campanha</h3>
+                <p className="text-xs text-slate-400 font-mono">Esta ação não pode ser desfeita.</p>
+              </div>
             </div>
-            <div>
-              <h3 id="title-delete-campaign" className="text-base sm:text-lg font-bold text-slate-900">Excluir Campanha</h3>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                Tem certeza que deseja excluir permanentemente a campanha <b>&quot;{campaignToDelete.name}&quot;</b> e todos os seus leads? Esta ação não pode ser desfeita.
-              </p>
-            </div>
-            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
+
+            <p className="text-xs text-slate-300 mb-6 leading-relaxed">
+              Tem certeza que deseja excluir a campanha <b>&quot;{campaignToDelete.name}&quot;</b>? Todos os leads associados serão removidos.
+            </p>
+
+            <div className="flex justify-end gap-2.5">
               <button 
                 onClick={() => setCampaignToDelete(null)}
-                className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-700 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-center"
+                className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Cancelar
               </button>
               <button 
                 onClick={confirmDelete}
-                className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors cursor-pointer text-center"
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer shadow-lg shadow-red-600/30"
               >
-                Sim, Excluir Campanha
+                Sim, excluir
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Nova Campanha */}
-      {isModalOpen && (
-        <div 
-          role="dialog" 
-          aria-modal="true" 
-          aria-labelledby="title-new-campaign"
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 animate-in fade-in"
-        >
-          <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
-            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <h2 id="title-new-campaign" className="text-lg sm:text-xl font-bold text-slate-900">Criar Nova Campanha</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Importe sua lista do Apify e defina suas mensagens inteligentes.</p>
-              </div>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                aria-label="Fechar formulário de nova campanha"
-                className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            <form id="campaignForm" onSubmit={handleCreateCampaign} className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">Nome da Campanha</label>
-                <input 
-                  type="text" 
-                  required
-                  autoFocus
-                  value={newCampaign.name}
-                  onChange={e => setNewCampaign({...newCampaign, name: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm"
-                  placeholder="Ex: Clínicas Odontológicas - São Paulo"
-                />
-              </div>
-
-              <div className="bg-slate-50 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Arquivo de Leads (.JSON ou .CSV)
-                  </label>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsTutorialOpen(true)}
-                    className="text-xs text-brand-600 font-semibold hover:underline inline-flex items-center gap-1 cursor-pointer w-fit"
-                  >
-                    <HelpCircle size={13} /> Como gerar este arquivo?
-                  </button>
-                </div>
-                <input 
-                  type="file" 
-                  accept=".json,.csv,text/csv,application/json"
-                  required
-                  onChange={e => setNewCampaign({...newCampaign, file: e.target.files ? e.target.files[0] : null})}
-                  className="block w-full text-xs text-slate-500 file:mr-3 sm:file:mr-4 file:py-2.5 file:px-3 sm:file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-brand-600 file:text-white hover:file:bg-brand-500 file:transition-colors cursor-pointer"
-                />
-                <p className="text-[11px] text-slate-400 mt-2">
-                  Aceita a exportação direta do <b>Google Maps Scraper (Apify)</b>, arquivos <b>.JSON</b> e planilhas <b>.CSV</b>.
-                </p>
-              </div>
-
-              {/* Bloco de Sugestões de Copy de Alta Conversão */}
-              <div className="bg-linear-to-r from-purple-50 via-indigo-50 to-brand-50 p-4 rounded-2xl border border-purple-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
-                    💡 Sugestões de Copys de Alta Conversão
-                  </span>
-                  <span className="text-[10px] text-purple-600 font-semibold bg-purple-100/80 px-2 py-0.5 rounded-full">
-                    Opcional
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 mb-3">
-                  Você pode escrever seus próprios textos do zero ou clicar abaixo para usar modelos validados:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({
-                      ...newCampaign,
-                      messageSemSite: defaultSemSite,
-                      messageComSite: defaultComSite
-                    })}
-                    className="px-3 py-1.5 bg-white border border-purple-200 hover:border-purple-400 text-purple-800 rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    🚀 Preencher Kit Completo (Com e Sem Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultSemSite })}
-                    className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 text-indigo-700 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  >
-                    ✨ Inserir Copy Venda de Site
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageComSite: defaultComSite })}
-                    className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-emerald-300 text-emerald-700 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  >
-                    🎯 Inserir Copy Triagem WhatsApp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultB2B })}
-                    className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-brand-300 text-brand-700 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  >
-                    💼 Inserir Copy B2B Geral
-                  </button>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">Delay Mínimo (segundos)</label>
-                  <input 
-                    type="number" 
-                    required
-                    min={10}
-                    value={newCampaign.delayMin}
-                    onChange={e => setNewCampaign({...newCampaign, delayMin: Number(e.target.value)})}
-                    className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">Mínimo permitido: 10s (Recomendado: 90s)</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">Delay Máximo (segundos)</label>
-                  <input 
-                    type="number" 
-                    required
-                    min={10}
-                    value={newCampaign.delayMax}
-                    onChange={e => setNewCampaign({...newCampaign, delayMax: Number(e.target.value)})}
-                    className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">Recomendado: 180s</p>
-                </div>
-
-                {newCampaign.delayMax < newCampaign.delayMin && (
-                  <div className="col-span-1 sm:col-span-2 p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
-                    <AlertCircle size={15} className="text-red-500 shrink-0" />
-                    <span>O tempo máximo de delay deve ser igual ou maior que o tempo mínimo.</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Campo de Mensagem Principal / Sem Site */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Mensagem para Empresas <span className="text-indigo-600 font-bold">SEM SITE (ou Mensagem Padrão)</span>
-                  </label>
-                  <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-medium">
-                    {newCampaign.messageComSite.trim() ? 'Para leads sem site' : 'Será enviada para todos'}
-                  </span>
-                </div>
-                
-                {/* Botões de atalho para tags */}
-                <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                  <span className="text-slate-400 text-[10px] mr-1">Inserir:</span>
-                  {[
-                    { tag: '{nome}', label: 'Nome' },
-                    { tag: '{bairro}', label: 'Bairro' },
-                    { tag: '{meuNome}', label: 'Meu Nome' },
-                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
-                  ].map(item => (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: newCampaign.messageSemSite + item.tag })}
-                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded text-[10px] font-mono text-slate-600 transition-colors cursor-pointer"
-                    >
-                      +{item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <textarea 
-                  rows={4}
-                  value={newCampaign.messageSemSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm font-sans"
-                  placeholder="Escreva sua mensagem personalizada ou use os modelos acima..."
-                />
-              </div>
-
-              {/* Campo de Mensagem para quem tem Site */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Mensagem para Empresas <span className="text-emerald-600 font-bold">COM SITE PRÓPRIO</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded font-medium">
-                    Opcional
-                  </span>
-                </div>
-
-                {/* Botões de atalho para tags */}
-                <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                  <span className="text-slate-400 text-[10px] mr-1">Inserir:</span>
-                  {[
-                    { tag: '{nome}', label: 'Nome' },
-                    { tag: '{website}', label: 'Website' },
-                    { tag: '{bairro}', label: 'Bairro' },
-                    { tag: '{meuNome}', label: 'Meu Nome' },
-                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
-                  ].map(item => (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => setNewCampaign({ ...newCampaign, messageComSite: newCampaign.messageComSite + item.tag })}
-                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 rounded text-[10px] font-mono text-slate-600 transition-colors cursor-pointer"
-                    >
-                      +{item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <textarea 
-                  rows={4}
-                  value={newCampaign.messageComSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm font-sans"
-                  placeholder="Se deixar em branco, o robô enviará a mensagem principal para todos os contatos..."
-                />
-              </div>
-
-              <div className="p-3 sm:p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-1.5 text-xs text-slate-600">
-                <p className="font-semibold text-slate-800">💡 Como funcionam as variáveis e Spintax:</p>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Use <span className="font-mono text-brand-600 font-semibold">{'{nome}'}</span> para inserir a razão social limpa (sem LTDA, ME, MEI), <span className="font-mono text-brand-600 font-semibold">{'{website}'}</span> para o site do lead, <span className="font-mono text-brand-600 font-semibold">{'{bairro}'}</span> para a região e <span className="font-mono text-emerald-600 font-semibold">{'{Oi|Olá|Fala}'}</span> para alternar saudações automaticamente e evitar bloqueios.
-                </p>
-              </div>
-            </form>
-
-            <div className="p-4 sm:p-5 border-t border-slate-100 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 bg-slate-50">
-              <button 
-                type="button" 
-                onClick={() => setIsModalOpen(false)}
-                className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-center"
-              >
-                Cancelar
-              </button>
-              <button 
-                type="submit" 
-                form="campaignForm"
-                disabled={isSubmitting || newCampaign.delayMax < newCampaign.delayMin || newCampaign.delayMin < 10 || newCampaign.delayMax < 10}
-                className="btn-premium text-xs cursor-pointer w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? 'Importando Leads...' : 'Criar e Importar Lista'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Tutorial Apify */}
-      {isTutorialOpen && (
-        <div 
-          role="dialog" 
-          aria-modal="true" 
-          aria-labelledby="title-tutorial-apify"
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 animate-in fade-in"
-        >
-          <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
-            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center shadow-xs shrink-0">
-                  <BookOpen size={20} />
-                </div>
-                <div>
-                  <h2 id="title-tutorial-apify" className="text-base sm:text-lg font-bold text-slate-900">Tutorial: Extrair Leads no Apify</h2>
-                  <p className="text-xs text-slate-500">Como gerar seu arquivo .json do Google Maps em 3 minutos.</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setIsTutorialOpen(false)}
-                aria-label="Fechar tutorial da Apify"
-                className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 sm:space-y-6 flex-1 text-sm text-slate-700">
-              
-              {/* Passo 1 */}
-              <div className="flex gap-3.5 sm:gap-4">
-                <div className="w-7 h-7 rounded-full bg-brand-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                  1
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-slate-900 text-sm">Acesse o Apify e abra o Scraper</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Acesse <a href="https://apify.com" target="_blank" rel="noreferrer" className="text-brand-600 font-medium inline-flex items-center gap-0.5 hover:underline">apify.com <ExternalLink size={11} /></a> (crie uma conta gratuita com $5 de créditos). No campo de busca do <b>Store</b>, procure por <b>&quot;Google Maps Scraper&quot;</b>.
-                  </p>
-                </div>
-              </div>
-
-              {/* Passo 2 */}
-              <div className="flex gap-3.5 sm:gap-4">
-                <div className="w-7 h-7 rounded-full bg-brand-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                  2
-                </div>
-                <div className="space-y-1.5">
-                  <h3 className="font-semibold text-slate-900 text-sm">Configure sua busca de leads</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    No formulário do scraper:
-                  </p>
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 text-xs space-y-1">
-                    <p>• <b>Search terms:</b> Digite o nicho e a cidade. Exemplo: <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-brand-700">Dentistas em São Paulo</code>.</p>
-                    <p>• <b>Max items:</b> Defina a quantidade (ex: 50 a 200 leads).</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Passo 3 */}
-              <div className="flex gap-3.5 sm:gap-4">
-                <div className="w-7 h-7 rounded-full bg-brand-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                  3
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-slate-900 text-sm">Inicie a extração</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Clique no botão verde <b>&quot;Save &amp; Start&quot;</b>. O robô da Apify coletará as informações em cerca de 1 a 2 minutos.
-                  </p>
-                </div>
-              </div>
-
-              {/* Passo 4 */}
-              <div className="flex gap-3.5 sm:gap-4">
-                <div className="w-7 h-7 rounded-full bg-brand-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                  4
-                </div>
-                <div className="space-y-1.5">
-                  <h3 className="font-semibold text-slate-900 text-sm">Exporte os resultados em JSON</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Na aba de resultados (<b>Dataset</b>), clique no botão <b>Export</b> no canto superior direito, selecione o formato <b>JSON</b> e baixe o arquivo.
-                  </p>
-                </div>
-              </div>
-
-              {/* Passo 5 */}
-              <div className="flex gap-3.5 sm:gap-4">
-                <div className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                  5
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-slate-900 text-sm">Importe aqui no Disparador</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Clique em <b>Nova Campanha</b> nesta tela, selecione o arquivo <b>.json</b> baixado e clique em <b>Criar e Importar</b>. O bot fará todo o tratamento automático!
-                  </p>
-                </div>
-              </div>
-
-            </div>
-
-            <div className="p-4 sm:p-5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50">
-              <span className="text-xs text-slate-500 text-center sm:text-left">Pronto para prospectar?</span>
-              <button 
-                onClick={() => {
-                  setIsTutorialOpen(false);
-                  setIsModalOpen(true);
-                }}
-                className="btn-premium text-xs cursor-pointer w-full sm:w-auto"
-              >
-                Criar Minha Campanha Agora
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

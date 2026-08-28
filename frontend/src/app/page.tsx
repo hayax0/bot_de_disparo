@@ -20,5 +20,5 @@ export default function Home() {
     }
   }, [token, isHydrated, router]);
 
-  return <div className="min-h-screen bg-slate-50 flex items-center justify-center"></div>;
+  return <div className="min-h-screen bg-[#08090D] flex items-center justify-center"></div>;
 }

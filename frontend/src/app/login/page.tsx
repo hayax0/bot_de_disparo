@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
-import { Bot, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { Bot, Mail, Lock, User, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
 
@@ -40,23 +40,28 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md card-premium">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 bg-brand-100 text-brand-600 rounded-xl flex items-center justify-center mb-3">
-            <Bot size={24} strokeWidth={2.5} />
+    <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 relative overflow-hidden">
+      {/* Luz ambiente difusa de fundo */}
+      <div className="glow-ambient" />
+      <div className="absolute -top-40 -left-40 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md glass-panel rounded-3xl p-6 sm:p-8 relative z-10 border border-white/[0.08] shadow-2xl backdrop-blur-2xl">
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center mb-4 shadow-lg shadow-purple-500/25 border border-white/20">
+            <Bot size={24} strokeWidth={2} />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             {isRegister ? 'Criar sua conta' : 'Bem-vindo de volta'}
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            {isRegister ? 'Inicie sua prospecção automatizada' : 'Acesse o painel do Disparador de Mensagens'}
+          <p className="text-xs text-slate-400 mt-1.5 text-center">
+            {isRegister ? 'Inicie sua prospecção automatizada via WhatsApp' : 'Acesse o painel do Disparador de Mensagens'}
           </p>
         </div>
 
         {errorMessage && (
-          <div className="mb-4 p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-xs text-red-700 font-medium animate-in fade-in">
-            <AlertCircle size={16} className="text-red-500 shrink-0" />
+          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-2.5 text-xs text-red-400 font-medium animate-in fade-in">
+            <AlertCircle size={16} className="text-red-400 shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
@@ -64,21 +69,27 @@ export default function LoginPage() {
         <form onSubmit={handleAuth} className="space-y-4">
           {isRegister && (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">Seu Nome</label>
-              <input 
-                type="text" 
-                required
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm"
-                placeholder="Ex: Carlos Silva"
-              />
+              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Seu Nome</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                  <User size={16} />
+                </div>
+                <input 
+                  type="text" 
+                  required
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  placeholder="Ex: Caio Campos"
+                />
+              </div>
             </div>
           )}
+          
           <div>
-            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">E-mail</label>
+            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                 <Mail size={16} />
               </div>
               <input 
@@ -86,16 +97,16 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="block w-full pl-10 pr-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm"
+                className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
                 placeholder="seu@email.com"
               />
             </div>
           </div>
           
           <div>
-            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">Senha</label>
+            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Senha</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                 <Lock size={16} />
               </div>
               <input 
@@ -103,7 +114,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="block w-full pl-10 pr-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm"
+                className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
                 placeholder="Mínimo 6 caracteres"
               />
             </div>
@@ -112,9 +123,14 @@ export default function LoginPage() {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full btn-premium mt-6 group cursor-pointer"
+            className="w-full btn-primary-dark py-3 rounded-xl mt-6 group cursor-pointer flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Aguarde...' : (
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Processando...
+              </span>
+            ) : (
               <>
                 {isRegister ? 'Registrar Conta' : 'Entrar na Plataforma'}
                 <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
@@ -122,15 +138,19 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-        <div className="mt-5 text-center">
+
+        <div className="mt-6 text-center pt-4 border-t border-white/[0.06]">
           <button 
             onClick={() => {
               setIsRegister(!isRegister);
               setErrorMessage(null);
             }} 
-            className="text-xs font-semibold text-brand-600 hover:underline cursor-pointer"
+            className="text-xs font-medium text-slate-400 hover:text-purple-300 transition-colors cursor-pointer"
           >
-            {isRegister ? 'Já tem uma conta? Entre aqui.' : 'Não tem conta? Registre-se gratuitamente.'}
+            {isRegister ? 'Já tem uma conta? ' : 'Não tem conta? '}
+            <span className="text-purple-400 font-semibold underline underline-offset-4">
+              {isRegister ? 'Entre aqui' : 'Registre-se gratuitamente'}
+            </span>
           </button>
         </div>
       </div>
