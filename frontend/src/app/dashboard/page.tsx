@@ -576,11 +576,27 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="w-full sm:w-auto">
+            <div className="w-full sm:w-auto flex items-center gap-2">
               {waStatus?.status === 'DISCONNECTED' && (
                 <button onClick={handleConnect} className="btn-premium w-full sm:w-auto cursor-pointer">
                   Conectar WhatsApp
                 </button>
+              )}
+              {waStatus?.status === 'QRCODE' && (
+                <>
+                  <button 
+                    onClick={handleConnect} 
+                    className="w-full sm:w-auto px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 transition-colors cursor-pointer text-center"
+                  >
+                    🔄 Atualizar QR Code
+                  </button>
+                  <button 
+                    onClick={handleDisconnect} 
+                    className="w-full sm:w-auto px-3.5 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-center"
+                  >
+                    Cancelar
+                  </button>
+                </>
               )}
               {waStatus?.status === 'CONNECTED' && (
                 <button onClick={handleDisconnect} className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition-colors cursor-pointer text-center">
@@ -596,9 +612,21 @@ export default function Dashboard() {
               <QrCode className="text-brand-500 mb-3" size={32} />
               <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1.5 text-center">Escaneie o QR Code</h3>
               <p className="text-xs text-slate-500 mb-5 text-center max-w-sm px-2">Abra o WhatsApp no celular, vá em <b>Aparelhos Conectados &gt; Conectar um aparelho</b> e aponte a câmera.</p>
-              <div className="bg-white p-3.5 rounded-2xl shadow-md border border-slate-100">
+              <div className="bg-white p-3.5 rounded-2xl shadow-md border border-slate-100 relative group">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={waStatus.qrCode} alt="QR Code" className="w-56 h-56 sm:w-64 sm:h-64 rounded-lg" />
+                <img 
+                  src={waStatus.qrCode} 
+                  alt="QR Code WhatsApp" 
+                  className="w-56 h-56 sm:w-64 sm:h-64 rounded-xl object-contain"
+                />
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={handleConnect}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  🔄 QR Code expirou? Clique para gerar um novo
+                </button>
               </div>
             </div>
           )}

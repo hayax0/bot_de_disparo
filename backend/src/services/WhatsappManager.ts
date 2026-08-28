@@ -172,12 +172,21 @@ export class WhatsappManager {
       return { status: 'DISCONNECTED', qrCode: null };
     }
 
-    // Se a sessão está marcada como CONNECTED no banco mas o processo foi reiniciado, inicializa em background sem desconectar
+    // Se a sessão está marcada como CONNECTED no banco mas o processo reiniciou, reconecta em background
     if (!sessions.has(workspaceId) && session.status === 'CONNECTED') {
       this.getClient(workspaceId).catch(err => {
         console.error(`[AUTO RECONNECT] Erro ao reconectar workspace ${workspaceId}:`, err);
       });
       return { status: 'CONNECTED', qrCode: null };
+    }
+
+    // Se a sessão está marcada como QRCODE no banco mas não há cliente gerando no momento (QR expirado/órfão), reseta
+    if (!sessions.has(workspaceId) && session.status === 'QRCODE') {
+      await prisma.whatsappSession.update({
+        where: { workspaceId },
+        data: { status: 'DISCONNECTED', sessionData: null }
+      }).catch(() => {});
+      return { status: 'DISCONNECTED', qrCode: null };
     }
 
     return { 
