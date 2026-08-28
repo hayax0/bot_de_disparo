@@ -55,8 +55,8 @@ export class WhatsappManager {
       }
     });
 
-    client.on('ready', async () => {
-      console.log(`[WHATSAPP READY] Conectado e pronto para o workspace ${workspaceId}`);
+    client.on('authenticated', async () => {
+      console.log(`[WHATSAPP AUTH] Sessão autenticada pelo celular para o workspace ${workspaceId}`);
       await prisma.whatsappSession.upsert({
         where: { workspaceId },
         update: { status: 'CONNECTED', sessionData: null },
@@ -64,8 +64,22 @@ export class WhatsappManager {
       });
     });
 
-    client.on('authenticated', () => {
-      console.log(`[WHATSAPP AUTH] Sessão autenticada para o workspace ${workspaceId}`);
+    client.on('loading_screen', async (percent, message) => {
+      console.log(`[WHATSAPP LOADING] ${percent}% - ${message} no workspace ${workspaceId}`);
+      await prisma.whatsappSession.upsert({
+        where: { workspaceId },
+        update: { status: 'CONNECTED', sessionData: null },
+        create: { workspaceId, status: 'CONNECTED', sessionData: null }
+      });
+    });
+
+    client.on('ready', async () => {
+      console.log(`[WHATSAPP READY] Conectado e pronto para o workspace ${workspaceId}`);
+      await prisma.whatsappSession.upsert({
+        where: { workspaceId },
+        update: { status: 'CONNECTED', sessionData: null },
+        create: { workspaceId, status: 'CONNECTED', sessionData: null }
+      });
     });
 
     client.on('auth_failure', async (msg) => {
