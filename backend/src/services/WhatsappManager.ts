@@ -15,19 +15,15 @@ export class WhatsappManager {
       return sessions.get(workspaceId)!;
     }
 
-    // Initialize a new client with modern web version cache and user-agent
+    // Initialize a new client with clean native WhatsApp Web and Anti-Detection flags
     const client = new Client({
       authStrategy: new LocalAuth({
         clientId: workspaceId,
         dataPath: './.wwebjs_auth' // Stores sessions locally inside backend folder
       }),
-      webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-js/main/dist/wppconnect-wa.js'
-      },
       puppeteer: {
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        headless: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -36,10 +32,12 @@ export class WhatsappManager {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
+          '--disable-extensions',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding',
-          '--disable-ipc-flooding-protection'
+          '--disable-blink-features=AutomationControlled',
+          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
         ],
         timeout: 90000,
         protocolTimeout: 300000 
