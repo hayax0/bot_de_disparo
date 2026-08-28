@@ -228,11 +228,12 @@ export default function Dashboard() {
 
   const defaultComSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava analisando a estrutura de vocês e vi que vocês já possuem um site ativo ({website}). Mas me diz uma coisa: quanto tempo a sua equipe perde na semana respondendo mensagem de curioso no WhatsApp que só quer saber preço e não tem perfil pra fechar?\n\nA gente implementou uma camada de triagem automática que roda no próprio site de vocês, educa o cliente, filtra o orçamento e só joga pro seu WhatsApp quem tá pronto pra fechar contrato.\n\nFaria sentido eu te mandar um áudio de 45 segundos mostrando como aplicar isso na {nome}?";
   const defaultSemSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava dando uma olhada na presença de vocês em {bairro} e vi que vocês ainda não têm um site próprio no ar. Como o cliente de maior ticket sempre pesquisa a credibilidade da empresa no Google antes de fechar, eu montei uma demonstração prática de como ficaria a página da {nome} no ar com filtro de clientes automático.\n\nFaria sentido eu te mandar o link desse protótipo pra você dar uma olhada em 1 minuto?";
+  const defaultB2B = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Como vai}?\n\nVi a atuação de vocês em {bairro} e achei muito interessante o trabalho da {nome}. Nós ajudamos empresas do seu segmento a aumentarem o volume de contatos qualificados todos os meses através da internet.\n\nVocê teria 2 minutinhos essa semana para batermos um papo rápido e eu te apresentar uma ideia simples que pode gerar mais clientes para a {nome}?";
 
   const [newCampaign, setNewCampaign] = useState({ 
     name: '', 
-    messageComSite: defaultComSite, 
-    messageSemSite: defaultSemSite, 
+    messageComSite: '', 
+    messageSemSite: '', 
     file: null as File | null, 
     delayMin: 90, 
     delayMax: 180 
@@ -242,7 +243,11 @@ export default function Dashboard() {
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCampaign.file) {
-      addToast('error', 'Por favor, anexe o arquivo JSON de leads extraído da Apify.');
+      addToast('error', 'Por favor, anexe o arquivo de leads (.json ou .csv).');
+      return;
+    }
+    if (!newCampaign.messageSemSite.trim() && !newCampaign.messageComSite.trim()) {
+      addToast('error', 'Por favor, escreva ao menos uma mensagem para a campanha (sem site, com site ou ambas).');
       return;
     }
     setIsSubmitting(true);
@@ -250,8 +255,8 @@ export default function Dashboard() {
       // 1. Criar campanha
       const res = await api.post('/campaigns', {
         name: newCampaign.name,
-        messageComSite: newCampaign.messageComSite,
-        messageSemSite: newCampaign.messageSemSite,
+        messageComSite: newCampaign.messageComSite.trim() || null,
+        messageSemSite: newCampaign.messageSemSite.trim() || null,
         delayMin: newCampaign.delayMin,
         delayMax: newCampaign.delayMax
       });
@@ -268,8 +273,8 @@ export default function Dashboard() {
       setIsModalOpen(false);
       setNewCampaign({ 
         name: '', 
-        messageComSite: defaultComSite, 
-        messageSemSite: defaultSemSite, 
+        messageComSite: '', 
+        messageSemSite: '', 
         file: null, 
         delayMin: 90, 
         delayMax: 180 
@@ -980,7 +985,7 @@ export default function Dashboard() {
               <div className="bg-slate-50 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Arquivo de Leads (.JSON da Apify)
+                    Arquivo de Leads (.JSON ou .CSV)
                   </label>
                   <button 
                     type="button" 
@@ -992,14 +997,63 @@ export default function Dashboard() {
                 </div>
                 <input 
                   type="file" 
-                  accept=".json"
+                  accept=".json,.csv,text/csv,application/json"
                   required
                   onChange={e => setNewCampaign({...newCampaign, file: e.target.files ? e.target.files[0] : null})}
                   className="block w-full text-xs text-slate-500 file:mr-3 sm:file:mr-4 file:py-2.5 file:px-3 sm:file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-brand-600 file:text-white hover:file:bg-brand-500 file:transition-colors cursor-pointer"
                 />
                 <p className="text-[11px] text-slate-400 mt-2">
-                  Aceita a exportação direta em JSON do <b>Google Maps Scraper (Apify)</b>.
+                  Aceita a exportação direta do <b>Google Maps Scraper (Apify)</b>, arquivos <b>.JSON</b> e planilhas <b>.CSV</b>.
                 </p>
+              </div>
+
+              {/* Bloco de Sugestões de Copy de Alta Conversão */}
+              <div className="bg-linear-to-r from-purple-50 via-indigo-50 to-brand-50 p-4 rounded-2xl border border-purple-100">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                    💡 Sugestões de Copys de Alta Conversão
+                  </span>
+                  <span className="text-[10px] text-purple-600 font-semibold bg-purple-100/80 px-2 py-0.5 rounded-full">
+                    Opcional
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 mb-3">
+                  Você pode escrever seus próprios textos do zero ou clicar abaixo para usar modelos validados:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({
+                      ...newCampaign,
+                      messageSemSite: defaultSemSite,
+                      messageComSite: defaultComSite
+                    })}
+                    className="px-3 py-1.5 bg-white border border-purple-200 hover:border-purple-400 text-purple-800 rounded-xl text-xs font-semibold shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    🚀 Preencher Kit Completo (Com e Sem Site)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultSemSite })}
+                    className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 text-indigo-700 rounded-xl text-xs font-medium transition-all cursor-pointer"
+                  >
+                    ✨ Inserir Copy Venda de Site
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({ ...newCampaign, messageComSite: defaultComSite })}
+                    className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-emerald-300 text-emerald-700 rounded-xl text-xs font-medium transition-all cursor-pointer"
+                  >
+                    🎯 Inserir Copy Triagem WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultB2B })}
+                    className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-brand-300 text-brand-700 rounded-xl text-xs font-medium transition-all cursor-pointer"
+                  >
+                    💼 Inserir Copy B2B Geral
+                  </button>
+                </div>
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
@@ -1036,47 +1090,94 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Mensagem para Empresas <span className="text-emerald-600 font-bold">COM SITE PRÓPRIO</span>
-                </label>
-                <textarea 
-                  required
-                  rows={4}
-                  value={newCampaign.messageComSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm font-sans"
-                  placeholder="Mensagem disparada para quem já possui um site institucional..."
-                />
-              </div>
+              {/* Campo de Mensagem Principal / Sem Site */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                    Mensagem para Empresas <span className="text-indigo-600 font-bold">SEM SITE (ou Mensagem Padrão)</span>
+                  </label>
+                  <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-medium">
+                    {newCampaign.messageComSite.trim() ? 'Para leads sem site' : 'Será enviada para todos'}
+                  </span>
+                </div>
+                
+                {/* Botões de atalho para tags */}
+                <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                  <span className="text-slate-400 text-[10px] mr-1">Inserir:</span>
+                  {[
+                    { tag: '{nome}', label: 'Nome' },
+                    { tag: '{bairro}', label: 'Bairro' },
+                    { tag: '{meuNome}', label: 'Meu Nome' },
+                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
+                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
+                  ].map(item => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: newCampaign.messageSemSite + item.tag })}
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 rounded text-[10px] font-mono text-slate-600 transition-colors cursor-pointer"
+                    >
+                      +{item.label}
+                    </button>
+                  ))}
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Mensagem para Empresas <span className="text-indigo-600 font-bold">SEM SITE (ou apenas redes sociais)</span>
-                </label>
                 <textarea 
-                  required
                   rows={4}
                   value={newCampaign.messageSemSite}
                   onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
                   className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm font-sans"
-                  placeholder="Mensagem disparada para quem não tem site próprio..."
+                  placeholder="Escreva sua mensagem personalizada ou use os modelos acima..."
                 />
-                
-                <div className="mt-3.5 p-3 sm:p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2 text-xs text-slate-600">
-                  <p className="font-semibold text-slate-800">Variáveis Dinâmicas Disponíveis:</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono text-brand-600">{'{nome}'}</span>
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono text-brand-600">{'{website}'}</span>
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono text-brand-600">{'{bairro}'}</span>
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono text-purple-600">{'{meuNome}'}</span>
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono text-purple-600">{'{minhaEmpresa}'}</span>
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono text-emerald-600">{'{Oi|Olá|Fala}'}</span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    O robô remove termos como <i>LTDA, ME, MEI, EPP</i> do nome do lead e usa Spintax para evitar bloqueios.
-                  </p>
+              </div>
+
+              {/* Campo de Mensagem para quem tem Site */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                    Mensagem para Empresas <span className="text-emerald-600 font-bold">COM SITE PRÓPRIO</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded font-medium">
+                    Opcional
+                  </span>
                 </div>
+
+                {/* Botões de atalho para tags */}
+                <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                  <span className="text-slate-400 text-[10px] mr-1">Inserir:</span>
+                  {[
+                    { tag: '{nome}', label: 'Nome' },
+                    { tag: '{website}', label: 'Website' },
+                    { tag: '{bairro}', label: 'Bairro' },
+                    { tag: '{meuNome}', label: 'Meu Nome' },
+                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
+                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
+                  ].map(item => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      onClick={() => setNewCampaign({ ...newCampaign, messageComSite: newCampaign.messageComSite + item.tag })}
+                      className="px-1.5 py-0.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 rounded text-[10px] font-mono text-slate-600 transition-colors cursor-pointer"
+                    >
+                      +{item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea 
+                  rows={4}
+                  value={newCampaign.messageComSite}
+                  onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-shadow text-sm font-sans"
+                  placeholder="Se deixar em branco, o robô enviará a mensagem principal para todos os contatos..."
+                />
+              </div>
+
+              <div className="p-3 sm:p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-1.5 text-xs text-slate-600">
+                <p className="font-semibold text-slate-800">💡 Como funcionam as variáveis e Spintax:</p>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Use <span className="font-mono text-brand-600 font-semibold">{'{nome}'}</span> para inserir a razão social limpa (sem LTDA, ME, MEI), <span className="font-mono text-brand-600 font-semibold">{'{website}'}</span> para o site do lead, <span className="font-mono text-brand-600 font-semibold">{'{bairro}'}</span> para a região e <span className="font-mono text-emerald-600 font-semibold">{'{Oi|Olá|Fala}'}</span> para alternar saudações automaticamente e evitar bloqueios.
+                </p>
               </div>
             </form>
 

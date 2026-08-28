@@ -81,6 +81,15 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
     return res.status(400).json({ error: 'O nome da campanha é obrigatório.' });
   }
 
+  const cleanComSite = messageComSite ? String(messageComSite).trim() : null;
+  const cleanSemSite = messageSemSite ? String(messageSemSite).trim() : null;
+
+  if (!cleanComSite && !cleanSemSite) {
+    return res.status(400).json({ 
+      error: 'Informe ao menos uma mensagem para a campanha (sem site, com site ou ambas).' 
+    });
+  }
+
   const minD = parseInt(delayMin, 10);
   const maxD = parseInt(delayMax, 10);
 
@@ -100,8 +109,8 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
     const campaign = await prisma.campaign.create({
       data: {
         name: String(name).trim(),
-        messageComSite: messageComSite || null,
-        messageSemSite: messageSemSite || null,
+        messageComSite: cleanComSite,
+        messageSemSite: cleanSemSite,
         delayMin: minD,
         delayMax: maxD,
         workspaceId
@@ -114,7 +123,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
-// Importar leads de arquivo JSON da Apify com limpeza garantida
+// Importar leads de arquivo JSON ou CSV com limpeza e alta compatibilidade
 router.post('/:id/leads/import', (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
@@ -132,10 +141,11 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
   const workspaceId = (req as any).user.workspaceId;
 
   if (!req.file) {
-    return res.status(400).json({ error: 'Nenhum arquivo JSON foi enviado.' });
+    return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado.' });
   }
 
   const filePath = req.file.path;
+  const originalName = req.file.originalname.toLowerCase();
 
   try {
     // Validar se a campanha pertence ao workspace
@@ -144,17 +154,51 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
       return res.status(404).json({ error: 'Campanha não encontrada.' });
     }
 
-    const fileContent = fs.readFileSync(filePath, 'utf8');
-    let leadsData: any;
-    try {
-      leadsData = JSON.parse(fileContent);
-    } catch {
-      return res.status(400).json({ error: 'Arquivo JSON inválido ou mal formatado.' });
+    const rawContent = fs.readFileSync(filePath, 'utf8');
+    const fileContent = rawContent.replace(/^\uFEFF/, '').trim(); // Remove BOM UTF-8 se presente
+
+    let leads: any[] = [];
+
+    if (originalName.endsWith('.csv') || fileContent.startsWith('"') || fileContent.includes(',')) {
+      // Parser básico e robusto de CSV se for enviado CSV
+      try {
+        const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length > 1) {
+          const headerCols = lines[0].split(/[,;]/).map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(/[,;]/).map(c => c.replace(/^["']|["']$/g, '').trim());
+            const rowObj: any = {};
+            headerCols.forEach((header, idx) => {
+              if (cols[idx] !== undefined) rowObj[header] = cols[idx];
+            });
+            leads.push(rowObj);
+          }
+        }
+      } catch (csvErr) {
+        console.warn('Falha no parse CSV, tentando JSON fallback:', csvErr);
+      }
     }
 
-    const leads = Array.isArray(leadsData) ? leadsData : Object.values(leadsData).flat();
+    // Se não foi parseado como CSV, tenta JSON
     if (leads.length === 0) {
-      return res.status(400).json({ error: 'O arquivo JSON não contém nenhum contato.' });
+      try {
+        const leadsData = JSON.parse(fileContent);
+        if (Array.isArray(leadsData)) {
+          leads = leadsData;
+        } else if (leadsData && typeof leadsData === 'object') {
+          if (Array.isArray(leadsData.items)) leads = leadsData.items;
+          else if (Array.isArray(leadsData.results)) leads = leadsData.results;
+          else if (Array.isArray(leadsData.data)) leads = leadsData.data;
+          else if (Array.isArray(leadsData.leads)) leads = leadsData.leads;
+          else leads = Object.values(leadsData).filter(v => typeof v === 'object' && v !== null);
+        }
+      } catch (jsonErr) {
+        return res.status(400).json({ error: 'Arquivo inválido ou mal formatado. Envie um arquivo .json ou .csv válido.' });
+      }
+    }
+
+    if (leads.length === 0) {
+      return res.status(400).json({ error: 'O arquivo enviado não contém nenhum contato legível.' });
     }
 
     let imported = 0;
@@ -163,13 +207,35 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
     const extractPhone = (lead: any): string | null => {
       if (lead.phone && String(lead.phone).trim() !== '') return String(lead.phone);
       if (lead.phoneUnformatted && String(lead.phoneUnformatted).trim() !== '') return String(lead.phoneUnformatted);
+      if (lead.telephone && String(lead.telephone).trim() !== '') return String(lead.telephone);
+      if (lead.whatsapp && String(lead.whatsapp).trim() !== '') return String(lead.whatsapp);
+      if (lead.celular && String(lead.celular).trim() !== '') return String(lead.celular);
+      if (lead.telefone && String(lead.telefone).trim() !== '') return String(lead.telefone);
+      if (lead.numero && String(lead.numero).trim() !== '') return String(lead.numero);
+      if (lead.contact && String(lead.contact).trim() !== '') return String(lead.contact);
       if (Array.isArray(lead.phones) && lead.phones.length > 0) return String(lead.phones[0]);
       if (Array.isArray(lead.phonesUncertain) && lead.phonesUncertain.length > 0) return String(lead.phonesUncertain[0]);
       return null;
     };
 
+    const extractTitle = (lead: any): string | null => {
+      const val = lead.title || lead.name || lead.company || lead.companyName || lead.nome || lead.empresa || lead.tradeName || lead.titulo;
+      return val ? String(val).trim() : null;
+    };
+
+    const extractWebsite = (lead: any): string | null => {
+      const val = lead.website || lead.url || lead.site || lead.link || lead.web;
+      return val ? String(val).trim() : null;
+    };
+
+    const extractNeighborhood = (lead: any): string | null => {
+      const val = lead.neighborhood || lead.city || lead.bairro || lead.cidade || lead.municipio || lead.address?.neighborhood || lead.address?.city || lead.streetAddress || lead.address;
+      return val ? String(val).trim() : null;
+    };
+
     for (const lead of leads) {
-      if (!lead || !lead.title) {
+      const title = extractTitle(lead);
+      if (!title) {
         skipped++;
         continue;
       }
@@ -180,21 +246,24 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
         continue;
       }
 
-      let num = rawPhone.replace(/\D/g, '');
-      if (num.length < 10) {
+      let num = rawPhone.replace(/\D/g, '').replace(/^0+/, '');
+      if (num.length >= 10 && num.length <= 11) {
+        num = '55' + num;
+      } else if (num.length === 12 || num.length === 13) {
+        if (!num.startsWith('55')) num = '55' + num;
+      } else if (num.length < 10) {
         skipped++;
         continue;
       }
-      if (!num.startsWith('55')) num = '55' + num;
 
       try {
         await prisma.lead.create({
           data: {
             campaignId: id,
-            title: String(lead.title).trim(),
+            title,
             phone: num,
-            website: lead.website || null,
-            neighborhood: lead.neighborhood || lead.city || null
+            website: extractWebsite(lead),
+            neighborhood: extractNeighborhood(lead)
           }
         });
         imported++;

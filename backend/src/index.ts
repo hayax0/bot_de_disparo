@@ -15,6 +15,7 @@ import authRoutes from './routes/auth';
 import whatsappRoutes from './routes/whatsapp';
 import campaignsRoutes from './routes/campaigns';
 import './services/CampaignRunner';
+import { WhatsappManager } from './services/WhatsappManager';
 
 const app = express();
 
@@ -68,4 +69,6 @@ app.get('/api/health', async (req, res) => {
 
 app.listen(ENV.PORT, () => {
   console.log(`🚀 SaaS Bot Server running on port ${ENV.PORT} [${ENV.NODE_ENV}]`);
+  // Restaura sessões ativas do WhatsApp em background
+  WhatsappManager.restoreConnectedSessions();
 });

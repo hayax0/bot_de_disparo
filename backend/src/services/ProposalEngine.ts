@@ -55,8 +55,19 @@ export function gerarProposta(lead: any, campaign: any, senderInfo?: { meuNome?:
   const nomeEmpresa = formatarNomeEmpresa(lead.title);
   const possuiSite = temWebsiteValido(lead.website);
 
-  const templateString = possuiSite ? campaign.messageComSite : campaign.messageSemSite;
-  if (!templateString) return '';
+  // Fallback inteligente: se uma das mensagens não foi informada, utiliza a outra disponível
+  let templateString = '';
+  if (possuiSite) {
+    templateString = (campaign.messageComSite && campaign.messageComSite.trim())
+      ? campaign.messageComSite
+      : (campaign.messageSemSite || '');
+  } else {
+    templateString = (campaign.messageSemSite && campaign.messageSemSite.trim())
+      ? campaign.messageSemSite
+      : (campaign.messageComSite || '');
+  }
+
+  if (!templateString || !templateString.trim()) return '';
 
   const siteParaMensagem = possuiSite ? lead.website : '';
   const bairroParaMensagem = lead.neighborhood || 'sua região';

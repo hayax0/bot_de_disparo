@@ -26,17 +26,23 @@ export class WhatsappManager {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
-          '--disable-gpu'
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-ipc-flooding-protection'
         ],
-        timeout: 60000,
-        protocolTimeout: 240000 
+        timeout: 90000,
+        protocolTimeout: 300000 
       }
     });
 
     sessions.set(workspaceId, client);
 
     client.on('qr', async (qrStr) => {
-      console.log(`QR Code received for workspace ${workspaceId}`);
+      console.log(`[WHATSAPP QR] QR Code gerado para o workspace ${workspaceId}`);
       try {
         const qrBase64 = await qrcode.toDataURL(qrStr);
         await prisma.whatsappSession.upsert({
@@ -50,12 +56,25 @@ export class WhatsappManager {
     });
 
     client.on('ready', async () => {
-      console.log(`WhatsApp ready for workspace ${workspaceId}`);
+      console.log(`[WHATSAPP READY] Conectado e pronto para o workspace ${workspaceId}`);
       await prisma.whatsappSession.upsert({
         where: { workspaceId },
         update: { status: 'CONNECTED', sessionData: null },
         create: { workspaceId, status: 'CONNECTED', sessionData: null }
       });
+    });
+
+    client.on('authenticated', () => {
+      console.log(`[WHATSAPP AUTH] Sessão autenticada para o workspace ${workspaceId}`);
+    });
+
+    client.on('auth_failure', async (msg) => {
+      console.error(`[WHATSAPP AUTH FAILURE] Falha de autenticação no workspace ${workspaceId}:`, msg);
+      sessions.delete(workspaceId);
+      await prisma.whatsappSession.update({
+        where: { workspaceId },
+        data: { status: 'DISCONNECTED', sessionData: null }
+      }).catch(() => {});
     });
 
     // Listener para capturar respostas e atualizar métricas de Leads Respondidos
@@ -91,12 +110,12 @@ export class WhatsappManager {
     });
 
     client.on('disconnected', async (reason) => {
-      console.log(`WhatsApp disconnected for workspace ${workspaceId}: ${reason}`);
+      console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada para o workspace ${workspaceId}: ${reason}`);
       sessions.delete(workspaceId);
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
-      });
+      }).catch(() => {});
     });
 
     client.initialize().catch(err => {
@@ -104,6 +123,25 @@ export class WhatsappManager {
     });
 
     return client;
+  }
+
+  // Restaura sessões ativas automaticamente na inicialização do servidor
+  static async restoreConnectedSessions() {
+    try {
+      const activeSessions = await prisma.whatsappSession.findMany({
+        where: { status: 'CONNECTED' }
+      });
+      for (const sess of activeSessions) {
+        if (!sessions.has(sess.workspaceId)) {
+          console.log(`[WHATSAPP RESTORE] Restaurando cliente em background para workspace ${sess.workspaceId}...`);
+          this.getClient(sess.workspaceId).catch(e => {
+            console.error(`Erro ao restaurar sessão para ${sess.workspaceId}:`, e);
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao verificar sessões para restauração:', err);
+    }
   }
 
   static async getStatus(workspaceId: string) {
@@ -115,14 +153,12 @@ export class WhatsappManager {
       return { status: 'DISCONNECTED', qrCode: null };
     }
 
-    // If we have a QR code, but the client in memory died, we should re-trigger
-    if (!sessions.has(workspaceId) && session.status !== 'DISCONNECTED') {
-       // Mark as disconnected so the frontend knows it needs to request connection again
-       await prisma.whatsappSession.update({
-         where: { workspaceId },
-         data: { status: 'DISCONNECTED', sessionData: null }
-       });
-       return { status: 'DISCONNECTED', qrCode: null };
+    // Se a sessão está marcada como CONNECTED no banco mas o processo foi reiniciado, inicializa em background sem desconectar
+    if (!sessions.has(workspaceId) && session.status === 'CONNECTED') {
+      this.getClient(workspaceId).catch(err => {
+        console.error(`[AUTO RECONNECT] Erro ao reconectar workspace ${workspaceId}:`, err);
+      });
+      return { status: 'CONNECTED', qrCode: null };
     }
 
     return { 
@@ -144,28 +180,48 @@ export class WhatsappManager {
     await prisma.whatsappSession.update({
       where: { workspaceId },
       data: { status: 'DISCONNECTED', sessionData: null }
-    });
+    }).catch(() => {});
   }
 
   static async sendMessage(workspaceId: string, phone: string, message: string) {
     const client = sessions.get(workspaceId);
     if (!client) {
-      throw new Error('WhatsApp client not connected');
+      throw new Error('WhatsApp não está conectado no momento.');
     }
 
-    const chatId = `${phone}@c.us`;
+    let cleanPhone = phone.replace(/\D/g, '').replace(/^0+/, '');
+    if (cleanPhone.length >= 10 && cleanPhone.length <= 11) {
+      cleanPhone = '55' + cleanPhone;
+    }
+
+    // Obter o ID registrado oficial no WhatsApp (trata 9º dígito e valida existência do número)
+    let targetChatId = `${cleanPhone}@c.us`;
     try {
-      const chat = await client.getChatById(chatId) as Chat;
+      const numberDetails = await client.getNumberId(cleanPhone);
+      if (numberDetails && numberDetails._serialized) {
+        targetChatId = numberDetails._serialized;
+      } else {
+        throw new Error('Número não possui conta ativa no WhatsApp');
+      }
+    } catch (err: any) {
+      if (err.message?.includes('não possui conta ativa')) {
+        throw err;
+      }
+      // Se a consulta rápida falhar por timeout, segue com targetChatId padrão
+    }
+
+    try {
+      const chat = await client.getChatById(targetChatId) as Chat;
       if (chat) {
         await chat.sendStateTyping();
-        // Simulate typing delay based on message length (min 3s, max 8s)
-        const delay = Math.max(3000, Math.min(8000, message.length * 30));
+        // Simula digitação humana proporcional à mensagem (min 3s, max 7s)
+        const delay = Math.max(3000, Math.min(7000, message.length * 25));
         await new Promise(r => setTimeout(r, delay));
       }
     } catch (err) {
-      // Ignore if getChat fails, just try to send
+      // Ignora erro no typing e tenta enviar diretamente
     }
 
-    await client.sendMessage(chatId, message);
+    await client.sendMessage(targetChatId, message);
   }
 }
