@@ -26,13 +26,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // Limite de 20MB
+  limits: { fileSize: 30 * 1024 * 1024 }, // Limite de 30MB
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/json' || file.originalname.toLowerCase().endsWith('.json')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Apenas arquivos no formato .json são aceitos.'));
-    }
+    // Aceita qualquer formato de arquivo de texto/dados para fazer a validação inteligente no handler
+    cb(null, true);
   }
 });
 
@@ -52,65 +49,59 @@ const authenticate = (req: Request, res: Response, next: Function): any => {
 
 router.use(authenticate);
 
-// Listar todas as campanhas com contagem por status de leads
+// Listar todas as campanhas do workspace
 router.get('/', async (req: Request, res: Response): Promise<any> => {
   const workspaceId = (req as any).user.workspaceId;
   try {
     const campaigns = await prisma.campaign.findMany({
       where: { workspaceId },
-      orderBy: { createdAt: 'desc' },
-      include: { 
-        _count: { 
-          select: { leads: true } 
-        } 
-      }
+      include: {
+        _count: {
+          select: { leads: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
     });
     res.json(campaigns);
   } catch (error) {
-    console.error('Erro ao buscar campanhas:', error);
-    res.status(500).json({ error: 'Erro ao buscar campanhas.' });
+    console.error('Erro ao listar campanhas:', error);
+    res.status(500).json({ error: 'Falha ao buscar campanhas.' });
   }
 });
 
 // Criar nova campanha
 router.post('/', async (req: Request, res: Response): Promise<any> => {
-  const workspaceId = (req as any).user.workspaceId;
   const { name, messageComSite, messageSemSite, delayMin, delayMax } = req.body;
-  
-  if (!name || String(name).trim() === '') {
+  const workspaceId = (req as any).user.workspaceId;
+
+  if (!name || typeof name !== 'string' || name.trim() === '') {
     return res.status(400).json({ error: 'O nome da campanha é obrigatório.' });
   }
 
-  const cleanComSite = messageComSite ? String(messageComSite).trim() : null;
-  const cleanSemSite = messageSemSite ? String(messageSemSite).trim() : null;
+  const comSite = typeof messageComSite === 'string' ? messageComSite.trim() : '';
+  const semSite = typeof messageSemSite === 'string' ? messageSemSite.trim() : '';
 
-  if (!cleanComSite && !cleanSemSite) {
-    return res.status(400).json({ 
-      error: 'Informe ao menos uma mensagem para a campanha (sem site, com site ou ambas).' 
-    });
+  if (!comSite && !semSite) {
+    return res.status(400).json({ error: 'Informe ao menos uma mensagem para a campanha (com site, sem site ou geral).' });
   }
 
-  const minD = parseInt(delayMin, 10);
-  const maxD = parseInt(delayMax, 10);
+  const minD = Number(delayMin);
+  const maxD = Number(delayMax);
 
   if (isNaN(minD) || isNaN(maxD) || minD < 10 || maxD < 10) {
-    return res.status(400).json({ 
-      error: 'Os delays mínimo e máximo devem ser números inteiros maiores ou iguais a 10 segundos.' 
-    });
+    return res.status(400).json({ error: 'Os delays mínimo e máximo devem ser números inteiros maiores ou iguais a 10 segundos.' });
   }
 
   if (maxD < minD) {
-    return res.status(400).json({ 
-      error: 'O tempo máximo de delay deve ser igual ou maior que o tempo mínimo.' 
-    });
+    return res.status(400).json({ error: 'O tempo máximo de delay deve ser igual ou maior que o tempo mínimo.' });
   }
 
   try {
     const campaign = await prisma.campaign.create({
       data: {
-        name: String(name).trim(),
-        messageComSite: cleanComSite,
-        messageSemSite: cleanSemSite,
+        name: name.trim(),
+        messageComSite: comSite || null,
+        messageSemSite: semSite || null,
         delayMin: minD,
         delayMax: maxD,
         workspaceId
@@ -128,7 +119,7 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'O arquivo excede o limite máximo permitido de 20MB.' });
+        return res.status(400).json({ error: 'O arquivo excede o limite máximo permitido de 30MB.' });
       }
       return res.status(400).json({ error: `Erro no upload: ${err.message}` });
     } else if (err) {
@@ -148,7 +139,6 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
   const originalName = req.file.originalname.toLowerCase();
 
   try {
-    // Validar se a campanha pertence ao workspace
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) {
       return res.status(404).json({ error: 'Campanha não encontrada.' });
@@ -157,89 +147,193 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
     const rawContent = fs.readFileSync(filePath, 'utf8');
     const fileContent = rawContent.replace(/^\uFEFF/, '').trim(); // Remove BOM UTF-8 se presente
 
+    if (!fileContent) {
+      return res.status(400).json({ error: 'O arquivo enviado está vazio.' });
+    }
+
     let leads: any[] = [];
 
-    if (originalName.endsWith('.csv') || fileContent.startsWith('"') || fileContent.includes(',')) {
-      // Parser básico e robusto de CSV se for enviado CSV
+    // 1. TENTAR PARSE COMO JSON PRIMEIRO
+    let isJson = false;
+    if (fileContent.startsWith('[') || fileContent.startsWith('{') || originalName.endsWith('.json')) {
+      try {
+        const parsed = JSON.parse(fileContent);
+        if (Array.isArray(parsed)) {
+          leads = parsed;
+          isJson = true;
+        } else if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.items)) leads = parsed.items;
+          else if (Array.isArray(parsed.results)) leads = parsed.results;
+          else if (Array.isArray(parsed.data)) leads = parsed.data;
+          else if (Array.isArray(parsed.leads)) leads = parsed.leads;
+          else if (Array.isArray(parsed.contacts)) leads = parsed.contacts;
+          else if (Array.isArray(parsed.places)) leads = parsed.places;
+          else if (Array.isArray(parsed.rows)) leads = parsed.rows;
+          else leads = Object.values(parsed).filter(v => typeof v === 'object' && v !== null);
+          isJson = true;
+        }
+      } catch (jsonErr) {
+        if (originalName.endsWith('.json')) {
+          return res.status(400).json({ error: 'Arquivo JSON inválido ou corrompido. Verifique a formatação do arquivo.' });
+        }
+      }
+    }
+
+    // 2. SE NÃO FOR JSON, TENTAR PARSE COMO CSV / TSV / TEXTO DELIMITADO
+    if (!isJson && leads.length === 0) {
       try {
         const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
-        if (lines.length > 1) {
-          const headerCols = lines[0].split(/[,;]/).map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
+        if (lines.length >= 1) {
+          const firstLine = lines[0];
+          const countComma = (firstLine.match(/,/g) || []).length;
+          const countSemi = (firstLine.match(/;/g) || []).length;
+          const countTab = (firstLine.match(/\t/g) || []).length;
+          const countPipe = (firstLine.match(/\|/g) || []).length;
+
+          let delimiter = ',';
+          if (countSemi > countComma && countSemi >= countTab) delimiter = ';';
+          else if (countTab > countComma && countTab >= countSemi) delimiter = '\t';
+          else if (countPipe > countComma && countPipe >= countSemi) delimiter = '|';
+
+          const parseCsvLine = (line: string, delim: string): string[] => {
+            const result: string[] = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+              const char = line[i];
+              if (char === '"' || char === "'") {
+                inQuotes = !inQuotes;
+              } else if (char === delim && !inQuotes) {
+                result.push(current.trim().replace(/^["']|["']$/g, ''));
+                current = '';
+              } else {
+                current += char;
+              }
+            }
+            result.push(current.trim().replace(/^["']|["']$/g, ''));
+            return result;
+          };
+
+          const headerCols = parseCsvLine(lines[0], delimiter).map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+          
           for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(/[,;]/).map(c => c.replace(/^["']|["']$/g, '').trim());
+            const cols = parseCsvLine(lines[i], delimiter);
+            if (cols.length === 0 || (cols.length === 1 && cols[0] === '')) continue;
             const rowObj: any = {};
             headerCols.forEach((header, idx) => {
               if (cols[idx] !== undefined) rowObj[header] = cols[idx];
             });
+            if (headerCols.length === 0 || !headerCols.some(h => h.includes('phone') || h.includes('tel') || h.includes('cel') || h.includes('nome') || h.includes('title'))) {
+              rowObj['phone'] = cols[0];
+              if (cols[1]) rowObj['title'] = cols[1];
+            }
             leads.push(rowObj);
           }
         }
       } catch (csvErr) {
-        console.warn('Falha no parse CSV, tentando JSON fallback:', csvErr);
-      }
-    }
-
-    // Se não foi parseado como CSV, tenta JSON
-    if (leads.length === 0) {
-      try {
-        const leadsData = JSON.parse(fileContent);
-        if (Array.isArray(leadsData)) {
-          leads = leadsData;
-        } else if (leadsData && typeof leadsData === 'object') {
-          if (Array.isArray(leadsData.items)) leads = leadsData.items;
-          else if (Array.isArray(leadsData.results)) leads = leadsData.results;
-          else if (Array.isArray(leadsData.data)) leads = leadsData.data;
-          else if (Array.isArray(leadsData.leads)) leads = leadsData.leads;
-          else leads = Object.values(leadsData).filter(v => typeof v === 'object' && v !== null);
-        }
-      } catch (jsonErr) {
-        return res.status(400).json({ error: 'Arquivo inválido ou mal formatado. Envie um arquivo .json ou .csv válido.' });
+        console.warn('Falha no parser CSV:', csvErr);
       }
     }
 
     if (leads.length === 0) {
-      return res.status(400).json({ error: 'O arquivo enviado não contém nenhum contato legível.' });
+      return res.status(400).json({ error: 'O arquivo enviado não contém nenhum registro legível.' });
     }
 
     let imported = 0;
     let skipped = 0;
 
     const extractPhone = (lead: any): string | null => {
-      if (lead.phone && String(lead.phone).trim() !== '') return String(lead.phone);
-      if (lead.phoneUnformatted && String(lead.phoneUnformatted).trim() !== '') return String(lead.phoneUnformatted);
-      if (lead.telephone && String(lead.telephone).trim() !== '') return String(lead.telephone);
-      if (lead.whatsapp && String(lead.whatsapp).trim() !== '') return String(lead.whatsapp);
-      if (lead.celular && String(lead.celular).trim() !== '') return String(lead.celular);
-      if (lead.telefone && String(lead.telefone).trim() !== '') return String(lead.telefone);
-      if (lead.numero && String(lead.numero).trim() !== '') return String(lead.numero);
-      if (lead.contact && String(lead.contact).trim() !== '') return String(lead.contact);
-      if (Array.isArray(lead.phones) && lead.phones.length > 0) return String(lead.phones[0]);
-      if (Array.isArray(lead.phonesUncertain) && lead.phonesUncertain.length > 0) return String(lead.phonesUncertain[0]);
+      const candidates = [
+        lead.phone,
+        lead.phoneUnformatted,
+        lead.telephone,
+        lead.telephoneUnformatted,
+        lead.whatsapp,
+        lead.celular,
+        lead.telefone,
+        lead.numero,
+        lead.contact,
+        lead.contactNumber,
+        lead.phoneNumber,
+        lead.phone_number,
+        lead.tel,
+        lead.mobile,
+        lead.mobilePhone
+      ];
+
+      for (const val of candidates) {
+        if (val !== undefined && val !== null) {
+          const str = String(val).trim();
+          if (str !== '') return str;
+        }
+      }
+
+      if (Array.isArray(lead.phones) && lead.phones.length > 0) return String(lead.phones[0]).trim();
+      if (Array.isArray(lead.phonesUncertain) && lead.phonesUncertain.length > 0) return String(lead.phonesUncertain[0]).trim();
       return null;
     };
 
     const extractTitle = (lead: any): string | null => {
-      const val = lead.title || lead.name || lead.company || lead.companyName || lead.nome || lead.empresa || lead.tradeName || lead.titulo;
-      return val ? String(val).trim() : null;
+      const candidates = [
+        lead.title,
+        lead.name,
+        lead.company,
+        lead.companyName,
+        lead.company_name,
+        lead.nome,
+        lead.empresa,
+        lead.tradeName,
+        lead.razaoSocial,
+        lead.nomeFantasia,
+        lead.titulo,
+        lead.placeName,
+        lead.businessName,
+        lead.storeName
+      ];
+
+      for (const val of candidates) {
+        if (val !== undefined && val !== null) {
+          const str = String(val).trim();
+          if (str !== '') return str;
+        }
+      }
+      return null;
     };
 
     const extractWebsite = (lead: any): string | null => {
-      const val = lead.website || lead.url || lead.site || lead.link || lead.web;
-      return val ? String(val).trim() : null;
+      const candidates = [lead.website, lead.url, lead.site, lead.link, lead.web, lead.domain, lead.pageUrl, lead.placeUrl];
+      for (const val of candidates) {
+        if (val !== undefined && val !== null) {
+          const str = String(val).trim();
+          if (str !== '') return str;
+        }
+      }
+      return null;
     };
 
     const extractNeighborhood = (lead: any): string | null => {
-      const val = lead.neighborhood || lead.city || lead.bairro || lead.cidade || lead.municipio || lead.address?.neighborhood || lead.address?.city || lead.streetAddress || lead.address;
-      return val ? String(val).trim() : null;
+      const candidates = [
+        lead.neighborhood,
+        lead.bairro,
+        lead.city,
+        lead.cidade,
+        lead.municipio,
+        lead.address?.neighborhood,
+        lead.address?.city,
+        lead.streetAddress,
+        lead.address,
+        lead.fullAddress
+      ];
+      for (const val of candidates) {
+        if (val !== undefined && val !== null) {
+          const str = String(val).trim();
+          if (str !== '') return str;
+        }
+      }
+      return null;
     };
 
     for (const lead of leads) {
-      const title = extractTitle(lead);
-      if (!title) {
-        skipped++;
-        continue;
-      }
-
       const rawPhone = extractPhone(lead);
       if (!rawPhone) {
         skipped++;
@@ -256,6 +350,11 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
         continue;
       }
 
+      let title = extractTitle(lead);
+      if (!title) {
+        title = `Contato ${num.slice(-4)}`;
+      }
+
       try {
         await prisma.lead.create({
           data: {
@@ -268,17 +367,21 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
         });
         imported++;
       } catch {
-        // Ignora duplicados na mesma campanha
         skipped++;
       }
     }
 
+    if (imported === 0) {
+      return res.status(400).json({ 
+        error: `Nenhum telefone válido com DDD foi encontrado nos ${leads.length} registros do arquivo. Certifique-se de que a planilha/JSON contenha campos com telefones válidos.` 
+      });
+    }
+
     res.json({ imported, skipped, total: leads.length });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro ao processar importação de leads:', error);
-    res.status(500).json({ error: 'Falha ao processar arquivo de leads.' });
+    res.status(500).json({ error: error.message || 'Falha ao processar arquivo de leads.' });
   } finally {
-    // Garante remoção do arquivo temporário do disco
     if (filePath && fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
