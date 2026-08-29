@@ -158,18 +158,37 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
     if (fileContent.startsWith('[') || fileContent.startsWith('{') || originalName.endsWith('.json')) {
       try {
         const parsed = JSON.parse(fileContent);
+        
+        const extractLeadsRecursive = (obj: any, maxDepth = 4): any[] => {
+          if (maxDepth < 0 || !obj) return [];
+          if (Array.isArray(obj)) {
+            if (obj.length > 0 && typeof obj[0] === 'object' && obj[0] !== null) {
+              return obj;
+            }
+            return [];
+          }
+          if (typeof obj === 'object') {
+            for (const key of ['items', 'results', 'data', 'leads', 'contacts', 'places', 'rows', 'dataset']) {
+              if (Array.isArray(obj[key]) && obj[key].length > 0 && typeof obj[key][0] === 'object') {
+                return obj[key];
+              }
+            }
+            for (const val of Object.values(obj)) {
+               const res = extractLeadsRecursive(val, maxDepth - 1);
+               if (res.length > 0) return res;
+            }
+          }
+          return [];
+        };
+
         if (Array.isArray(parsed)) {
           leads = parsed;
           isJson = true;
         } else if (parsed && typeof parsed === 'object') {
-          if (Array.isArray(parsed.items)) leads = parsed.items;
-          else if (Array.isArray(parsed.results)) leads = parsed.results;
-          else if (Array.isArray(parsed.data)) leads = parsed.data;
-          else if (Array.isArray(parsed.leads)) leads = parsed.leads;
-          else if (Array.isArray(parsed.contacts)) leads = parsed.contacts;
-          else if (Array.isArray(parsed.places)) leads = parsed.places;
-          else if (Array.isArray(parsed.rows)) leads = parsed.rows;
-          else leads = Object.values(parsed).filter(v => typeof v === 'object' && v !== null);
+          leads = extractLeadsRecursive(parsed);
+          if (!leads || leads.length === 0) {
+            leads = Object.values(parsed).filter(v => typeof v === 'object' && v !== null);
+          }
           isJson = true;
         }
       } catch (jsonErr) {
@@ -219,13 +238,38 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
           for (let i = 1; i < lines.length; i++) {
             const cols = parseCsvLine(lines[i], delimiter);
             if (cols.length === 0 || (cols.length === 1 && cols[0] === '')) continue;
+            
             const rowObj: any = {};
+            let hasPhoneColumn = false;
+            
             headerCols.forEach((header, idx) => {
-              if (cols[idx] !== undefined) rowObj[header] = cols[idx];
+              if (cols[idx] !== undefined) {
+                rowObj[header] = cols[idx];
+                if (header.includes('phone') || header.includes('tel') || header.includes('cel') || header.includes('whatsapp') || header.includes('wpp')) {
+                  hasPhoneColumn = true;
+                }
+              }
             });
-            if (headerCols.length === 0 || !headerCols.some(h => h.includes('phone') || h.includes('tel') || h.includes('cel') || h.includes('nome') || h.includes('title'))) {
-              rowObj['phone'] = cols[0];
-              if (cols[1]) rowObj['title'] = cols[1];
+            
+            if (!hasPhoneColumn) {
+              // Identificação heurística de telefone se o header não ajudar
+              let phoneColIdx = -1;
+              for(let k=0; k<cols.length; k++) {
+                const cleaned = cols[k].replace(/[^0-9]/g, '');
+                if (cleaned.length >= 10 && cleaned.length <= 14) {
+                  phoneColIdx = k;
+                  break;
+                }
+              }
+              if (phoneColIdx !== -1) {
+                rowObj['phone'] = cols[phoneColIdx];
+                if (phoneColIdx === 0 && cols.length > 1) rowObj['title'] = cols[1];
+                else if (phoneColIdx !== 0) rowObj['title'] = cols[0];
+              } else {
+                // Fallback legado
+                rowObj['phone'] = cols[0];
+                if (cols[1]) rowObj['title'] = cols[1];
+              }
             }
             leads.push(rowObj);
           }
@@ -366,14 +410,21 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
           }
         });
         imported++;
-      } catch {
-        skipped++;
+      } catch (err: any) {
+        // If it's a unique constraint violation on campaignId + phone, we can just skip it (it's a duplicate)
+        if (err.code === 'P2002') {
+          skipped++;
+        } else {
+          console.error(`Erro inesperado ao inserir lead (${num}):`, err);
+          skipped++;
+        }
       }
     }
 
     if (imported === 0) {
+      const sample = leads.length > 0 ? JSON.stringify(leads[0]).substring(0, 200) : 'vazio';
       return res.status(400).json({ 
-        error: `Nenhum telefone válido com DDD foi encontrado nos ${leads.length} registros do arquivo. Certifique-se de que a planilha/JSON contenha campos com telefones válidos.` 
+        error: `Nenhum lead importado. ${skipped} foram ignorados. Os campos do arquivo podem estar incorretos ou os contatos já existem nesta campanha. Exemplo lido: ${sample}...` 
       });
     }
 
