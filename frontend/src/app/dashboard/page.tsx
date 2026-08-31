@@ -257,6 +257,7 @@ export default function Dashboard() {
       return;
     }
     setIsSubmitting(true);
+    let createdCampaignId: string | null = null;
     try {
       // 1. Criar campanha
       const res = await api.post('/campaigns', {
@@ -266,12 +267,12 @@ export default function Dashboard() {
         delayMin: newCampaign.delayMin,
         delayMax: newCampaign.delayMax
       });
-      const campaignId = res.data.id;
+      createdCampaignId = res.data.id;
 
       // 2. Upload leads
       const formData = new FormData();
       formData.append('file', newCampaign.file);
-      const importRes = await api.post(`/campaigns/${campaignId}/leads/import`, formData, {
+      const importRes = await api.post(`/campaigns/${createdCampaignId}/leads/import`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -287,6 +288,14 @@ export default function Dashboard() {
       });
       fetchCampaigns();
     } catch (err: unknown) {
+      // Se a campanha foi criada mas o upload de leads falhou, remove a campanha vazia órfã
+      if (createdCampaignId) {
+        try {
+          await api.delete(`/campaigns/${createdCampaignId}`);
+        } catch {
+          // limpeza silenciosa
+        }
+      }
       let msg = 'Erro ao criar campanha.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
