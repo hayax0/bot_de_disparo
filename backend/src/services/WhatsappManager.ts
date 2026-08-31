@@ -224,44 +224,66 @@ export class WhatsappManager {
     }).catch(() => {});
   }
 
+  // Resolve o identificador correto do WhatsApp no Brasil (tratando presença ou ausência do 9º dígito)
+  static async resolveNumberId(client: Client, phone: string): Promise<string> {
+    let clean = phone.replace(/\D/g, '').replace(/^0+/, '');
+    if (clean.length >= 10 && clean.length <= 11) {
+      clean = '55' + clean;
+    }
+
+    // 1. Tenta com o número exato fornecido
+    try {
+      const res = await client.getNumberId(clean);
+      if (res && res._serialized) {
+        return res._serialized;
+      }
+    } catch {
+      // continua para fallbacks
+    }
+
+    // 2. Se for número do Brasil (55 + DDD + 8 ou 9 dígitos)
+    if (clean.startsWith('55') && (clean.length === 12 || clean.length === 13)) {
+      const ddd = clean.slice(2, 4);
+      const rest = clean.slice(4);
+
+      // Se tem 13 dígitos (55 + DDD + 9 + 8 dígitos), tenta consultar sem o 9º dígito (contas antigas)
+      if (clean.length === 13 && rest.startsWith('9')) {
+        const withoutNine = `55${ddd}${rest.slice(1)}`;
+        try {
+          const res = await client.getNumberId(withoutNine);
+          if (res && res._serialized) {
+            return res._serialized;
+          }
+        } catch {}
+      }
+
+      // Se tem 12 dígitos (55 + DDD + 8 dígitos), tenta consultar adicionando o 9º dígito
+      if (clean.length === 12) {
+        const withNine = `55${ddd}9${rest}`;
+        try {
+          const res = await client.getNumberId(withNine);
+          if (res && res._serialized) {
+            return res._serialized;
+          }
+        } catch {}
+      }
+    }
+
+    // 3. Se o getNumberId falhar ou expirar, envia diretamente no formato JID padrão
+    return `${clean}@c.us`;
+  }
+
   static async sendMessage(workspaceId: string, phone: string, message: string) {
     const client = sessions.get(workspaceId);
     if (!client) {
       throw new Error('WhatsApp não está conectado no momento.');
     }
 
-    let cleanPhone = phone.replace(/\D/g, '').replace(/^0+/, '');
-    if (cleanPhone.length >= 10 && cleanPhone.length <= 11) {
-      cleanPhone = '55' + cleanPhone;
-    }
+    const targetChatId = await this.resolveNumberId(client, phone);
 
-    // Obter o ID registrado oficial no WhatsApp (trata 9º dígito e valida existência do número)
-    let targetChatId = `${cleanPhone}@c.us`;
-    try {
-      const numberDetails = await client.getNumberId(cleanPhone);
-      if (numberDetails && numberDetails._serialized) {
-        targetChatId = numberDetails._serialized;
-      } else {
-        throw new Error('Número não possui conta ativa no WhatsApp');
-      }
-    } catch (err: any) {
-      if (err.message?.includes('não possui conta ativa')) {
-        throw err;
-      }
-      // Se a consulta rápida falhar por timeout, segue com targetChatId padrão
-    }
-
-    try {
-      const chat = await client.getChatById(targetChatId) as Chat;
-      if (chat) {
-        await chat.sendStateTyping();
-        // Simula digitação humana proporcional à mensagem (min 3s, max 7s)
-        const delay = Math.max(3000, Math.min(7000, message.length * 25));
-        await new Promise(r => setTimeout(r, delay));
-      }
-    } catch (err) {
-      // Ignora erro no typing e tenta enviar diretamente
-    }
+    // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 4s)
+    const delay = Math.max(1500, Math.min(4000, message.length * 15));
+    await new Promise(r => setTimeout(r, delay));
 
     await client.sendMessage(targetChatId, message);
   }
