@@ -94,28 +94,41 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     if (!sentSuccessfully) {
       const maxAttempts = job.opts.attempts || 1;
       const isFinalAttempt = job.attemptsMade >= maxAttempts;
+      const errMsg = error?.message || String(error);
+      
+      const isUnrecoverable = errMsg.includes('não possui conta ativa') || 
+                              errMsg.includes('telefone fixo') || 
+                              errMsg.includes('No LID') || 
+                              errMsg.includes('inválido') || 
+                              errMsg.includes('LID indisponível');
 
-      if (!isFinalAttempt) {
-        // Falha temporária: atualiza tentativas e aviso sem marcar ERROR definitivo, mantendo QUEUED para o retry do BullMQ
-        await prisma.lead.update({
-          where: { id: leadId },
-          data: { 
-            attempts: job.attemptsMade,
-            errorMessage: `Tentativa ${job.attemptsMade}/${maxAttempts} falhou: ${error?.message || error} (reagendando...)`
-          }
-        });
-      } else {
-        // Última tentativa esgotada: marca ERROR definitivo
+      if (isUnrecoverable || isFinalAttempt) {
+        // Marca erro definitivo e não bloqueia a fila com retries inúteis
         await prisma.lead.update({
           where: { id: leadId },
           data: { 
             status: 'ERROR',
             attempts: job.attemptsMade,
-            errorMessage: error?.message || 'Falha após esgotar tentativas de envio no WhatsApp'
+            errorMessage: isUnrecoverable 
+              ? errMsg 
+              : (error?.message || 'Falha após esgotar tentativas de envio no WhatsApp')
           }
         });
+        // Se for erro recuperável na última tentativa, lança para notificar o BullMQ
+        if (!isUnrecoverable) {
+          throw error;
+        }
+      } else {
+        // Falha temporária recuperável (ex: oscilação de rede): reagenda via BullMQ
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { 
+            attempts: job.attemptsMade,
+            errorMessage: `Tentativa ${job.attemptsMade}/${maxAttempts} falhou: ${errMsg} (reagendando...)`
+          }
+        });
+        throw error;
       }
-      throw error; // Permite retry exponencial da BullMQ
     }
   } finally {
     await checkCampaignCompletion(campaignId);

@@ -287,34 +287,55 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
     let skipped = 0;
 
     const extractPhone = (lead: any): string | null => {
-      const candidates = [
-        lead.phone,
-        lead.phoneUnformatted,
-        lead.telephone,
-        lead.telephoneUnformatted,
+      const priorityCandidates = [
         lead.whatsapp,
         lead.celular,
+        lead.mobile,
+        lead.mobilePhone,
+        lead.cellphone,
+        lead.phone,
+        lead.phoneUnformatted,
+        lead.phoneNumber,
+        lead.phone_number,
+        lead.telephone,
+        lead.telephoneUnformatted,
         lead.telefone,
         lead.numero,
         lead.contact,
         lead.contactNumber,
-        lead.phoneNumber,
-        lead.phone_number,
-        lead.tel,
-        lead.mobile,
-        lead.mobilePhone
+        lead.tel
       ];
 
-      for (const val of candidates) {
+      const allPhones: string[] = [];
+      for (const val of priorityCandidates) {
         if (val !== undefined && val !== null) {
           const str = String(val).trim();
-          if (str !== '') return str;
+          if (str !== '') allPhones.push(str);
         }
       }
 
-      if (Array.isArray(lead.phones) && lead.phones.length > 0) return String(lead.phones[0]).trim();
-      if (Array.isArray(lead.phonesUncertain) && lead.phonesUncertain.length > 0) return String(lead.phonesUncertain[0]).trim();
-      return null;
+      if (Array.isArray(lead.phones)) {
+        for (const p of lead.phones) {
+          if (p) allPhones.push(String(p).trim());
+        }
+      }
+      if (Array.isArray(lead.phonesUncertain)) {
+        for (const p of lead.phonesUncertain) {
+          if (p) allPhones.push(String(p).trim());
+        }
+      }
+
+      if (allPhones.length === 0) return null;
+
+      // Dentre os telefones encontrados, prioriza aquele que for celular (11 dígitos com 9 no 3º dígito ou 13 dígitos 55+DDD+9)
+      for (const raw of allPhones) {
+        const digits = raw.replace(/\D/g, '').replace(/^0+/, '');
+        if (digits.length === 11 && digits[2] === '9') return raw;
+        if (digits.length === 13 && digits.startsWith('55') && digits[4] === '9') return raw;
+      }
+
+      // Se nenhum for celular explícito, retorna o primeiro encontrado
+      return allPhones[0];
     };
 
     const extractTitle = (lead: any): string | null => {

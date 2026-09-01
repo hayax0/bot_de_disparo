@@ -21,6 +21,10 @@ export class WhatsappManager {
         clientId: workspaceId,
         dataPath: './.wwebjs_auth' // Stores sessions locally inside backend folder
       }),
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html',
+      },
       puppeteer: {
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         headless: true,
@@ -225,7 +229,7 @@ export class WhatsappManager {
   }
 
   // Resolve o identificador correto do WhatsApp no Brasil (tratando presença ou ausência do 9º dígito)
-  static async resolveNumberId(client: Client, phone: string): Promise<string> {
+  static async resolveNumberId(client: Client, phone: string): Promise<string | null> {
     let clean = phone.replace(/\D/g, '').replace(/^0+/, '');
     if (clean.length >= 10 && clean.length <= 11) {
       clean = '55' + clean;
@@ -237,9 +241,7 @@ export class WhatsappManager {
       if (res && res._serialized) {
         return res._serialized;
       }
-    } catch {
-      // continua para fallbacks
-    }
+    } catch {}
 
     // 2. Se for número do Brasil (55 + DDD + 8 ou 9 dígitos)
     if (clean.startsWith('55') && (clean.length === 12 || clean.length === 13)) {
@@ -269,8 +271,7 @@ export class WhatsappManager {
       }
     }
 
-    // 3. Se o getNumberId falhar ou expirar, envia diretamente no formato JID padrão
-    return `${clean}@c.us`;
+    return null;
   }
 
   static async sendMessage(workspaceId: string, phone: string, message: string) {
@@ -279,12 +280,24 @@ export class WhatsappManager {
       throw new Error('WhatsApp não está conectado no momento.');
     }
 
+    // Valida e obtém o ID oficial registrado
     const targetChatId = await this.resolveNumberId(client, phone);
+    if (!targetChatId) {
+      throw new Error('Número não possui conta ativa no WhatsApp (ou é telefone fixo)');
+    }
 
-    // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 4s)
-    const delay = Math.max(1500, Math.min(4000, message.length * 15));
+    // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 3.5s)
+    const delay = Math.max(1500, Math.min(3500, message.length * 15));
     await new Promise(r => setTimeout(r, delay));
 
-    await client.sendMessage(targetChatId, message);
+    try {
+      await client.sendMessage(targetChatId, message);
+    } catch (sendErr: any) {
+      const errMsg = sendErr?.message || String(sendErr);
+      if (errMsg.includes('No LID') || errMsg.includes('wid error') || errMsg.includes('Cannot read properties of null')) {
+        throw new Error('Número não possui conta ativa no WhatsApp (LID indisponível)');
+      }
+      throw sendErr;
+    }
   }
 }
