@@ -366,11 +366,13 @@ router.post('/:id/leads/import', (req: Request, res: Response, next: Function) =
     };
 
     const extractWebsite = (lead: any): string | null => {
-      const candidates = [lead.website, lead.url, lead.site, lead.link, lead.web, lead.domain, lead.pageUrl, lead.placeUrl];
+      // No Apify Google Maps, 'url' e 'placeUrl' são o link do próprio Google Maps.
+      // Apenas consideramos campos dedicados ao website da empresa:
+      const candidates = [lead.website, lead.site, lead.web, lead.domain];
       for (const val of candidates) {
         if (val !== undefined && val !== null) {
           const str = String(val).trim();
-          if (str !== '') return str;
+          if (str !== '' && temWebsiteValido(str)) return str;
         }
       }
       return null;

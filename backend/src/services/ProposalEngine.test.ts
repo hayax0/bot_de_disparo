@@ -16,6 +16,9 @@ test('temWebsiteValido: rejeita redes sociais e agregadores', () => {
     'https://wa.me/5511999999999',
     'https://empresa.wixsite.com/site',
     'https://bit.ly/abc123',
+    'https://www.google.com/maps/search/?api=1&query=MMSilva',
+    'https://maps.google.com/?cid=123456',
+    'https://maps.app.goo.gl/abcxyz',
   ]) {
     assert.equal(temWebsiteValido(url), false, `esperava false para ${url}`);
   }
