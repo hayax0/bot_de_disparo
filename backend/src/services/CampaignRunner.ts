@@ -2,9 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { createConnection, messageQueue } from './queue';
 import { prisma } from '../lib/prisma';
 import { WhatsappManager } from './WhatsappManager';
-import { gerarProposta, temWebsiteValido, processarSpintax, formatarNomeEmpresa } from './ProposalEngine';
-
-export { gerarProposta, temWebsiteValido, processarSpintax, formatarNomeEmpresa };
+import { gerarProposta } from './ProposalEngine';
 
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
