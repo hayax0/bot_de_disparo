@@ -14,7 +14,8 @@ process.on('unhandledRejection', (reason) => {
 import authRoutes from './routes/auth';
 import whatsappRoutes from './routes/whatsapp';
 import campaignsRoutes from './routes/campaigns';
-import './services/CampaignRunner';
+import { campaignWorker } from './services/CampaignRunner';
+import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
 
 const app = express();
@@ -27,7 +28,9 @@ app.use(cors({
     if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
+      // Recusa silenciosamente (sem headers CORS) em vez de lançar erro 500 sem tratamento
+      console.warn(`[CORS] Origem bloqueada: ${origin}`);
+      callback(null, false);
     }
   },
   credentials: true
@@ -67,8 +70,44 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
-app.listen(ENV.PORT, () => {
+const server = app.listen(ENV.PORT, () => {
   console.log(`🚀 SaaS Bot Server running on port ${ENV.PORT} [${ENV.NODE_ENV}]`);
   // Restaura sessões ativas do WhatsApp em background
   WhatsappManager.restoreConnectedSessions();
+  // Watchdog: restaura sessões que ficaram órfãs (Chromium crashado, etc.)
+  WhatsappManager.startWatchdog(60000);
 });
+
+// ── Graceful shutdown ─────────────────────────────────────────────
+// Fecha tudo na ordem correta para não corromper a sessão do WhatsApp
+// (lock do Chromium) nem deixar jobs do BullMQ em estado inconsistente.
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[SHUTDOWN] Recebido ${signal}. Encerrando com segurança...`);
+
+  const forceExit = setTimeout(() => {
+    console.error('[SHUTDOWN] Timeout de 20s atingido, forçando saída.');
+    process.exit(1);
+  }, 20000);
+  forceExit.unref();
+
+  try {
+    server.close();
+    await campaignWorker.close();
+    await messageQueue.close();
+    await queueEvents.close();
+    await WhatsappManager.destroyAll();
+    await redisConnection.quit();
+    await prisma.$disconnect();
+    console.log('[SHUTDOWN] Encerrado com sucesso.');
+    process.exit(0);
+  } catch (err) {
+    console.error('[SHUTDOWN] Erro durante encerramento:', err);
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

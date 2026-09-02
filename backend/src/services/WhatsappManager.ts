@@ -1,25 +1,122 @@
-import { Client, LocalAuth, Chat } from 'whatsapp-web.js';
+import { Client, LocalAuth } from 'whatsapp-web.js';
 import qrcode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from '../lib/prisma';
 
-// This map holds the active Whatsapp clients in memory
-// Key: workspaceId
+// Clientes ativos em memória (workspaceId -> Client)
 const sessions = new Map<string, Client>();
+// Promessas de inicialização em andamento (evita criar 2 Chromiums p/ o mesmo workspace)
+const initializing = new Map<string, Promise<Client>>();
+// Timers de reconexão automática (workspaceId -> Timeout)
+const reconnectTimers = new Map<string, NodeJS.Timeout>();
+// Tentativas de reconexão por workspace (para backoff exponencial)
+const reconnectAttempts = new Map<string, number>();
+// Workspaces desconectados manualmente pelo usuário (não devem reconectar sozinhos)
+const manualDisconnects = new Set<string>();
+
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_DELAY_MS = 5000;
+const MAX_RECONNECT_DELAY_MS = 5 * 60 * 1000;
+
+// Remove arquivos de lock do Chromium que impedem re-inicialização após kill abrupto
+function removeChromiumLocks(workspaceId: string) {
+  try {
+    const sessionDir = path.join(process.cwd(), '.wwebjs_auth', `session-${workspaceId}`);
+    if (!fs.existsSync(sessionDir)) return;
+    for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      const lockPath = path.join(sessionDir, lockFile);
+      if (fs.existsSync(lockPath)) {
+        fs.rmSync(lockPath, { force: true });
+      }
+    }
+  } catch (err) {
+    console.warn(`[WHATSAPP LOCK] Falha ao remover locks do Chromium p/ ${workspaceId}:`, err);
+  }
+}
+
+// Destroi o cliente corretamente (mata o Chromium) e limpa o estado em memória
+async function destroyAndCleanup(workspaceId: string) {
+  const client = sessions.get(workspaceId);
+  sessions.delete(workspaceId);
+  if (client) {
+    try {
+      await client.destroy();
+    } catch (err) {
+      console.error(`[WHATSAPP DESTROY] Erro ao destruir cliente de ${workspaceId}:`, err);
+    }
+  }
+}
+
+function clearReconnectTimer(workspaceId: string) {
+  const timer = reconnectTimers.get(workspaceId);
+  if (timer) {
+    clearTimeout(timer);
+    reconnectTimers.delete(workspaceId);
+  }
+}
+
+// Agenda reconexão automática com backoff exponencial + jitter
+function scheduleReconnect(workspaceId: string) {
+  if (manualDisconnects.has(workspaceId)) return;
+  if (sessions.has(workspaceId) || initializing.has(workspaceId)) return;
+  if (reconnectTimers.has(workspaceId)) return;
+
+  const attempt = (reconnectAttempts.get(workspaceId) || 0) + 1;
+  if (attempt > MAX_RECONNECT_ATTEMPTS) {
+    console.error(`[WHATSAPP RECONNECT] Limite de ${MAX_RECONNECT_ATTEMPTS} tentativas atingido p/ workspace ${workspaceId}. Aguardando ação manual via watchdog.`);
+    reconnectAttempts.delete(workspaceId);
+    return;
+  }
+  reconnectAttempts.set(workspaceId, attempt);
+
+  const exponential = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1), MAX_RECONNECT_DELAY_MS);
+  const jitter = Math.floor(Math.random() * 3000);
+  const delay = exponential + jitter;
+
+  console.log(`[WHATSAPP RECONNECT] Reconexão agendada p/ workspace ${workspaceId} em ${Math.round(delay / 1000)}s (tentativa ${attempt}/${MAX_RECONNECT_ATTEMPTS})`);
+
+  const timer = setTimeout(() => {
+    reconnectTimers.delete(workspaceId);
+    if (manualDisconnects.has(workspaceId) || sessions.has(workspaceId)) return;
+    WhatsappManager.getClient(workspaceId).catch(err => {
+      console.error(`[WHATSAPP RECONNECT] Falha ao reconectar workspace ${workspaceId}:`, err?.message || err);
+    });
+  }, delay);
+
+  reconnectTimers.set(workspaceId, timer);
+}
 
 export class WhatsappManager {
-  
-  static async getClient(workspaceId: string): Promise<Client> {
-    if (sessions.has(workspaceId)) {
-      return sessions.get(workspaceId)!;
-    }
 
-    // Initialize a new client with clean native WhatsApp Web and Anti-Detection flags
+  static async getClient(workspaceId: string): Promise<Client> {
+    const existing = sessions.get(workspaceId);
+    if (existing) return existing;
+
+    // Evitar corrida: se já existe uma inicialização em andamento, aguarda ela
+    const pending = initializing.get(workspaceId);
+    if (pending) return pending;
+
+    manualDisconnects.delete(workspaceId);
+    removeChromiumLocks(workspaceId);
+
+    const initPromise = this.createClient(workspaceId);
+    initializing.set(workspaceId, initPromise);
+
+    try {
+      const client = await initPromise;
+      sessions.set(workspaceId, client);
+      return client;
+    } finally {
+      initializing.delete(workspaceId);
+    }
+  }
+
+  private static async createClient(workspaceId: string): Promise<Client> {
     const client = new Client({
       authStrategy: new LocalAuth({
         clientId: workspaceId,
-        dataPath: './.wwebjs_auth' // Stores sessions locally inside backend folder
+        dataPath: './.wwebjs_auth'
       }),
       webVersionCache: {
         type: 'remote',
@@ -44,11 +141,9 @@ export class WhatsappManager {
           '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
         ],
         timeout: 90000,
-        protocolTimeout: 300000 
+        protocolTimeout: 300000
       }
     });
-
-    sessions.set(workspaceId, client);
 
     client.on('qr', async (qrStr) => {
       console.log(`[WHATSAPP QR] QR Code gerado para o workspace ${workspaceId}`);
@@ -66,38 +161,35 @@ export class WhatsappManager {
 
     client.on('authenticated', async () => {
       console.log(`[WHATSAPP AUTH] Sessão autenticada pelo celular para o workspace ${workspaceId}`);
+      reconnectAttempts.delete(workspaceId);
       await prisma.whatsappSession.upsert({
         where: { workspaceId },
         update: { status: 'CONNECTED', sessionData: null },
         create: { workspaceId, status: 'CONNECTED', sessionData: null }
-      });
-    });
-
-    client.on('loading_screen', async (percent, message) => {
-      console.log(`[WHATSAPP LOADING] ${percent}% - ${message} no workspace ${workspaceId}`);
-      await prisma.whatsappSession.upsert({
-        where: { workspaceId },
-        update: { status: 'CONNECTED', sessionData: null },
-        create: { workspaceId, status: 'CONNECTED', sessionData: null }
-      });
+      }).catch(err => console.error('Erro ao persistir autenticação:', err));
     });
 
     client.on('ready', async () => {
       console.log(`[WHATSAPP READY] Conectado e pronto para o workspace ${workspaceId}`);
+      reconnectAttempts.delete(workspaceId);
+      clearReconnectTimer(workspaceId);
       await prisma.whatsappSession.upsert({
         where: { workspaceId },
         update: { status: 'CONNECTED', sessionData: null },
         create: { workspaceId, status: 'CONNECTED', sessionData: null }
-      });
+      }).catch(err => console.error('Erro ao persistir ready:', err));
     });
 
     client.on('auth_failure', async (msg) => {
       console.error(`[WHATSAPP AUTH FAILURE] Falha de autenticação no workspace ${workspaceId}:`, msg);
-      sessions.delete(workspaceId);
+      reconnectAttempts.delete(workspaceId);
+      await destroyAndCleanup(workspaceId);
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
       }).catch(() => {});
+      // auth_failure geralmente exige novo QR Code — tenta reconectar p/ gerar novo QR
+      scheduleReconnect(workspaceId);
     });
 
     // Listener para capturar respostas e atualizar métricas de Leads Respondidos
@@ -107,7 +199,6 @@ export class WhatsappManager {
         const senderPhone = msg.from.replace(/\D/g, '');
         if (!senderPhone) return;
 
-        // Atualizar o lead mais recentemente enviado para este telefone no workspace
         const mostRecentLead = await prisma.lead.findFirst({
           where: {
             OR: [
@@ -134,18 +225,29 @@ export class WhatsappManager {
 
     client.on('disconnected', async (reason) => {
       console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada para o workspace ${workspaceId}: ${reason}`);
-      sessions.delete(workspaceId);
+      await destroyAndCleanup(workspaceId);
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
       }).catch(() => {});
+
+      // LOGOUT = ação manual no celular: não reconecta sozinho
+      if (reason !== 'LOGOUT') {
+        scheduleReconnect(workspaceId);
+      }
     });
 
-    client.initialize().catch(err => {
-      console.error(`Failed to initialize client for ${workspaceId}`, err);
-    });
-
-    return client;
+    try {
+      await client.initialize();
+      return client;
+    } catch (err) {
+      // Se o Chromium falhou ao iniciar, destrói tudo e agenda reconexão — sessão não fica órfã
+      console.error(`[WHATSAPP INIT] Falha ao inicializar cliente p/ ${workspaceId}:`, (err as any)?.message || err);
+      await destroyAndCleanup(workspaceId);
+      removeChromiumLocks(workspaceId);
+      scheduleReconnect(workspaceId);
+      throw err;
+    }
   }
 
   // Restaura sessões ativas automaticamente na inicialização do servidor
@@ -155,7 +257,7 @@ export class WhatsappManager {
         where: { status: 'CONNECTED' }
       });
       for (const sess of activeSessions) {
-        if (!sessions.has(sess.workspaceId)) {
+        if (!sessions.has(sess.workspaceId) && !initializing.has(sess.workspaceId)) {
           console.log(`[WHATSAPP RESTORE] Restaurando cliente em background para workspace ${sess.workspaceId}...`);
           this.getClient(sess.workspaceId).catch(e => {
             console.error(`Erro ao restaurar sessão para ${sess.workspaceId}:`, e);
@@ -167,25 +269,37 @@ export class WhatsappManager {
     }
   }
 
+  // Watchdog: roda periodicamente e restaura sessões que constam CONNECTED no banco
+  // mas não têm cliente vivo em memória (ex: após crash silencioso do Chromium)
+  static startWatchdog(intervalMs = 60000) {
+    setInterval(() => {
+      this.restoreConnectedSessions();
+    }, intervalMs);
+    console.log(`[WHATSAPP WATCHDOG] Watchdog ativo (intervalo de ${intervalMs / 1000}s).`);
+  }
+
   static async getStatus(workspaceId: string) {
     const session = await prisma.whatsappSession.findUnique({
       where: { workspaceId }
     });
-    
+
     if (!session) {
       return { status: 'DISCONNECTED', qrCode: null };
     }
 
-    // Se a sessão está marcada como CONNECTED no banco mas o processo reiniciou, reconecta em background
-    if (!sessions.has(workspaceId) && session.status === 'CONNECTED') {
+    const hasLiveClient = sessions.has(workspaceId) || initializing.has(workspaceId);
+
+    // Se está CONNECTED no banco mas sem cliente vivo, reconecta em background e avisa UI
+    if (!hasLiveClient && session.status === 'CONNECTED') {
+      const hasReconnectScheduled = reconnectTimers.has(workspaceId);
       this.getClient(workspaceId).catch(err => {
         console.error(`[AUTO RECONNECT] Erro ao reconectar workspace ${workspaceId}:`, err);
       });
-      return { status: 'CONNECTED', qrCode: null };
+      return { status: hasReconnectScheduled ? 'DISCONNECTED' : 'QRCODE', qrCode: null, reconnecting: true };
     }
 
-    // Se a sessão está marcada como QRCODE no banco mas não há cliente gerando no momento (QR expirado/órfão), reseta
-    if (!sessions.has(workspaceId) && session.status === 'QRCODE') {
+    // QR órfão (cliente morreu enquanto gerava QR): reseta para DISCONNECTED
+    if (!hasLiveClient && session.status === 'QRCODE') {
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
@@ -193,23 +307,18 @@ export class WhatsappManager {
       return { status: 'DISCONNECTED', qrCode: null };
     }
 
-    return { 
-      status: session.status, 
-      qrCode: session.status === 'QRCODE' ? session.sessionData : null 
+    return {
+      status: session.status,
+      qrCode: session.status === 'QRCODE' ? session.sessionData : null
     };
   }
 
   static async disconnect(workspaceId: string) {
-    const client = sessions.get(workspaceId);
-    if (client) {
-      try {
-        await client.logout().catch(() => {});
-        await client.destroy().catch(() => {});
-      } catch (e) {
-        console.error('Error logging out client', e);
-      }
-      sessions.delete(workspaceId);
-    }
+    manualDisconnects.add(workspaceId);
+    clearReconnectTimer(workspaceId);
+    reconnectAttempts.delete(workspaceId);
+
+    await destroyAndCleanup(workspaceId);
 
     // Limpa a pasta de cache do Chromium para permitir nova conexão limpa
     try {
@@ -226,6 +335,15 @@ export class WhatsappManager {
       where: { workspaceId },
       data: { status: 'DISCONNECTED', sessionData: null }
     }).catch(() => {});
+  }
+
+  // Destroi todos os clientes (usado no graceful shutdown)
+  static async destroyAll() {
+    console.log('[WHATSAPP SHUTDOWN] Encerrando todas as sessões do WhatsApp...');
+    for (const [workspaceId] of sessions) {
+      clearReconnectTimer(workspaceId);
+      await destroyAndCleanup(workspaceId);
+    }
   }
 
   // Resolve o identificador correto do WhatsApp no Brasil (tratando presença ou ausência do 9º dígito)

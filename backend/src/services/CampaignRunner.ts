@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { connection } from './queue';
+import { createConnection } from './queue';
 import { prisma } from '../lib/prisma';
 import { WhatsappManager } from './WhatsappManager';
 import { gerarProposta, temWebsiteValido, processarSpintax, formatarNomeEmpresa } from './ProposalEngine';
@@ -31,12 +31,24 @@ async function checkCampaignCompletion(campaignId: string) {
   }
 }
 
+const UNRECOVERABLE_PATTERNS = [
+  'não possui conta ativa',
+  'telefone fixo',
+  'No LID',
+  'inválido',
+  'LID indisponível',
+];
+
+function isUnrecoverableError(errMsg: string): boolean {
+  return UNRECOVERABLE_PATTERNS.some(p => errMsg.includes(p));
+}
+
 // Job processor com isolamento, idempotência e auditoria
 export const campaignWorker = new Worker('message-queue', async (job: Job) => {
   const { leadId, campaignId, workspaceId } = job.data;
 
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-  const campaign = await prisma.campaign.findUnique({ 
+  const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
     include: {
       workspace: {
@@ -45,12 +57,24 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     }
   });
 
-  if (!lead || !campaign || campaign.status !== 'RUNNING') {
-    return; // Campanha pausada ou lead excluído
+  if (!lead || !campaign) {
+    console.warn(`[WORKER] Job ${job.id}: lead ou campanha não encontrados (possivelmente excluídos). Ignorando.`);
+    return;
   }
 
-  // Idempotência: Se o lead já foi enviado anteriormente (ex: em retry ou concorrência), não reenvia
-  if (lead.status === 'SENT') {
+  // Campanha pausada/excluída: devolve o lead para PENDING para ser retomado depois
+  if (campaign.status !== 'RUNNING') {
+    if (lead.status === 'QUEUED') {
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { status: 'PENDING' }
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // Idempotência: Se o lead já foi enviado, não reenvia
+  if (lead.status === 'SENT' || lead.status === 'REPLIED') {
     await checkCampaignCompletion(campaignId);
     return;
   }
@@ -64,7 +88,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
   if (!message) {
     await prisma.lead.update({
       where: { id: leadId },
-      data: { 
+      data: {
         status: 'ERROR',
         errorMessage: 'Mensagem de proposta vazia ou template inválido'
       }
@@ -80,8 +104,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
 
     await prisma.lead.update({
       where: { id: leadId },
-      data: { 
-        status: 'SENT', 
+      data: {
+        status: 'SENT',
         sentAt: new Date(),
         messageContent: message,
         errorMessage: null
@@ -89,41 +113,36 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     });
   } catch (error: any) {
     console.error(`[WORKER ERROR] Falha ao enviar para o lead ${leadId} (${lead.phone}):`, error?.message || error);
-    
+
     // Se a mensagem já foi enviada no WhatsApp mas o banco falhou, não relança para evitar duplicação
     if (!sentSuccessfully) {
       const maxAttempts = job.opts.attempts || 1;
       const isFinalAttempt = job.attemptsMade >= maxAttempts;
       const errMsg = error?.message || String(error);
-      
-      const isUnrecoverable = errMsg.includes('não possui conta ativa') || 
-                              errMsg.includes('telefone fixo') || 
-                              errMsg.includes('No LID') || 
-                              errMsg.includes('inválido') || 
-                              errMsg.includes('LID indisponível');
+      const unrecoverable = isUnrecoverableError(errMsg);
 
-      if (isUnrecoverable || isFinalAttempt) {
+      if (unrecoverable || isFinalAttempt) {
         // Marca erro definitivo e não bloqueia a fila com retries inúteis
         await prisma.lead.update({
           where: { id: leadId },
-          data: { 
+          data: {
             status: 'ERROR',
             attempts: job.attemptsMade,
-            errorMessage: isUnrecoverable 
-              ? errMsg 
+            errorMessage: unrecoverable
+              ? errMsg
               : (error?.message || 'Falha após esgotar tentativas de envio no WhatsApp')
           }
         });
-        // Se for erro recuperável na última tentativa, lança para notificar o BullMQ
-        if (!isUnrecoverable) {
-          throw error;
+        if (!unrecoverable) {
+          throw error; // notifica o BullMQ
         }
       } else {
         // Falha temporária recuperável (ex: oscilação de rede): reagenda via BullMQ
         await prisma.lead.update({
           where: { id: leadId },
-          data: { 
+          data: {
             attempts: job.attemptsMade,
+            status: 'QUEUED',
             errorMessage: `Tentativa ${job.attemptsMade}/${maxAttempts} falhou: ${errMsg} (reagendando...)`
           }
         });
@@ -134,14 +153,30 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     await checkCampaignCompletion(campaignId);
   }
 
-}, { connection, concurrency: 5 }); // 5 workers paralelos no máximo
+}, {
+  connection: createConnection(), // conexão dedicada p/ o Worker (best practice BullMQ)
+  concurrency: 2,                 // reduzido: menos pressão no WhatsApp/Chromium = menos crash e menos ban
+  maxStalledCount: 1,             // 1 hesitação e o job vai para retry ao invés de loop infinito
+}); 
 
 campaignWorker.on('failed', async (job, err) => {
-  if (job) {
-    console.error(`[JOB FAILED] Job ${job.id} falhou definitivamente após tentativas:`, err);
-    try {
-      const { leadId, campaignId } = job.data;
-      if (leadId) {
+  if (!job) return;
+
+  const maxAttempts = job.opts.attempts || 1;
+  const isFinalAttempt = job.attemptsMade >= maxAttempts;
+
+  console.error(`[JOB FAILED] Job ${job.id} falhou (tentativa ${job.attemptsMade}/${maxAttempts}):`, err?.message || err);
+
+  // Só marca ERROR definitivo na última tentativa. Falhas transitórias (Redis oscilou,
+  // worker reiniciou) mantêm o lead em QUEUED para o BullMQ reprocessar.
+  if (!isFinalAttempt) return;
+
+  try {
+    const { leadId, campaignId } = job.data;
+    if (leadId) {
+      // Não sobrescreve se o worker já gravou o estado final no processor
+      const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+      if (lead && lead.status !== 'SENT' && lead.status !== 'REPLIED' && lead.status !== 'ERROR') {
         await prisma.lead.update({
           where: { id: leadId },
           data: {
@@ -150,13 +185,13 @@ campaignWorker.on('failed', async (job, err) => {
           }
         });
       }
-      if (campaignId) {
-        await checkCampaignCompletion(campaignId);
-      }
-    } catch (dbErr) {
-      console.error('Erro ao registrar falha definitiva do lead:', dbErr);
     }
+    if (campaignId) {
+      await checkCampaignCompletion(campaignId);
+    }
+  } catch (dbErr) {
+    console.error('Erro ao registrar falha definitiva do lead:', dbErr);
   }
 });
 
-
+console.log('[BULLMQ WORKER] Worker de campanhas iniciado (concurrency=2, maxStalledCount=1).');

@@ -79,6 +79,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      INTERNAL_API_URL: http://backend:3001
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:

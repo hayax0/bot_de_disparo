@@ -502,8 +502,13 @@ router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
 
-    // 1. Bloqueio se a campanha já estiver em execução (409 Conflict)
-    if (campaign.status === 'RUNNING') {
+    // 1. Bloqueio ATÔMICO contra execução dupla: só 1 request consegue transicionar para RUNNING
+    //    (evita race condition quando dois cliques de "iniciar" chegam simultaneamente)
+    const transitioned = await prisma.campaign.updateMany({
+      where: { id, status: { not: 'RUNNING' } },
+      data: { status: 'RUNNING' }
+    });
+    if (transitioned.count === 0) {
       return res.status(409).json({ error: 'Esta campanha já está em execução.' });
     }
 
@@ -527,17 +532,14 @@ router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
       return res.json({ message: 'Nenhum lead pendente nesta campanha.', jobsQueued: 0 });
     }
 
-    // 4. Atualizar status da campanha para RUNNING e leads para QUEUED
-    await prisma.$transaction([
-      prisma.campaign.update({ where: { id }, data: { status: 'RUNNING' } }),
-      prisma.lead.updateMany({
-        where: { 
-          campaignId: id, 
-          status: { in: ['PENDING', 'QUEUED'] } 
-        },
-        data: { status: 'QUEUED' }
-      })
-    ]);
+    // 4. Marcar leads como QUEUED (campanha já marcada RUNNING atomicamente no passo 1)
+    await prisma.lead.updateMany({
+      where: {
+        campaignId: id,
+        status: { in: ['PENDING', 'QUEUED'] }
+      },
+      data: { status: 'QUEUED' }
+    });
 
     let currentDelay = 1000; // Primeiro envio inicia em 1 segundo
     const minW = campaign.delayMin * 1000;
@@ -550,6 +552,10 @@ router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
     let countInBatch = 0;
     let jobsQueued = 0;
 
+    // Pré-calcula todos os jobs (delays + IDs determinísticos) antes de enfileirar em lotes paralelos.
+    // Isso evita que o endpoint fique minutos em loop sequencial com listas grandes (timeout no frontend).
+    const jobsToQueue: Array<{ name: string; data: object; opts: object }> = [];
+
     for (let i = 0; i < pendingLeads.length; i++) {
       const lead = pendingLeads[i];
       if (i > 0) {
@@ -558,26 +564,39 @@ router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
       }
       countInBatch++;
 
-      // Job determinístico por campaignId e leadId garante idempotência no Redis
-      await messageQueue.add('send-message', {
-        leadId: lead.id,
-        campaignId: id,
-        workspaceId
-      }, { 
-        jobId: `${id}_${lead.id}_${Date.now()}`,
-        delay: currentDelay,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-        removeOnFail: false
+      // jobId DETERMINÍSTICO (sem Date.now): cliques duplicados/retries nunca criam job duplicado —
+      // o BullMQ ignora add() com jobId que já existe na fila.
+      jobsToQueue.push({
+        name: 'send-message',
+        data: { leadId: lead.id, campaignId: id, workspaceId },
+        opts: {
+          jobId: `${id}_${lead.id}`,
+          delay: currentDelay,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false
+        }
       });
-      jobsQueued++;
 
       // Pausa longa de segurança anti-ban a cada LOTE_MAXIMO envios
       if (countInBatch >= LOTE_MAXIMO) {
         const pausaLote = Math.floor(Math.random() * (PAUSA_LOTE_MAX - PAUSA_LOTE_MIN + 1)) + PAUSA_LOTE_MIN;
         currentDelay += pausaLote;
         countInBatch = 0;
+      }
+    }
+
+    // Enfileira em lotes paralelos de 200 para não bloquear o event loop por muito tempo
+    const CHUNK = 200;
+    for (let start = 0; start < jobsToQueue.length; start += CHUNK) {
+      const chunk = jobsToQueue.slice(start, start + CHUNK);
+      const results = await Promise.allSettled(
+        chunk.map(j => messageQueue.add(j.name, j.data, j.opts as any))
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') jobsQueued++;
+        else console.error('[QUEUE ERROR] Falha ao enfileirar job de campanha:', r.reason?.message || r.reason);
       }
     }
 
