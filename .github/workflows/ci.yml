@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (tsc + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Gerar Prisma Client
+        run: npx prisma generate
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Testes unitários
+        run: npm test
+        # DATABASE_URL fake só para o Prisma Client instanciar (testes não tocam no banco)
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/fake?schema=public
+          JWT_SECRET: ci_secret
+
+  frontend:
+    name: Frontend (tsc + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: ESLint
+        run: npm run lint

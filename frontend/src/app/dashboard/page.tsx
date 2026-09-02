@@ -123,6 +123,9 @@ export default function Dashboard() {
   const [statsMap, setStatsMap] = useState<Record<string, CampaignStats>>({});
   const [queueHealth, setQueueHealth] = useState<QueueHealth | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Ações com feedback de carregamento (evita duplo clique)
+  const [connecting, setConnecting] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Inicializar hidratação segura do Zustand client-side
   useEffect(() => {
@@ -263,6 +266,8 @@ export default function Dashboard() {
   }, []);
 
   const handleConnect = async () => {
+    if (connecting) return;
+    setConnecting(true);
     try {
       await api.post('/whatsapp/connect');
       addToast('info', 'Inicializando conexão com o WhatsApp...');
@@ -273,10 +278,14 @@ export default function Dashboard() {
         msg = err.response.data.error;
       }
       addToast('error', msg);
+    } finally {
+      setConnecting(false);
     }
   };
 
   const handleDisconnect = async () => {
+    if (connecting) return;
+    setConnecting(true);
     try {
       await api.post('/whatsapp/disconnect');
       addToast('info', 'WhatsApp desconectado com sucesso.');
@@ -287,6 +296,8 @@ export default function Dashboard() {
         msg = err.response.data.error;
       }
       addToast('error', msg);
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -386,6 +397,8 @@ export default function Dashboard() {
   };
 
   const handleStart = async (id: string) => {
+    if (actionLoading) return;
+    setActionLoading(id);
     try {
       const res = await api.post(`/campaigns/${id}/start`);
       addToast('success', res.data.message || 'Campanha iniciada com sucesso!');
@@ -397,10 +410,14 @@ export default function Dashboard() {
         msg = err.response.data.error;
       }
       addToast('error', msg);
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handlePause = async (id: string) => {
+    if (actionLoading) return;
+    setActionLoading(id);
     try {
       await api.post(`/campaigns/${id}/pause`);
       addToast('info', 'Campanha pausada.');
@@ -412,11 +429,14 @@ export default function Dashboard() {
         msg = err.response.data.error;
       }
       addToast('error', msg);
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const confirmDelete = async () => {
-    if (!campaignToDelete) return;
+    if (!campaignToDelete || actionLoading) return;
+    setActionLoading(campaignToDelete.id);
     try {
       await api.delete(`/campaigns/${campaignToDelete.id}`);
       addToast('success', 'Campanha excluída com sucesso.');
@@ -432,6 +452,8 @@ export default function Dashboard() {
         msg = err.response.data.error;
       }
       addToast('error', msg);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -614,36 +636,42 @@ export default function Dashboard() {
 
             <div className="flex items-center gap-2">
               {waStatus?.status === 'DISCONNECTED' && (
-                <button 
-                  onClick={handleConnect} 
-                  className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer flex items-center gap-2"
+                <button
+                  onClick={handleConnect}
+                  disabled={connecting}
+                  className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <QrCode size={15} />
-                  <span>Conectar WhatsApp</span>
+                  {connecting ? <RefreshCw size={15} className="animate-spin" /> : <QrCode size={15} />}
+                  <span>{connecting ? 'Iniciando...' : 'Conectar WhatsApp'}</span>
                 </button>
               )}
               {waStatus?.status === 'QRCODE' && (
                 <div className="flex items-center gap-2">
-                  <button 
-                    onClick={handleConnect} 
-                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs cursor-pointer text-purple-300 border-purple-500/30 hover:bg-purple-500/10"
+                  <button
+                    onClick={handleConnect}
+                    disabled={connecting}
+                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs cursor-pointer text-purple-300 border-purple-500/30 hover:bg-purple-500/10 disabled:opacity-60 flex items-center gap-1.5"
                   >
+                    {connecting && <RefreshCw size={12} className="animate-spin" />}
                     🔄 Atualizar QR
                   </button>
-                  <button 
-                    onClick={handleDisconnect} 
-                    className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors cursor-pointer"
+                  <button
+                    onClick={handleDisconnect}
+                    disabled={connecting}
+                    className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors cursor-pointer disabled:opacity-60"
                   >
                     Cancelar
                   </button>
                 </div>
               )}
               {waStatus?.status === 'CONNECTED' && (
-                <button 
-                  onClick={handleDisconnect} 
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-all cursor-pointer"
+                <button
+                  onClick={handleDisconnect}
+                  disabled={connecting}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
                 >
-                  Desconectar
+                  {connecting && <RefreshCw size={12} className="animate-spin" />}
+                  {connecting ? 'Desconectando...' : 'Desconectar'}
                 </button>
               )}
             </div>
@@ -714,9 +742,23 @@ export default function Dashboard() {
           </div>
 
           {isLoading ? (
-            <div className="glass-panel rounded-2xl p-12 text-center text-slate-400">
-              <RefreshCw size={24} className="animate-spin mx-auto text-purple-400 mb-3" />
-              <p className="text-xs">Carregando suas campanhas...</p>
+            <div className="grid grid-cols-1 gap-3.5" aria-busy="true" aria-label="Carregando campanhas">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.07] animate-pulse">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-2.5 flex-1">
+                      <div className="h-4 w-2/5 rounded-lg bg-white/[0.08]" />
+                      <div className="h-3 w-1/3 rounded-lg bg-white/[0.05]" />
+                      <div className="h-1.5 w-full rounded-full bg-white/[0.06]" />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
+                      <div className="h-8 w-20 rounded-xl bg-white/[0.06]" />
+                      <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : campaigns.length === 0 ? (
             <div className="glass-panel rounded-3xl p-10 sm:p-14 text-center border border-dashed border-white/[0.1] flex flex-col items-center">
@@ -805,21 +847,22 @@ export default function Dashboard() {
 
                   <div className="flex items-center gap-2 self-end sm:self-center">
                     {camp.status === 'RUNNING' ? (
-                      <button 
+                      <button
                         onClick={() => handlePause(camp.id)}
-                        className="p-2 rounded-xl text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-all cursor-pointer"
+                        disabled={actionLoading === camp.id}
+                        className="p-2 rounded-xl text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Pausar Campanha"
                       >
-                        <Pause size={16} />
+                        {actionLoading === camp.id ? <RefreshCw size={16} className="animate-spin" /> : <Pause size={16} />}
                       </button>
                     ) : (
-                      <button 
+                      <button
                         onClick={() => handleStart(camp.id)}
-                        disabled={waStatus?.status !== 'CONNECTED'}
+                        disabled={waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
                         className="btn-primary-dark p-2 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Iniciar Campanha'}
                       >
-                        <Play size={16} />
+                        {actionLoading === camp.id ? <RefreshCw size={16} className="animate-spin" /> : <Play size={16} />}
                       </button>
                     )}
 
@@ -1103,9 +1146,21 @@ export default function Dashboard() {
             </div>
 
             {isLoadingDetails ? (
-              <div className="p-12 text-center text-slate-400">
-                <RefreshCw size={24} className="animate-spin mx-auto text-purple-400 mb-3" />
-                <p className="text-xs">Carregando contatos da campanha...</p>
+              <div className="p-5 sm:p-6 space-y-4 animate-pulse" aria-busy="true" aria-label="Carregando leads">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[0, 1, 2, 3].map(i => (
+                    <div key={i} className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                      <div className="h-2.5 w-16 rounded bg-white/[0.08]" />
+                      <div className="h-6 w-10 rounded bg-white/[0.08] mt-2" />
+                    </div>
+                  ))}
+                </div>
+                <div className="h-9 rounded-xl bg-white/[0.06]" />
+                <div className="space-y-2">
+                  {[0, 1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="h-9 rounded-lg bg-white/[0.05]" />
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
@@ -1366,10 +1421,12 @@ export default function Dashboard() {
               >
                 Cancelar
               </button>
-              <button 
+              <button
                 onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer shadow-lg shadow-red-600/30"
+                disabled={actionLoading === campaignToDelete.id}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer shadow-lg shadow-red-600/30 disabled:opacity-60 flex items-center gap-2"
               >
+                {actionLoading === campaignToDelete.id && <RefreshCw size={13} className="animate-spin" />}
                 Sim, excluir
               </button>
             </div>

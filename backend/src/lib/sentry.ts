@@ -1,0 +1,16 @@
+import * as Sentry from '@sentry/node';
+
+const dsn = process.env.SENTRY_DSN;
+
+if (dsn) {
+  Sentry.init({
+    dsn,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.2,
+  });
+  console.log('[SENTRY] Observabilidade ativada.');
+} else {
+  console.log('[SENTRY] SENTRY_DSN não definido — rodando sem observabilidade externa.');
+}
+
+export { Sentry };

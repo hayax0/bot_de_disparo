@@ -1,3 +1,5 @@
+// Sentry precisa ser o PRIMEIRO import para instrumentar tudo corretamente
+import { Sentry } from './lib/sentry';
 import express from 'express';
 import cors from 'cors';
 import { ENV } from './config/env';
@@ -6,9 +8,11 @@ import { connection as redisConnection } from './services/queue';
 
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception:', err);
+  Sentry.captureException(err);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Unhandled Rejection:', reason);
+  Sentry.captureException(reason);
 });
 
 import authRoutes from './routes/auth';
@@ -41,6 +45,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/campaigns', campaignsRoutes);
+
+// Error handler do Sentry (depois das rotas, antes de qualquer handler customizado)
+Sentry.setupExpressErrorHandler(app);
 
 // Health check endpoint para monitoramento de infraestrutura
 app.get('/api/health', async (req, res) => {

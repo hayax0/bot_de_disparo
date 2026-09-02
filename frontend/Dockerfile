@@ -9,9 +9,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Argumento para URL da API em build time
+# Argumentos de build time (NEXT_PUBLIC_* são embutidos no bundle do browser)
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_SENTRY_DSN
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN} \
     NODE_ENV=production
 
 RUN npm run build
