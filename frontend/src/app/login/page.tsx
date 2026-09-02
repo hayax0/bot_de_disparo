@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useState } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
-import { Bot, Mail, Lock, User, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
+import { Bot, Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
       setAuth(res.data.token, res.data.user);
       router.push('/dashboard');
     } catch (err: unknown) {
-      let msg = 'Falha na autenticação. Verifique seus dados.';
+      let msg = 'Falha na autenticaÃ§Ã£o. Verifique seus dados.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
       }
@@ -55,7 +55,7 @@ export default function LoginPage() {
             {isRegister ? 'Criar sua conta' : 'Bem-vindo de volta'}
           </h1>
           <p className="text-xs text-slate-400 mt-1.5 text-center">
-            {isRegister ? 'Inicie sua prospecção automatizada via WhatsApp' : 'Acesse o painel do Disparador de Mensagens'}
+            {isRegister ? 'Inicie sua prospecÃ§Ã£o automatizada via WhatsApp' : 'Acesse o painel do Disparador de Mensagens'}
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
-                placeholder="Mínimo 6 caracteres"
+                placeholder="MÃ­nimo 6 caracteres"
               />
             </div>
           </div>
@@ -147,7 +147,7 @@ export default function LoginPage() {
             }} 
             className="text-xs font-medium text-slate-400 hover:text-purple-300 transition-colors cursor-pointer"
           >
-            {isRegister ? 'Já tem uma conta? ' : 'Não tem conta? '}
+            {isRegister ? 'JÃ¡ tem uma conta? ' : 'NÃ£o tem conta? '}
             <span className="text-purple-400 font-semibold underline underline-offset-4">
               {isRegister ? 'Entre aqui' : 'Registre-se gratuitamente'}
             </span>
@@ -157,3 +157,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

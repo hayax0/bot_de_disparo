@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { createConnection } from './queue';
+import { createConnection, messageQueue } from './queue';
 import { prisma } from '../lib/prisma';
 import { WhatsappManager } from './WhatsappManager';
 import { gerarProposta, temWebsiteValido, processarSpintax, formatarNomeEmpresa } from './ProposalEngine';
@@ -193,5 +193,49 @@ campaignWorker.on('failed', async (job, err) => {
     console.error('Erro ao registrar falha definitiva do lead:', dbErr);
   }
 });
+
+// ── Recovery de órfãos no boot ──────────────────────────────────────
+// Leads marcados como QUEUED no banco cujo job correspondente NÃO existe
+// mais na fila (Redis esvaziado, job removido, etc.) voltam a PENDING
+// para poderem ser reenfileirados no próximo start da campanha.
+export async function recoverOrphanedLeads() {
+  try {
+    const runningCampaigns = await prisma.campaign.findMany({
+      where: { status: 'RUNNING' },
+      select: { id: true, name: true }
+    });
+
+    for (const campaign of runningCampaigns) {
+      const queuedLeads = await prisma.lead.findMany({
+        where: { campaignId: campaign.id, status: 'QUEUED' },
+        select: { id: true }
+      });
+
+      if (queuedLeads.length === 0) continue;
+
+      const orphanIds: string[] = [];
+      const CHUNK = 100;
+      for (let i = 0; i < queuedLeads.length; i += CHUNK) {
+        const chunk = queuedLeads.slice(i, i + CHUNK);
+        const results = await Promise.all(
+          chunk.map(lead => messageQueue.getJob(`${campaign.id}_${lead.id}`))
+        );
+        results.forEach((job, idx) => {
+          if (!job) orphanIds.push(chunk[idx].id);
+        });
+      }
+
+      if (orphanIds.length > 0) {
+        await prisma.lead.updateMany({
+          where: { id: { in: orphanIds } },
+          data: { status: 'PENDING' }
+        });
+        console.log(`[RECOVERY] Campanha "${campaign.name}": ${orphanIds.length} leads órfãos (QUEUED sem job) voltaram para PENDING.`);
+      }
+    }
+  } catch (err) {
+    console.error('[RECOVERY] Erro ao recuperar leads órfãos no boot:', err);
+  }
+}
 
 console.log('[BULLMQ WORKER] Worker de campanhas iniciado (concurrency=2, maxStalledCount=1).');

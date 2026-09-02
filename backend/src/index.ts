@@ -14,7 +14,7 @@ process.on('unhandledRejection', (reason) => {
 import authRoutes from './routes/auth';
 import whatsappRoutes from './routes/whatsapp';
 import campaignsRoutes from './routes/campaigns';
-import { campaignWorker } from './services/CampaignRunner';
+import { campaignWorker, recoverOrphanedLeads } from './services/CampaignRunner';
 import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
 
@@ -76,6 +76,8 @@ const server = app.listen(ENV.PORT, () => {
   WhatsappManager.restoreConnectedSessions();
   // Watchdog: restaura sessões que ficaram órfãs (Chromium crashado, etc.)
   WhatsappManager.startWatchdog(60000);
+  // Recupera leads QUEUED sem job na fila (após reinício do servidor/Redis)
+  recoverOrphanedLeads();
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────

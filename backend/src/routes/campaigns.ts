@@ -493,7 +493,94 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
-// Iniciar disparos da campanha com idempotência, jobId único e prevenção de duplicidade
+// Métricas reais da campanha (derivadas do banco + estimativa de conclusão)
+router.get('/:id/stats', async (req: Request, res: Response): Promise<any> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const workspaceId = (req as any).user.workspaceId;
+
+  try {
+    const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
+
+    const grouped = await prisma.lead.groupBy({
+      by: ['status'],
+      where: { campaignId: id },
+      _count: { status: true }
+    });
+
+    const counts: Record<string, number> = { PENDING: 0, QUEUED: 0, SENT: 0, REPLIED: 0, ERROR: 0 };
+    for (const g of grouped) counts[g.status] = g._count.status;
+
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const sent = counts.SENT + counts.REPLIED;
+    const remaining = counts.PENDING + counts.QUEUED;
+    const progress = total > 0 ? Math.round(((sent + counts.ERROR) / total) * 100) : 0;
+
+    // Estimativa de tempo restante: delays médios + pausas de lote (8 envios → pausa de ~10-15min)
+    const avgDelayS = (campaign.delayMin + campaign.delayMax) / 2;
+    const avgBatchPauseS = (600 + 900) / 2; // média entre 10min e 15min
+    const estimatedSecondsRemaining = campaign.status === 'RUNNING'
+      ? Math.round(remaining * avgDelayS + Math.floor(remaining / 8) * avgBatchPauseS)
+      : null;
+
+    res.json({
+      total,
+      pending: counts.PENDING,
+      queued: counts.QUEUED,
+      sent: counts.SENT,
+      replied: counts.REPLIED,
+      error: counts.ERROR,
+      progress,
+      estimatedSecondsRemaining
+    });
+  } catch (error) {
+    console.error('Erro ao buscar estatísticas da campanha:', error);
+    res.status(500).json({ error: 'Erro ao buscar estatísticas.' });
+  }
+});
+
+// Saúde da fila para a campanha: estado dos jobs no Redis x leads no banco
+router.get('/:id/queue-health', async (req: Request, res: Response): Promise<any> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const workspaceId = (req as any).user.workspaceId;
+
+  try {
+    const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
+
+    // Contagem global da fila
+    const globalCounts = await messageQueue.getJobCounts('waiting', 'delayed', 'active', 'failed');
+
+    // Contagem específica desta campanha nos jobs pendentes
+    const pendingJobs = await messageQueue.getJobs(['waiting', 'delayed', 'active']);
+    const campaignJobs = pendingJobs.filter(j => j.data?.campaignId === id);
+
+    // Leads QUEUED no banco que NÃO têm job correspondente na fila = órfãos
+    const queuedLeads = await prisma.lead.count({
+      where: { campaignId: id, status: 'QUEUED' }
+    });
+    const orphaned = Math.max(0, queuedLeads - campaignJobs.length);
+
+    res.json({
+      campaignId: id,
+      queue: {
+        campaignPendingJobs: campaignJobs.length,
+        orphanedLeads: orphaned
+      },
+      globalQueue: {
+        waiting: globalCounts.waiting || 0,
+        delayed: globalCounts.delayed || 0,
+        active: globalCounts.active || 0,
+        failed: globalCounts.failed || 0
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao buscar saúde da fila:', error);
+    res.status(500).json({ error: 'Erro ao buscar saúde da fila.' });
+  }
+});
+
+
 router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
@@ -607,7 +694,7 @@ router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
-// Pausar campanha
+// Pausar campanha: remove TODOS os jobs pendentes da fila e devolve leads a PENDING
 router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
@@ -617,7 +704,29 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
 
     await prisma.campaign.update({ where: { id }, data: { status: 'PAUSED' } });
-    res.json({ message: 'Campanha pausada.' });
+
+    // Drena os jobs delayed/waiting desta campanha (pause real, instantâneo)
+    let removedJobs = 0;
+    try {
+      const jobs = await messageQueue.getJobs(['delayed', 'waiting']);
+      for (const job of jobs) {
+        if (job.data?.campaignId === id) {
+          await job.remove();
+          removedJobs++;
+        }
+      }
+    } catch (queueErr) {
+      console.error('[PAUSE] Erro ao drenar jobs da fila:', queueErr);
+    }
+
+    // Leads QUEUED voltam a PENDING para serem retomados no próximo start
+    const reverted = await prisma.lead.updateMany({
+      where: { campaignId: id, status: 'QUEUED' },
+      data: { status: 'PENDING' }
+    });
+
+    console.log(`[PAUSE] Campanha ${id}: ${removedJobs} jobs removidos da fila, ${reverted.count} leads voltaram a PENDING.`);
+    res.json({ message: 'Campanha pausada.', removedJobs, leadsReverted: reverted.count });
   } catch (error) {
     console.error('Erro ao pausar campanha:', error);
     res.status(500).json({ error: 'Erro ao pausar campanha.' });
@@ -632,6 +741,16 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
   try {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
+
+    // Remove jobs pendentes desta campanha antes de excluir (evita jobs órfãos)
+    try {
+      const jobs = await messageQueue.getJobs(['delayed', 'waiting']);
+      for (const job of jobs) {
+        if (job.data?.campaignId === id) await job.remove();
+      }
+    } catch (queueErr) {
+      console.error('[DELETE] Erro ao drenar jobs da fila:', queueErr);
+    }
 
     await prisma.campaign.delete({ where: { id } });
     res.json({ success: true, message: 'Campanha excluída com sucesso.' });

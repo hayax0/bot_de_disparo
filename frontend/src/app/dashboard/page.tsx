@@ -5,38 +5,34 @@ import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import axios from 'axios';
-import { 
-  Bot, 
-  LogOut, 
-  Smartphone, 
-  Play, 
-  Pause, 
-  Trash2, 
-  Plus, 
-  QrCode, 
-  HelpCircle, 
-  FileJson, 
-  ExternalLink, 
-  CheckCircle2, 
-  Sparkles, 
-  ShieldCheck, 
-  Clock, 
-  ChevronRight, 
-  BookOpen, 
-  Info, 
-  X, 
-  Menu, 
-  Eye, 
-  Search, 
-  AlertTriangle, 
-  RefreshCw, 
-  Globe, 
-  MapPin, 
-  Check, 
+import {
+  Bot,
+  LogOut,
+  Smartphone,
+  Play,
+  Pause,
+  Trash2,
+  Plus,
+  QrCode,
+  HelpCircle,
+  FileJson,
+  ExternalLink,
+  CheckCircle2,
+  ShieldCheck,
+  Clock,
+  BookOpen,
+  Info,
+  X,
+  Menu,
+  Eye,
+  Search,
+  AlertTriangle,
+  RefreshCw,
+  Globe,
+  MapPin,
+  Check,
   AlertCircle,
-  MessageSquare,
   Users,
-  Send,
   Zap,
   Layers,
   Activity
@@ -79,10 +75,43 @@ interface CampaignDetails {
   };
 }
 
+interface CampaignStats {
+  total: number;
+  pending: number;
+  queued: number;
+  sent: number;
+  replied: number;
+  error: number;
+  progress: number;
+  estimatedSecondsRemaining: number | null;
+}
+
+interface QueueHealth {
+  queue: {
+    campaignPendingJobs: number;
+    orphanedLeads: number;
+  };
+  globalQueue: {
+    waiting: number;
+    delayed: number;
+    active: number;
+    failed: number;
+  };
+}
+
 interface Toast {
   id: string;
   type: 'success' | 'error' | 'info';
   message: string;
+}
+
+// Formata segundos em "Xh Ym" legível
+function formatEta(seconds: number): string {
+  if (seconds < 60) return '<1min';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  if (h === 0) return `~${m}min`;
+  return `~${h}h ${m}min`;
 }
 
 export default function Dashboard() {
@@ -91,6 +120,8 @@ export default function Dashboard() {
   
   const [waStatus, setWaStatus] = useState<{ status: string; qrCode?: string | null } | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [statsMap, setStatsMap] = useState<Record<string, CampaignStats>>({});
+  const [queueHealth, setQueueHealth] = useState<QueueHealth | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Inicializar hidratação segura do Zustand client-side
@@ -134,11 +165,23 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Carregar campanhas
+  // Carregar campanhas + métricas reais (barra de progresso / ETA)
   const fetchCampaigns = useCallback(async () => {
     try {
       const res = await api.get('/campaigns');
       setCampaigns(res.data);
+
+      const ids: string[] = res.data.map((c: Campaign) => c.id);
+      if (ids.length > 0) {
+        const results = await Promise.allSettled(
+          ids.map(cid => api.get(`/campaigns/${cid}/stats`))
+        );
+        const map: Record<string, CampaignStats> = {};
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') map[ids[idx]] = r.value.data;
+        });
+        setStatsMap(map);
+      }
     } catch (err: unknown) {
       let msg = 'Erro ao carregar campanhas.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
@@ -163,12 +206,45 @@ export default function Dashboard() {
       }
     };
     loadData();
-    const interval = setInterval(fetchStatus, 5000);
+
+    // Polling pausa quando a aba não está visível (economiza VPS e bateria)
+    const poll = () => {
+      if (document.visibilityState === 'visible') fetchStatus();
+    };
+    const interval = setInterval(poll, 5000);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
   }, [isHydrated, token, fetchStatus, fetchCampaigns, router]);
+
+  // Polling de stats + saúde da fila enquanto o modal de detalhes estiver aberto
+  useEffect(() => {
+    if (!selectedCampaignId) return;
+
+    const pollDetails = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const [statsRes, healthRes] = await Promise.allSettled([
+          api.get(`/campaigns/${selectedCampaignId}/stats`),
+          api.get(`/campaigns/${selectedCampaignId}/queue-health`)
+        ]);
+        if (statsRes.status === 'fulfilled') {
+          setStatsMap(prev => ({ ...prev, [selectedCampaignId]: statsRes.value.data }));
+        }
+        if (healthRes.status === 'fulfilled') {
+          setQueueHealth(healthRes.value.data);
+        }
+      } catch {
+        // silencioso
+      }
+    };
+
+    pollDetails();
+    const interval = setInterval(pollDetails, 10000);
+    return () => clearInterval(interval);
+  }, [selectedCampaignId]);
 
   // Tecla ESC para fechar modais
   useEffect(() => {
@@ -177,6 +253,7 @@ export default function Dashboard() {
         setIsModalOpen(false);
         setIsTutorialOpen(false);
         setSelectedCampaignId(null);
+        setQueueHealth(null);
         setCampaignToDelete(null);
         setIsMobileMenuOpen(false);
       }
@@ -215,6 +292,7 @@ export default function Dashboard() {
 
   // Carregar detalhes dos leads da campanha
   const openCampaignDetails = async (campaignId: string) => {
+    setQueueHealth(null);
     setSelectedCampaignId(campaignId);
     setIsLoadingDetails(true);
     try {
@@ -227,6 +305,7 @@ export default function Dashboard() {
       }
       addToast('error', msg);
       setSelectedCampaignId(null);
+      setQueueHealth(null);
     } finally {
       setIsLoadingDetails(false);
     }
@@ -344,6 +423,7 @@ export default function Dashboard() {
       setCampaignToDelete(null);
       if (selectedCampaignId === campaignToDelete.id) {
         setSelectedCampaignId(null);
+        setQueueHealth(null);
       }
       fetchCampaigns();
     } catch (err: unknown) {
@@ -689,6 +769,38 @@ export default function Dashboard() {
                         {new Date(camp.createdAt).toLocaleDateString('pt-BR')}
                       </span>
                     </div>
+
+                    {/* Barra de progresso real (derivada dos status dos leads no banco) */}
+                    {statsMap[camp.id] && statsMap[camp.id].total > 0 && (statsMap[camp.id].progress > 0 || camp.status === 'RUNNING') && (
+                      <div className="pt-1 space-y-1.5">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-slate-400">
+                            <span className="text-emerald-400">{statsMap[camp.id].sent + statsMap[camp.id].replied}</span>
+                            {' '}enviados
+                            {statsMap[camp.id].replied > 0 && (
+                              <> · <span className="text-purple-400">{statsMap[camp.id].replied}</span> respostas</>
+                            )}
+                            {statsMap[camp.id].error > 0 && (
+                              <> · <span className="text-red-400">{statsMap[camp.id].error}</span> erros</>
+                            )}
+                          </span>
+                          <span className="text-slate-500">
+                            {statsMap[camp.id].progress}%
+                            {camp.status === 'RUNNING' && statsMap[camp.id].estimatedSecondsRemaining !== null && (
+                              <> · restam {formatEta(statsMap[camp.id].estimatedSecondsRemaining!)}</>
+                            )}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${
+                              camp.status === 'RUNNING' ? 'bg-gradient-to-r from-purple-500 to-emerald-400' : 'bg-purple-500/60'
+                            }`}
+                            style={{ width: `${statsMap[camp.id].progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-center">
@@ -982,8 +1094,8 @@ export default function Dashboard() {
                 <h2 className="text-base sm:text-lg font-bold text-white">{campaignDetails?.campaign.name || 'Detalhes da Campanha'}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">Acompanhamento em tempo real de disparos e respostas.</p>
               </div>
-              <button 
-                onClick={() => setSelectedCampaignId(null)}
+              <button
+                onClick={() => { setSelectedCampaignId(null); setQueueHealth(null); }}
                 className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
               >
                 <X size={18} />
@@ -1017,6 +1129,17 @@ export default function Dashboard() {
                     <p className="text-lg font-bold text-red-400 mt-0.5">{campaignDetails?.counts.error || 0}</p>
                   </div>
                 </div>
+
+                {/* Alerta de leads órfãos (QUEUED sem job na fila) */}
+                {queueHealth && queueHealth.queue.orphanedLeads > 0 && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+                    <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                    <span>
+                      <b>{queueHealth.queue.orphanedLeads} lead(s)</b> ficaram marcados como &quot;na fila&quot; mas sem job correspondente.
+                      Pausar e iniciar a campanha novamente re-enfileira tudo de forma segura (sem duplicar envios).
+                    </span>
+                  </div>
+                )}
 
                 {/* Filtros e Busca */}
                 <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between pt-2">
@@ -1110,8 +1233,15 @@ export default function Dashboard() {
                                   {lead.status}
                                 </span>
                               </td>
-                              <td className="p-3 text-slate-500 text-[11px] max-w-[140px] truncate font-mono">
-                                {lead.sentAt ? new Date(lead.sentAt).toLocaleTimeString() : (lead.errorMessage || '—')}
+                              <td
+                                className="p-3 text-slate-500 text-[11px] max-w-[200px] truncate font-mono"
+                                title={lead.errorMessage || undefined}
+                              >
+                                {lead.sentAt
+                                  ? new Date(lead.sentAt).toLocaleString('pt-BR')
+                                  : lead.status === 'ERROR'
+                                    ? <span className="text-red-400/90">{lead.errorMessage || 'Falha desconhecida'}</span>
+                                    : (lead.errorMessage || '—')}
                               </td>
                             </tr>
                           ))
@@ -1125,8 +1255,8 @@ export default function Dashboard() {
             )}
 
             <div className="p-4 border-t border-white/[0.08] flex justify-end">
-              <button 
-                onClick={() => setSelectedCampaignId(null)}
+              <button
+                onClick={() => { setSelectedCampaignId(null); setQueueHealth(null); }}
                 className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Fechar
