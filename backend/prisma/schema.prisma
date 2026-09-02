@@ -8,12 +8,17 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  password              String
+  name                  String?
+  role                  String    @default("USER") // USER, ADMIN
+  subscriptionStatus    String    @default("INACTIVE") // ACTIVE, INACTIVE, PAST_DUE, CANCELED, LIFETIME
+  subscriptionExpiresAt DateTime?
+  caktoCustomerId       String?
+  caktoSubscriptionId   String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   workspaces Workspace[]
 }

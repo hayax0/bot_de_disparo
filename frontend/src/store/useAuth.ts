@@ -4,6 +4,9 @@ interface User {
   id: string;
   name?: string | null;
   email: string;
+  role?: string | null;
+  subscriptionStatus?: string | null;
+  subscriptionExpiresAt?: string | null;
 }
 
 interface AuthState {

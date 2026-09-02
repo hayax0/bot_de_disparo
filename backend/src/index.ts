@@ -18,6 +18,7 @@ process.on('unhandledRejection', (reason) => {
 import authRoutes from './routes/auth';
 import whatsappRoutes from './routes/whatsapp';
 import campaignsRoutes from './routes/campaigns';
+import webhooksRoutes from './routes/webhooks';
 import { campaignWorker, recoverOrphanedLeads } from './services/CampaignRunner';
 import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
@@ -45,6 +46,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/campaigns', campaignsRoutes);
+app.use('/api/webhooks', webhooksRoutes);
 
 // Error handler do Sentry (depois das rotas, antes de qualquer handler customizado)
 Sentry.setupExpressErrorHandler(app);

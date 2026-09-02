@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { messageQueue } from '../services/queue';
 import { temWebsiteValido } from '../services/ProposalEngine';
+import { requireActiveSubscription } from '../middlewares/authSubscription';
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
 });
 
 // Criar nova campanha
-router.post('/', async (req: Request, res: Response): Promise<any> => {
+router.post('/', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const { name, messageComSite, messageSemSite, delayMin, delayMax } = req.body;
   const workspaceId = (req as any).user.workspaceId;
 
@@ -116,7 +117,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
 });
 
 // Importar leads de arquivo JSON ou CSV com limpeza e alta compatibilidade
-router.post('/:id/leads/import', (req: Request, res: Response, next: Function) => {
+router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
@@ -584,7 +585,7 @@ router.get('/:id/queue-health', async (req: Request, res: Response): Promise<any
 });
 
 
-router.post('/:id/start', async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/start', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
 

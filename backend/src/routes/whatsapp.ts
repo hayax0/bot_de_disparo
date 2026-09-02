@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { WhatsappManager } from '../services/WhatsappManager';
 import jwt from 'jsonwebtoken';
 import { ENV } from '../config/env';
+import { requireActiveSubscription } from '../middlewares/authSubscription';
 
 const router = Router();
 
@@ -21,7 +22,7 @@ const authenticate = (req: Request, res: Response, next: Function): any => {
 
 router.use(authenticate);
 
-router.post('/connect', async (req: Request, res: Response): Promise<any> => {
+router.post('/connect', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const workspaceId = (req as any).user.workspaceId;
   try {
     await WhatsappManager.getClient(workspaceId);

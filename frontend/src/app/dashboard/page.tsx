@@ -35,7 +35,9 @@ import {
   Users,
   Zap,
   Layers,
-  Activity
+  Activity,
+  Crown,
+  CreditCard
 } from 'lucide-react';
 
 interface Campaign {
@@ -135,6 +137,7 @@ export default function Dashboard() {
   // Modais e Drawers
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [campaignDetails, setCampaignDetails] = useState<CampaignDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -273,6 +276,9 @@ export default function Dashboard() {
       addToast('info', 'Inicializando conexão com o WhatsApp...');
       fetchStatus();
     } catch (err: unknown) {
+      if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
+        setIsSubscriptionModalOpen(true);
+      }
       let msg = 'Erro ao conectar WhatsApp.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
@@ -378,6 +384,9 @@ export default function Dashboard() {
       });
       fetchCampaigns();
     } catch (err: unknown) {
+      if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
+        setIsSubscriptionModalOpen(true);
+      }
       // Se a campanha foi criada mas o upload de leads falhou, remove a campanha vazia órfã
       if (createdCampaignId) {
         try {
@@ -405,6 +414,9 @@ export default function Dashboard() {
       fetchCampaigns();
       if (selectedCampaignId === id) openCampaignDetails(id);
     } catch (err: unknown) {
+      if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
+        setIsSubscriptionModalOpen(true);
+      }
       let msg = 'Erro ao iniciar campanha.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
@@ -555,7 +567,28 @@ export default function Dashboard() {
         <div className="pt-4 border-t border-white/[0.06] space-y-3">
           <div className="px-2">
             <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono block mb-1">CONTA</span>
-            <p className="text-xs font-semibold text-slate-200 truncate">{user?.name || user?.email}</p>
+            <div className="flex items-center justify-between gap-1">
+              <p className="text-xs font-semibold text-slate-200 truncate">{user?.name || user?.email}</p>
+              {user?.role === 'ADMIN' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/30 text-purple-300 text-[10px] font-bold shrink-0">
+                  <Crown size={10} className="text-purple-400" />
+                  VIP
+                </span>
+              ) : user?.subscriptionStatus === 'ACTIVE' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold shrink-0">
+                  <CheckCircle2 size={10} className="text-emerald-400" />
+                  Ativo
+                </span>
+              ) : (
+                <button
+                  onClick={() => setIsSubscriptionModalOpen(true)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold shrink-0 hover:bg-amber-500/20 cursor-pointer"
+                >
+                  <AlertTriangle size={10} className="text-amber-400" />
+                  Renovar
+                </button>
+              )}
+            </div>
             <p className="text-[10px] text-slate-400 truncate font-mono mt-0.5">{user?.email}</p>
           </div>
           <button 
@@ -574,6 +607,30 @@ export default function Dashboard() {
       {/* Conteúdo Principal */}
       <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
+        {/* Banner de Assinatura Inativa / Vencida */}
+        {user?.role !== 'ADMIN' && user?.subscriptionStatus !== 'ACTIVE' && (
+          <div className="glass-panel rounded-2xl p-4 border border-amber-500/30 bg-amber-500/[0.06] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <CreditCard size={18} />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-bold text-white">Sua assinatura está inativa ou expirada</h3>
+                <p className="text-[11px] text-slate-400">Ative seu plano para liberar a conexão do WhatsApp, importação de leads e disparos.</p>
+              </div>
+            </div>
+            <a
+              href="https://pay.cakto.com.br/at474et_1080517"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary-dark px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 shrink-0 cursor-pointer"
+            >
+              <Zap size={14} />
+              <span>Assinar Plano Mensal</span>
+            </a>
+          </div>
+        )}
+
         {/* Top Header com Botão de Ação */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1428,6 +1485,75 @@ export default function Dashboard() {
               >
                 {actionLoading === campaignToDelete.id && <RefreshCw size={13} className="animate-spin" />}
                 Sim, excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Assinatura Necessária / Cakto */}
+      {isSubscriptionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-purple-500/30 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 relative">
+            <button 
+              onClick={() => setIsSubscriptionModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/30 text-purple-400 flex items-center justify-center shadow-lg shadow-purple-500/10">
+                <Crown size={24} />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-base">Ativação de Assinatura</h3>
+                <p className="text-xs text-slate-400">Acesso ilimitado à plataforma de disparos</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-2">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                  <span>Disparos inteligentes com delay anti-bloqueio</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                  <span>Importação direta de leads do Google Maps / Apify</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                  <span>Motor de Spintax e personalização por lead</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                  <span>Execução 24/7 em segundo plano na nuvem</span>
+                </div>
+              </div>
+
+              <div className="text-center p-3 rounded-2xl bg-purple-500/[0.07] border border-purple-500/20">
+                <span className="text-[11px] text-purple-300 font-medium block">Plano Mensal Recorrente</span>
+                <div className="text-2xl font-bold text-white mt-0.5">R$ 145,99 <span className="text-xs font-normal text-slate-400">/mês</span></div>
+                <span className="text-[10px] text-slate-400 block mt-1">Liberação instantânea via PIX ou Cartão</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <a
+                href="https://pay.cakto.com.br/at474et_1080517"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Zap size={15} />
+                <span>Assinar Agora na Cakto</span>
+              </a>
+              <button 
+                onClick={() => setIsSubscriptionModalOpen(false)}
+                className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium transition-colors cursor-pointer"
+              >
+                Talvez mais tarde
               </button>
             </div>
           </div>

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
+import { isUserAdmin } from '../services/SubscriptionManager';
 
 const router = Router();
 
@@ -45,12 +46,15 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: 'Já existe uma conta com este e-mail.' });
     }
 
+    const isAdmin = isUserAdmin(cleanEmail);
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: {
         email: cleanEmail,
         password: hashedPassword,
         name: name ? String(name).trim() : null,
+        role: isAdmin ? 'ADMIN' : 'USER',
+        subscriptionStatus: isAdmin ? 'LIFETIME' : 'INACTIVE',
         workspaces: {
           create: {
             name: `${name ? String(name).trim() : 'Minha Empresa'}`,
@@ -64,14 +68,22 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
 
     const workspaceId = user.workspaces[0]?.id;
     const token = jwt.sign(
-      { userId: user.id, workspaceId },
+      { userId: user.id, workspaceId, role: user.role },
       ENV.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     res.status(201).json({ 
       token, 
-      user: { id: user.id, email: user.email, name: user.name, workspaceId } 
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionExpiresAt: user.subscriptionExpiresAt,
+        workspaceId
+      } 
     });
   } catch (error) {
     console.error('Register error:', error);
@@ -89,7 +101,7 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
   const cleanEmail = String(email).trim().toLowerCase();
 
   try {
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { email: cleanEmail },
       include: { workspaces: true }
     });
@@ -98,17 +110,37 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
       return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
     }
 
+    // Se o email está na lista de admins mas não estava como ADMIN no banco, atualiza automaticamente
+    if (isUserAdmin(cleanEmail) && user.role !== 'ADMIN') {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          role: 'ADMIN',
+          subscriptionStatus: 'LIFETIME'
+        },
+        include: { workspaces: true }
+      });
+    }
+
     const workspaceId = user.workspaces[0]?.id;
 
     const token = jwt.sign(
-      { userId: user.id, workspaceId },
+      { userId: user.id, workspaceId, role: user.role },
       ENV.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     res.json({ 
       token, 
-      user: { id: user.id, email: user.email, name: user.name, workspaceId } 
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionExpiresAt: user.subscriptionExpiresAt,
+        workspaceId
+      } 
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -119,12 +151,15 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
 router.get('/me', authenticate, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = (req as any).user.userId;
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
         email: true,
         name: true,
+        role: true,
+        subscriptionStatus: true,
+        subscriptionExpiresAt: true,
         createdAt: true,
         workspaces: {
           select: {
@@ -142,6 +177,16 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<any
 
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    // Auto-promove admin no /me também se necessário
+    if (isUserAdmin(user.email) && user.role !== 'ADMIN') {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'ADMIN', subscriptionStatus: 'LIFETIME' }
+      });
+      user.role = 'ADMIN';
+      user.subscriptionStatus = 'LIFETIME';
     }
 
     res.json({ user });
