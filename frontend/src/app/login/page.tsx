@@ -29,7 +29,6 @@ export default function LoginPage() {
       setAuth(res.data.token, res.data.user);
       router.push('/dashboard');
     } catch (err: unknown) {
-    } catch (err: unknown) {
       let msg = 'Falha na autenticação. Verifique seus dados.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
