@@ -19,15 +19,34 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY_MS = 5000;
 const MAX_RECONNECT_DELAY_MS = 5 * 60 * 1000;
 
-// Remove arquivos de lock do Chromium que impedem re-inicialização após kill abrupto
+// Remove arquivos de lock do Chromium que impedem re-inicialização após kill abrupto (trata symlinks quebrados)
 function removeChromiumLocks(workspaceId: string) {
   try {
     const sessionDir = path.join(process.cwd(), '.wwebjs_auth', `session-${workspaceId}`);
     if (!fs.existsSync(sessionDir)) return;
-    for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-      const lockPath = path.join(sessionDir, lockFile);
-      if (fs.existsSync(lockPath)) {
-        fs.rmSync(lockPath, { force: true });
+
+    const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'parent.lock'];
+    
+    // Remove locks na raiz da sessão e na pasta Default
+    const dirsToCheck = [sessionDir, path.join(sessionDir, 'Default')];
+
+    for (const dir of dirsToCheck) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        const entries = fs.readdirSync(dir);
+        for (const file of entries) {
+          if (lockFiles.includes(file) || file.startsWith('Singleton')) {
+            const lockPath = path.join(dir, file);
+            try {
+              fs.unlinkSync(lockPath);
+              console.log(`[WHATSAPP LOCK] Lock removido com sucesso: ${lockPath}`);
+            } catch {
+              try { fs.rmSync(lockPath, { force: true }); } catch {}
+            }
+          }
+        }
+      } catch (readErr) {
+        console.warn(`[WHATSAPP LOCK] Erro ao ler pasta ${dir}:`, readErr);
       }
     }
   } catch (err) {
