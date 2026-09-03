@@ -7,6 +7,8 @@ test('isUserAdmin: reconhece emails de administradores configurados', () => {
   assert.equal(isUserAdmin('CAIOCAMPOS1009@GMAIL.COM'), true);
   assert.equal(isUserAdmin('Vitoriacampos241003@gmail.com'), true);
   assert.equal(isUserAdmin('vitoriacampos241003@gmail.com'), true);
+  assert.equal(isUserAdmin('vieiralacerda192@gmail.com'), true);
+  assert.equal(isUserAdmin('VIEIRALACERDA192@GMAIL.COM'), true);
   assert.equal(isUserAdmin('cliente@gmail.com'), false);
   assert.equal(isUserAdmin(''), false);
 });
