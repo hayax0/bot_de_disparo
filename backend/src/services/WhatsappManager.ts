@@ -168,7 +168,6 @@ export class WhatsappManager {
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
-          '--no-zygote',
           '--disable-gpu',
           '--disable-extensions',
           '--disable-background-timer-throttling',
@@ -179,6 +178,14 @@ export class WhatsappManager {
         timeout: 90000,
         protocolTimeout: 300000
       }
+    });
+
+    client.on('loading_screen', (percent, message) => {
+      console.log(`[WHATSAPP LOADING] ${percent}% - ${message} (workspace ${workspaceId})`);
+    });
+
+    client.on('change_state', (state) => {
+      console.log(`[WHATSAPP STATE] Estado alterado para: ${state} (workspace ${workspaceId})`);
     });
 
     client.on('qr', async (qrStr) => {
@@ -196,7 +203,7 @@ export class WhatsappManager {
     });
 
     client.on('authenticated', async () => {
-      console.log(`[WHATSAPP AUTH] Sessão autenticada pelo celular para o workspace ${workspaceId}`);
+      console.log(`[WHATSAPP AUTH] Sessão autenticada com sucesso no workspace ${workspaceId}`);
       reconnectAttempts.delete(workspaceId);
       await prisma.whatsappSession.upsert({
         where: { workspaceId },

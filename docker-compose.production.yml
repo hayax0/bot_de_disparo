@@ -43,6 +43,8 @@ services:
       dockerfile: Dockerfile
     container_name: saas_bot_backend
     restart: always
+    init: true
+    shm_size: '1gb'
     depends_on:
       postgres:
         condition: service_healthy

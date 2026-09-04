@@ -10,7 +10,12 @@ process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception:', err);
   Sentry.captureException(err);
 });
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', (reason: any) => {
+  const msg = reason?.message || String(reason);
+  if (msg.includes('detached Frame') || msg.includes('Target closed') || msg.includes('Session closed')) {
+    console.warn('[PUPPETEER TOLERANCE] Frame transitório/sessão fechada:', msg);
+    return;
+  }
   console.error('[FATAL] Unhandled Rejection:', reason);
   Sentry.captureException(reason);
 });
