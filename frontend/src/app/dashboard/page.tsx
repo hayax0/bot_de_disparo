@@ -518,6 +518,23 @@ export default function Dashboard() {
     return campaigns.reduce((acc, c) => acc + (c._count?.leads || 0), 0);
   }, [campaigns]);
 
+  if (!isHydrated) {
+    return (
+      <div className="min-h-screen bg-[#08090D] flex items-center justify-center relative selection:bg-purple-500/30">
+        <div className="glow-ambient" />
+        <div className="flex flex-col items-center gap-4 z-10">
+          <div className="w-10 h-10 rounded-2xl overflow-hidden shadow-lg shadow-purple-500/25 border border-purple-500/30 flex items-center justify-center bg-purple-950/30">
+            <Image src="/logo.png" alt="Logo" width={40} height={40} priority className="w-full h-full object-cover" />
+          </div>
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+            <RefreshCw size={13} className="animate-spin text-purple-400" />
+            <span>Carregando painel...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#08090D] text-slate-100 flex flex-col md:flex-row relative selection:bg-purple-500/30 selection:text-purple-200">
       
@@ -598,13 +615,15 @@ export default function Dashboard() {
           <div className="px-2">
             <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono block mb-1">CONTA</span>
             <div className="flex items-center justify-between gap-1">
-              <p className="text-xs font-semibold text-slate-200 truncate">{user?.name || user?.email}</p>
-              {user?.role === 'ADMIN' ? (
+              <p className="text-xs font-semibold text-slate-200 truncate">{user?.name || user?.email || 'Carregando...'}</p>
+              {!user ? (
+                <div className="h-4 w-12 bg-white/[0.06] rounded animate-pulse shrink-0" />
+              ) : user.role === 'ADMIN' ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/30 text-purple-300 text-[10px] font-bold shrink-0">
                   <Crown size={10} className="text-purple-400" />
                   VIP
                 </span>
-              ) : user?.subscriptionStatus === 'ACTIVE' ? (
+              ) : user.subscriptionStatus === 'ACTIVE' ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold shrink-0">
                   <CheckCircle2 size={10} className="text-emerald-400" />
                   Ativo
@@ -638,7 +657,7 @@ export default function Dashboard() {
       <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
         {/* Banner de Assinatura Inativa / Vencida */}
-        {user?.role !== 'ADMIN' && user?.subscriptionStatus !== 'ACTIVE' && (
+        {user && user.role !== 'ADMIN' && user.subscriptionStatus !== 'ACTIVE' && (
           <div className="glass-panel rounded-2xl p-4 border border-amber-500/30 bg-amber-500/[0.06] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
