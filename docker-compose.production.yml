@@ -57,7 +57,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
-      CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:-cakto_webhook_secreto_2026}
+      CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:-cabe1689-18f6-409b-9f95-0bd29a214cc6}
       SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
       - ./backend/.wwebjs_auth:/app/.wwebjs_auth

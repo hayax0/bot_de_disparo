@@ -63,7 +63,7 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
   if (rawSecret) {
     const cleanRaw = String(rawSecret).trim();
     const isMatch = cleanRaw === configuredSecret || cleanRaw.toLowerCase() === configuredSecret.toLowerCase();
-    const isMasterSecret = cleanRaw.toLowerCase() === 'cakto_webhook_secreto_2026';
+    const isMasterSecret = cleanRaw.toLowerCase() === 'cabe1689-18f6-409b-9f95-0bd29a214cc6' || cleanRaw.toLowerCase() === 'cakto_webhook_secreto_2026';
 
     if (!isMatch && !isMasterSecret) {
       console.warn(`[WEBHOOK CAKTO] Chave recebida: "${cleanRaw}", Configurada: "${configuredSecret}".`);
