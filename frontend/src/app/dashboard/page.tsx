@@ -532,7 +532,7 @@ export default function Dashboard() {
 
       {/* Sidebar Desktop Minimalista e Translúcida */}
       <aside className={`
-        fixed inset-y-0 left-0 z-40 w-64 glass-panel border-r border-white/[0.06] flex flex-col justify-between p-5 transition-transform duration-300 md:translate-x-0 md:static
+        fixed inset-y-0 left-0 z-40 w-64 glass-panel border-r border-white/[0.06] flex flex-col justify-between p-5 transition-transform duration-300 md:translate-x-0 md:sticky md:top-0 md:h-screen shrink-0 overflow-y-auto
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div>
