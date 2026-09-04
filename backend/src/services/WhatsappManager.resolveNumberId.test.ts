@@ -63,3 +63,29 @@ test('resolveNumberId: tolera exceção do getNumberId e continua tentando', asy
   const res = await WhatsappManager.resolveNumberId(client, '5511987654321');
   assert.equal(res, '551187654321@c.us');
 });
+
+test('normalizeBrPhone: normaliza celular 11 dígitos sem DDI adicionando 55', () => {
+  const res = WhatsappManager.normalizeBrPhone('21997411009');
+  assert.equal(res, '5521997411009');
+});
+
+test('normalizeBrPhone: preserva celular 13 dígitos já com 55', () => {
+  const res = WhatsappManager.normalizeBrPhone('5521997411009');
+  assert.equal(res, '5521997411009');
+});
+
+test('normalizeBrPhone: auto-completa nono dígito quando fornecido 10 dígitos (DDD + 8 dígitos)', () => {
+  const res = WhatsappManager.normalizeBrPhone('2197411009');
+  assert.equal(res, '5521997411009');
+});
+
+test('normalizeBrPhone: auto-completa nono dígito quando fornecido 12 dígitos com 55 (55 + DDD + 8 dígitos)', () => {
+  const res = WhatsappManager.normalizeBrPhone('552197411009');
+  assert.equal(res, '5521997411009');
+});
+
+test('normalizeBrPhone: remove pontuações, espaços e caracteres especiais', () => {
+  const res = WhatsappManager.normalizeBrPhone('+55 (21) 99741-1009');
+  assert.equal(res, '5521997411009');
+});
+

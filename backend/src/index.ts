@@ -12,7 +12,12 @@ process.on('uncaughtException', (err) => {
 });
 process.on('unhandledRejection', (reason: any) => {
   const msg = reason?.message || String(reason);
-  if (msg.includes('detached Frame') || msg.includes('Target closed') || msg.includes('Session closed')) {
+  if (
+    msg.includes('detached Frame') ||
+    msg.includes('Target closed') ||
+    msg.includes('Session closed') ||
+    msg.includes('Execution context was destroyed')
+  ) {
     console.warn('[PUPPETEER TOLERANCE] Frame transitório/sessão fechada:', msg);
     return;
   }

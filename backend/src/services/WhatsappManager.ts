@@ -149,6 +149,27 @@ export class WhatsappManager {
     }
   }
 
+  // Cache de códigos de pareamento (workspaceId -> { code, phone, expiresAt })
+  private static pairingCache = new Map<string, { code: string; phone: string; expiresAt: number }>();
+  // Workspaces atualmente em processo de pareamento por código (bloqueia sobreposição de QR)
+  private static pairingActive = new Set<string>();
+
+  static isPairingActive(workspaceId: string): boolean {
+    const cached = this.pairingCache.get(workspaceId);
+    if (!cached) return false;
+    if (Date.now() > cached.expiresAt) {
+      this.pairingCache.delete(workspaceId);
+      this.pairingActive.delete(workspaceId);
+      return false;
+    }
+    return true;
+  }
+
+  static clearPairingState(workspaceId: string) {
+    this.pairingCache.delete(workspaceId);
+    this.pairingActive.delete(workspaceId);
+  }
+
   private static async createClient(workspaceId: string): Promise<Client> {
     const client = new Client({
       authStrategy: new LocalAuth({
@@ -156,7 +177,9 @@ export class WhatsappManager {
         dataPath: './.wwebjs_auth'
       }),
       webVersionCache: {
-        type: 'none'
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1046836583-alpha.html',
+        strict: false
       },
       userAgent: CHROME_USER_AGENT,
       bypassCSP: true,
@@ -181,7 +204,11 @@ export class WhatsappManager {
       }
     });
 
+    let lastLoadingTimestamp = 0;
+    let isFullyReady = false;
+
     client.on('loading_screen', (percent, message) => {
+      lastLoadingTimestamp = Date.now();
       console.log(`[WHATSAPP LOADING] ${percent}% - ${message} (workspace ${workspaceId})`);
     });
 
@@ -190,6 +217,12 @@ export class WhatsappManager {
     });
 
     client.on('qr', async (qrStr) => {
+      // Se pareamento por código estiver ativo e válido, não sobrescreve com QR code
+      if (WhatsappManager.isPairingActive(workspaceId)) {
+        console.log(`[WHATSAPP QR] QR Code suprimido para workspace ${workspaceId} pois pareamento por código está ativo.`);
+        return;
+      }
+
       console.log(`[WHATSAPP QR] QR Code gerado para o workspace ${workspaceId}`);
       try {
         const qrBase64 = await qrcode.toDataURL(qrStr);
@@ -205,6 +238,7 @@ export class WhatsappManager {
 
     client.on('authenticated', async () => {
       console.log(`[WHATSAPP AUTH] Sessão autenticada com sucesso no workspace ${workspaceId}`);
+      WhatsappManager.clearPairingState(workspaceId);
       reconnectAttempts.delete(workspaceId);
       await prisma.whatsappSession.upsert({
         where: { workspaceId },
@@ -215,6 +249,8 @@ export class WhatsappManager {
 
     client.on('ready', async () => {
       console.log(`[WHATSAPP READY] Conectado e pronto para o workspace ${workspaceId}`);
+      isFullyReady = true;
+      WhatsappManager.clearPairingState(workspaceId);
       reconnectAttempts.delete(workspaceId);
       clearReconnectTimer(workspaceId);
       await prisma.whatsappSession.upsert({
@@ -226,6 +262,7 @@ export class WhatsappManager {
 
     client.on('auth_failure', async (msg) => {
       console.error(`[WHATSAPP AUTH FAILURE] Falha de autenticação no workspace ${workspaceId}:`, msg);
+      WhatsappManager.clearPairingState(workspaceId);
       reconnectAttempts.delete(workspaceId);
       await destroyAndCleanup(workspaceId, true);
       await prisma.whatsappSession.update({
@@ -271,6 +308,11 @@ export class WhatsappManager {
       console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada para o workspace ${workspaceId}: ${reason}`);
       sessions.delete(workspaceId);
 
+      const isFalseLogoutDuringLoading = reason === 'LOGOUT' && !isFullyReady && (Date.now() - lastLoadingTimestamp < 30000 || lastLoadingTimestamp > 0);
+      if (isFalseLogoutDuringLoading) {
+        console.warn(`[WHATSAPP WARN] Logout transitório detectado durante loading/handshake para workspace ${workspaceId}. Reagendando reconexão...`);
+      }
+
       // Desliga o cliente sem apagar arquivos de sessão abruptamente
       setTimeout(async () => {
         try {
@@ -284,13 +326,14 @@ export class WhatsappManager {
         data: { status: 'DISCONNECTED', sessionData: null }
       }).catch(() => {});
 
-      // LOGOUT = ação manual no celular: não reconecta sozinho
-      if (reason !== 'LOGOUT') {
+      // Se não for logout manual confirmado após sessão estável, reconecta
+      if (reason !== 'LOGOUT' || isFalseLogoutDuringLoading) {
         scheduleReconnect(workspaceId);
       }
     });
 
     try {
+      (client as any).lastLoggedOut = false;
       await client.initialize();
       return client;
     } catch (err) {
@@ -472,15 +515,67 @@ export class WhatsappManager {
     }
   }
 
+  // Normaliza telefone brasileiro garantindo DDI 55, DDD e 9º dígito
+  static normalizeBrPhone(phone: string): string {
+    let clean = phone.replace(/\D/g, '').replace(/^0+/, '');
+
+    // Se já começa com DDI 55
+    if (clean.startsWith('55')) {
+      // 55 + DDD (2) + 8 dígitos = 12 dígitos (falta o nono dígito)
+      if (clean.length === 12) {
+        const ddd = clean.slice(2, 4);
+        const num = clean.slice(4);
+        if (['6', '7', '8', '9'].includes(num[0])) {
+          clean = `55${ddd}9${num}`;
+        }
+      }
+      return clean;
+    }
+
+    // Se NÃO começa com 55:
+    // 10 dígitos: DDD (2) + 8 dígitos -> adiciona 9 se for celular
+    if (clean.length === 10) {
+      const ddd = clean.slice(0, 2);
+      const num = clean.slice(2);
+      if (['6', '7', '8', '9'].includes(num[0])) {
+        return `55${ddd}9${num}`;
+      }
+      return `55${clean}`;
+    }
+
+    // 11 dígitos: DDD (2) + 9 dígitos (ex: 21997411009)
+    if (clean.length === 11) {
+      return `55${clean}`;
+    }
+
+    return clean;
+  }
+
   // Solicita autenticação via código de pareamento de 8 dígitos (sem câmera/QR Code)
   static async requestPairingCode(workspaceId: string, phone: string): Promise<string> {
-    const client = await this.getClient(workspaceId);
-    let clean = phone.replace(/\D/g, '').replace(/^0+/, '');
-    if (clean.length >= 10 && clean.length <= 11) {
-      clean = '55' + clean;
+    const formattedPhone = this.normalizeBrPhone(phone);
+    if (formattedPhone.length < 12) {
+      throw new Error('Número de telefone inválido. Digite DDD + número celular com 9 dígitos (ex: 21997411009).');
     }
-    const code = await client.requestPairingCode(clean);
-    console.log(`[WHATSAPP PAIRING CODE] Código gerado para ${clean} no workspace ${workspaceId}: ${code}`);
+
+    // Se já houver código ativo e válido nos últimos 120s para o mesmo número, reaproveita
+    const existing = this.pairingCache.get(workspaceId);
+    if (existing && existing.phone === formattedPhone && existing.expiresAt > Date.now()) {
+      console.log(`[WHATSAPP PAIRING] Reutilizando código ativo para ${formattedPhone} no workspace ${workspaceId}: ${existing.code}`);
+      return existing.code;
+    }
+
+    this.pairingActive.add(workspaceId);
+    const client = await this.getClient(workspaceId);
+    const code = await client.requestPairingCode(formattedPhone);
+    console.log(`[WHATSAPP PAIRING CODE] Código gerado para ${formattedPhone} no workspace ${workspaceId}: ${code}`);
+
+    this.pairingCache.set(workspaceId, {
+      code,
+      phone: formattedPhone,
+      expiresAt: Date.now() + 120000 // 2 minutos de validade
+    });
+
     return code;
   }
 }

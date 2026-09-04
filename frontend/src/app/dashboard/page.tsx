@@ -37,7 +37,8 @@ import {
   Layers,
   Activity,
   Crown,
-  CreditCard
+  CreditCard,
+  Copy
 } from 'lucide-react';
 
 interface Campaign {
@@ -820,10 +821,19 @@ export default function Dashboard() {
                         </label>
                         <input
                           type="text"
-                          placeholder="Ex: 11999998888"
+                          placeholder="Ex: 21 99741-1009"
                           value={pairingPhone}
-                          onChange={(e) => setPairingPhone(e.target.value)}
-                          className="w-full px-3 py-2 text-sm rounded-xl bg-black/40 border border-white/[0.1] text-white focus:border-purple-500 focus:outline-none placeholder:text-slate-600"
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                            if (digits.length <= 2) {
+                              setPairingPhone(digits);
+                            } else if (digits.length <= 7) {
+                              setPairingPhone(`(${digits.slice(0, 2)}) ${digits.slice(2)}`);
+                            } else {
+                              setPairingPhone(`(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`);
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-sm rounded-xl bg-black/40 border border-white/[0.1] text-white focus:border-purple-500 focus:outline-none placeholder:text-slate-600 font-mono"
                         />
                       </div>
                       <button
@@ -841,14 +851,29 @@ export default function Dashboard() {
                   ) : (
                     <div className="w-full flex flex-col items-center space-y-3">
                       <span className="text-xs text-slate-400">Digite este código no seu WhatsApp:</span>
-                      <div className="px-5 py-3 rounded-2xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-2xl font-mono font-bold tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.25)]">
-                        {pairingCode}
+                      <div className="flex items-center gap-2">
+                        <div className="px-5 py-3 rounded-2xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-2xl sm:text-3xl font-mono font-bold tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.25)] select-all">
+                          {pairingCode}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (pairingCode) {
+                              navigator.clipboard.writeText(pairingCode);
+                              addToast('success', 'Código copiado para a área de transferência!');
+                            }
+                          }}
+                          className="p-3 rounded-2xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-300 hover:text-white transition-all cursor-pointer"
+                          title="Copiar código"
+                        >
+                          <Copy size={18} />
+                        </button>
                       </div>
                       <div className="text-[11px] text-slate-400 text-center space-y-1 bg-black/30 p-3 rounded-xl border border-white/[0.05] w-full">
-                        <p>1. No WhatsApp, vá em <b>Aparelhos Conectados</b></p>
+                        <p>1. No WhatsApp do celular, vá em <b>Aparelhos Conectados</b></p>
                         <p>2. Toque em <b>Conectar um aparelho</b></p>
-                        <p>3. Toque em <b>Conectar com número de telefone</b></p>
-                        <p>4. Digite o código de 8 dígitos acima</p>
+                        <p>3. Toque em <b>Conectar com número de telefone</b> (no rodapé)</p>
+                        <p>4. Digite o código de 8 dígitos exibido acima</p>
                       </div>
                       <button
                         type="button"
