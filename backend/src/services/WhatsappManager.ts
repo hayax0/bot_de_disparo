@@ -54,8 +54,20 @@ function removeChromiumLocks(workspaceId: string) {
   }
 }
 
+function cleanSessionDirectory(workspaceId: string) {
+  try {
+    const sessionDir = path.join(process.cwd(), '.wwebjs_auth', `session-${workspaceId}`);
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      console.log(`[WHATSAPP AUTO-CLEANUP] Pasta de sessão antiga limpa com sucesso para workspace ${workspaceId}`);
+    }
+  } catch (fsErr) {
+    console.warn(`[WHATSAPP AUTO-CLEANUP] Falha ao remover pasta de sessão para ${workspaceId}:`, fsErr);
+  }
+}
+
 // Destroi o cliente corretamente (mata o Chromium) e limpa o estado em memória
-async function destroyAndCleanup(workspaceId: string) {
+async function destroyAndCleanup(workspaceId: string, cleanFiles = false) {
   const client = sessions.get(workspaceId);
   sessions.delete(workspaceId);
   if (client) {
@@ -64,6 +76,10 @@ async function destroyAndCleanup(workspaceId: string) {
     } catch (err) {
       console.error(`[WHATSAPP DESTROY] Erro ao destruir cliente de ${workspaceId}:`, err);
     }
+  }
+  removeChromiumLocks(workspaceId);
+  if (cleanFiles) {
+    cleanSessionDirectory(workspaceId);
   }
 }
 
@@ -118,6 +134,12 @@ export class WhatsappManager {
 
     manualDisconnects.delete(workspaceId);
     removeChromiumLocks(workspaceId);
+
+    // Se a sessão não está salva como CONNECTED, limpa preventivamente para evitar erro de frame desanexado
+    const sessionInDb = await prisma.whatsappSession.findUnique({ where: { workspaceId } });
+    if (!sessionInDb || sessionInDb.status !== 'CONNECTED') {
+      cleanSessionDirectory(workspaceId);
+    }
 
     const initPromise = this.createClient(workspaceId);
     initializing.set(workspaceId, initPromise);
@@ -202,7 +224,7 @@ export class WhatsappManager {
     client.on('auth_failure', async (msg) => {
       console.error(`[WHATSAPP AUTH FAILURE] Falha de autenticação no workspace ${workspaceId}:`, msg);
       reconnectAttempts.delete(workspaceId);
-      await destroyAndCleanup(workspaceId);
+      await destroyAndCleanup(workspaceId, true);
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
@@ -244,7 +266,7 @@ export class WhatsappManager {
 
     client.on('disconnected', async (reason) => {
       console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada para o workspace ${workspaceId}: ${reason}`);
-      await destroyAndCleanup(workspaceId);
+      await destroyAndCleanup(workspaceId, true);
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
@@ -262,7 +284,7 @@ export class WhatsappManager {
     } catch (err) {
       // Se o Chromium falhou ao iniciar, destrói tudo e agenda reconexão — sessão não fica órfã
       console.error(`[WHATSAPP INIT] Falha ao inicializar cliente p/ ${workspaceId}:`, (err as any)?.message || err);
-      await destroyAndCleanup(workspaceId);
+      await destroyAndCleanup(workspaceId, true);
       removeChromiumLocks(workspaceId);
       scheduleReconnect(workspaceId);
       throw err;
