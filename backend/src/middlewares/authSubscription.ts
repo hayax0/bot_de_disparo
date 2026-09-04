@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
-import { isSubscriptionActive } from '../services/SubscriptionManager';
+import { isSubscriptionActive, isUserAdmin } from '../services/SubscriptionManager';
 
 export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction): Promise<any> {
   const userId = (req as any).user?.userId;
@@ -13,6 +13,7 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
       where: { id: userId },
       select: {
         id: true,
+        email: true,
         role: true,
         subscriptionStatus: true,
         subscriptionExpiresAt: true,
@@ -21,6 +22,17 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
 
     if (!user) {
       return res.status(401).json({ error: 'Usuário não encontrado' });
+    }
+
+    // Administradores configurados por e-mail têm acesso vitalício garantido e nunca tomam 403
+    if (isUserAdmin(user.email) || user.role === 'ADMIN' || user.subscriptionStatus === 'LIFETIME') {
+      if (user.role !== 'ADMIN' || user.subscriptionStatus !== 'LIFETIME') {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role: 'ADMIN', subscriptionStatus: 'LIFETIME' }
+        }).catch(() => {});
+      }
+      return next();
     }
 
     if (!isSubscriptionActive(user)) {
