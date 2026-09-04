@@ -42,6 +42,21 @@ router.get('/status', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
+router.post('/pairing-code', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+  const workspaceId = (req as any).user.workspaceId;
+  const { phone } = req.body;
+  if (!phone || typeof phone !== 'string') {
+    return res.status(400).json({ error: 'Número de telefone é obrigatório' });
+  }
+  try {
+    const code = await WhatsappManager.requestPairingCode(workspaceId, phone);
+    res.json({ code });
+  } catch (error: any) {
+    console.error('Erro ao gerar código de pareamento:', error);
+    res.status(500).json({ error: error?.message || 'Falha ao solicitar código de pareamento' });
+  }
+});
+
 router.post('/disconnect', async (req: Request, res: Response): Promise<any> => {
   const workspaceId = (req as any).user.workspaceId;
   try {

@@ -122,6 +122,8 @@ function scheduleReconnect(workspaceId: string) {
   reconnectTimers.set(workspaceId, timer);
 }
 
+const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 export class WhatsappManager {
 
   static async getClient(workspaceId: string): Promise<Client> {
@@ -134,12 +136,6 @@ export class WhatsappManager {
 
     manualDisconnects.delete(workspaceId);
     removeChromiumLocks(workspaceId);
-
-    // Se a sessão não está salva como CONNECTED, limpa preventivamente para evitar erro de frame desanexado
-    const sessionInDb = await prisma.whatsappSession.findUnique({ where: { workspaceId } });
-    if (!sessionInDb || sessionInDb.status !== 'CONNECTED') {
-      cleanSessionDirectory(workspaceId);
-    }
 
     const initPromise = this.createClient(workspaceId);
     initializing.set(workspaceId, initPromise);
@@ -159,9 +155,15 @@ export class WhatsappManager {
         clientId: workspaceId,
         dataPath: './.wwebjs_auth'
       }),
+      webVersionCache: {
+        type: 'none'
+      },
+      userAgent: CHROME_USER_AGENT,
+      bypassCSP: true,
       puppeteer: {
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         headless: true,
+        defaultViewport: { width: 1280, height: 800 },
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -173,7 +175,8 @@ export class WhatsappManager {
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding',
-          '--disable-blink-features=AutomationControlled'
+          '--disable-blink-features=AutomationControlled',
+          `--user-agent=${CHROME_USER_AGENT}`
         ],
         timeout: 90000,
         protocolTimeout: 300000
@@ -268,7 +271,16 @@ export class WhatsappManager {
 
     client.on('disconnected', async (reason) => {
       console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada para o workspace ${workspaceId}: ${reason}`);
-      await destroyAndCleanup(workspaceId, true);
+      sessions.delete(workspaceId);
+
+      // Desliga o cliente sem apagar arquivos de sessão abruptamente
+      setTimeout(async () => {
+        try {
+          await client.destroy().catch(() => {});
+        } catch {}
+        removeChromiumLocks(workspaceId);
+      }, 1500);
+
       await prisma.whatsappSession.update({
         where: { workspaceId },
         data: { status: 'DISCONNECTED', sessionData: null }
@@ -460,5 +472,17 @@ export class WhatsappManager {
       }
       throw sendErr;
     }
+  }
+
+  // Solicita autenticação via código de pareamento de 8 dígitos (sem câmera/QR Code)
+  static async requestPairingCode(workspaceId: string, phone: string): Promise<string> {
+    const client = await this.getClient(workspaceId);
+    let clean = phone.replace(/\D/g, '').replace(/^0+/, '');
+    if (clean.length >= 10 && clean.length <= 11) {
+      clean = '55' + clean;
+    }
+    const code = await client.requestPairingCode(clean);
+    console.log(`[WHATSAPP PAIRING CODE] Código gerado para ${clean} no workspace ${workspaceId}: ${code}`);
+    return code;
   }
 }

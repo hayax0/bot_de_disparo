@@ -150,6 +150,12 @@ export default function Dashboard() {
   // Mobile sidebar
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // Pareamento por código (alternativa à câmera)
+  const [pairingMode, setPairingMode] = useState<'qr' | 'code'>('qr');
+  const [pairingPhone, setPairingPhone] = useState('');
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [isPairingLoading, setIsPairingLoading] = useState(false);
+
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -304,6 +310,29 @@ export default function Dashboard() {
       addToast('error', msg);
     } finally {
       setConnecting(false);
+    }
+  };
+
+  const handleRequestPairingCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = pairingPhone.replace(/\D/g, '');
+    if (clean.length < 10) {
+      addToast('error', 'Digite o DDD + número de telefone válido (ex: 11999998888).');
+      return;
+    }
+    setIsPairingLoading(true);
+    try {
+      const res = await api.post('/whatsapp/pairing-code', { phone: clean });
+      setPairingCode(res.data.code);
+      addToast('success', 'Código gerado! Digite no seu WhatsApp em Aparelhos Conectados.');
+    } catch (err: unknown) {
+      let msg = 'Erro ao gerar código de pareamento.';
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        msg = err.response.data.error;
+      }
+      addToast('error', msg);
+    } finally {
+      setIsPairingLoading(false);
     }
   };
 
@@ -734,20 +763,104 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Exibição do QR Code quando ativo */}
-          {waStatus?.status === 'QRCODE' && waStatus.qrCode && (
+          {/* Exibição do QR Code ou Código de Pareamento quando em processo de conexão */}
+          {waStatus?.status === 'QRCODE' && (
             <div className="mt-5 pt-5 border-t border-white/[0.06] flex flex-col items-center justify-center animate-in fade-in">
-              <div className="p-3 bg-white rounded-2xl shadow-2xl border border-white/20">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src={waStatus.qrCode} 
-                  alt="QR Code WhatsApp" 
-                  className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl object-contain"
-                />
+              {/* Abas de Alternância: QR Code vs Código por Número */}
+              <div className="flex items-center p-1 bg-white/[0.04] border border-white/[0.08] rounded-xl mb-4">
+                <button
+                  type="button"
+                  onClick={() => setPairingMode('qr')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    pairingMode === 'qr'
+                      ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <QrCode size={13} />
+                  <span>Escanear QR Code</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPairingMode('code')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    pairingMode === 'code'
+                      ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Smartphone size={13} />
+                  <span>Conectar via Código (Sem Câmera)</span>
+                </button>
               </div>
-              <p className="text-xs text-slate-400 mt-3 text-center">
-                Abra o WhatsApp no celular ➔ <b>Aparelhos Conectados</b> ➔ <b>Conectar um aparelho</b> e aponte a câmera.
-              </p>
+
+              {pairingMode === 'qr' && waStatus.qrCode && (
+                <div className="flex flex-col items-center">
+                  <div className="p-3 bg-white rounded-2xl shadow-2xl border border-white/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img 
+                      src={waStatus.qrCode} 
+                      alt="QR Code WhatsApp" 
+                      className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl object-contain"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-3 text-center max-w-sm">
+                    Abra o WhatsApp no celular ➔ <b>Aparelhos Conectados</b> ➔ <b>Conectar um aparelho</b> e aponte a câmera.
+                  </p>
+                </div>
+              )}
+
+              {pairingMode === 'code' && (
+                <div className="w-full max-w-sm bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 flex flex-col items-center">
+                  {!pairingCode ? (
+                    <form onSubmit={handleRequestPairingCode} className="w-full space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                          Seu número de WhatsApp com DDD:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex: 11999998888"
+                          value={pairingPhone}
+                          onChange={(e) => setPairingPhone(e.target.value)}
+                          className="w-full px-3 py-2 text-sm rounded-xl bg-black/40 border border-white/[0.1] text-white focus:border-purple-500 focus:outline-none placeholder:text-slate-600"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isPairingLoading}
+                        className="btn-primary-dark w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isPairingLoading && <RefreshCw size={13} className="animate-spin" />}
+                        <span>{isPairingLoading ? 'Gerando Código...' : 'Gerar Código de Pareamento'}</span>
+                      </button>
+                      <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                        Não precisa de câmera. Você receberá um código de 8 dígitos para digitar no aplicativo do WhatsApp.
+                      </p>
+                    </form>
+                  ) : (
+                    <div className="w-full flex flex-col items-center space-y-3">
+                      <span className="text-xs text-slate-400">Digite este código no seu WhatsApp:</span>
+                      <div className="px-5 py-3 rounded-2xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-2xl font-mono font-bold tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.25)]">
+                        {pairingCode}
+                      </div>
+                      <div className="text-[11px] text-slate-400 text-center space-y-1 bg-black/30 p-3 rounded-xl border border-white/[0.05] w-full">
+                        <p>1. No WhatsApp, vá em <b>Aparelhos Conectados</b></p>
+                        <p>2. Toque em <b>Conectar um aparelho</b></p>
+                        <p>3. Toque em <b>Conectar com número de telefone</b></p>
+                        <p>4. Digite o código de 8 dígitos acima</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPairingCode(null)}
+                        className="text-xs text-purple-400 hover:text-purple-300 underline cursor-pointer mt-1"
+                      >
+                        Gerar outro código / Mudar número
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </section>
