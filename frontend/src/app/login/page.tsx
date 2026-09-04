@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
-import { Bot, Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
+import Image from 'next/image';
+import { Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
 
@@ -48,8 +49,8 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md glass-panel rounded-3xl p-6 sm:p-8 relative z-10 border border-white/[0.08] shadow-2xl backdrop-blur-2xl">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center mb-4 shadow-lg shadow-purple-500/25 border border-white/20">
-            <Bot size={24} strokeWidth={2} />
+          <div className="w-14 h-14 rounded-2xl overflow-hidden mb-4 shadow-xl shadow-purple-500/30 border border-purple-500/30">
+            <Image src="/logo.png" alt="Logo" width={56} height={56} priority className="w-full h-full object-cover" />
           </div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             {isRegister ? 'Criar sua conta' : 'Bem-vindo de volta'}

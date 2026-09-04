@@ -7,6 +7,14 @@ const inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
 export const metadata: Metadata = {
   title: "Disparador de Mensagens",
   description: "Plataforma de Prospecção Automática via WhatsApp",
+  icons: {
+    icon: [
+      { url: '/icon.png', href: '/icon.png' },
+      { url: '/logo.png', href: '/logo.png' }
+    ],
+    apple: '/icon.png',
+    shortcut: '/icon.png'
+  }
 };
 
 export default function RootLayout({

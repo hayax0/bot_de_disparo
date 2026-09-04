@@ -3,10 +3,10 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { api } from '@/lib/api';
 import axios from 'axios';
 import {
-  Bot,
   LogOut,
   Smartphone,
   Play,
@@ -516,8 +516,8 @@ export default function Dashboard() {
       {/* Header Mobile Minimalista */}
       <header className="md:hidden flex items-center justify-between p-4 glass-panel border-b border-white/[0.06] sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-purple-500/20">
-            <Bot size={18} />
+          <div className="w-8 h-8 rounded-xl overflow-hidden shadow-md shadow-purple-500/20 border border-purple-500/30">
+            <Image src="/logo.png" alt="Logo" width={32} height={32} priority className="w-full h-full object-cover" />
           </div>
           <span className="font-bold text-sm tracking-tight text-white">Disparador</span>
         </div>
@@ -538,8 +538,8 @@ export default function Dashboard() {
         <div>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8 px-2">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-purple-500/25 border border-white/20">
-              <Bot size={20} strokeWidth={2} />
+            <div className="w-9 h-9 rounded-2xl overflow-hidden shadow-lg shadow-purple-500/25 border border-purple-500/30">
+              <Image src="/logo.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover" />
             </div>
             <div>
               <span className="font-bold text-sm tracking-tight text-white block">Disparador</span>
