@@ -29,6 +29,7 @@ import authRoutes from './routes/auth';
 import whatsappRoutes from './routes/whatsapp';
 import campaignsRoutes from './routes/campaigns';
 import webhooksRoutes from './routes/webhooks';
+import cronRoutes from './routes/cron';
 import { campaignWorker, recoverOrphanedLeads } from './services/CampaignRunner';
 import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
@@ -57,6 +58,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/campaigns', campaignsRoutes);
 app.use('/api/webhooks', webhooksRoutes);
+app.use('/api/cron', cronRoutes);
 
 // Error handler do Sentry (depois das rotas, antes de qualquer handler customizado)
 Sentry.setupExpressErrorHandler(app);

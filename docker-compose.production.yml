@@ -59,6 +59,11 @@ services:
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
       CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:-cabe1689-18f6-409b-9f95-0bd29a214cc6}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-CMPX Bot Disparo <noreply@botdisparo.cmpx.tec.br>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-cmpxsuporte@gmail.com}
+      PLATFORM_URL: ${PLATFORM_URL:-https://botdisparo.cmpx.tec.br}
+      CRON_SECRET: ${CRON_SECRET:-cmpx_cron_secret_2026}
     volumes:
       - ./backend/.wwebjs_auth:/app/.wwebjs_auth
       - ./backend/uploads:/app/uploads

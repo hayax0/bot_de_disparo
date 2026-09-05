@@ -17,10 +17,16 @@ model User {
   subscriptionExpiresAt DateTime?
   caktoCustomerId       String?
   caktoSubscriptionId   String?
+  caktoOrderId          String?
+  subscriptionStartedAt DateTime?
+  subscriptionCanceledAt DateTime?
+  subscriptionRenewedAt DateTime?
+  subscriptionInterval  String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  workspaces Workspace[]
+  workspaces            Workspace[]
+  notifications         SubscriptionNotification[]
 }
 
 model Workspace {
@@ -92,4 +98,23 @@ model WebhookLog {
 
   @@index([provider, eventId])
   @@index([email])
+}
+
+model SubscriptionNotification {
+  id             String    @id @default(uuid())
+  userId         String
+  type           String    // WELCOME, EXPIRATION_7_DAYS, EXPIRATION_1_DAY, RENEWED, PAYMENT_FAILED, CANCELED
+  cycle          String    // Identificador do ciclo: 'WELCOME' ou 'YYYY-MM-DD'
+  recipientEmail String
+  resendEmailId  String?
+  status         String    @default("SENT") // SENT, FAILED
+  errorMessage   String?
+  sentAt         DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, cycle])
+  @@index([userId])
+  @@index([recipientEmail])
 }
