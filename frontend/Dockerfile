@@ -12,8 +12,10 @@ COPY . .
 # Argumentos de build time (NEXT_PUBLIC_* são embutidos no bundle do browser)
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SENTRY_DSN
+ARG INTERNAL_API_URL=http://backend:3001
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN} \
+    INTERNAL_API_URL=${INTERNAL_API_URL} \
     NODE_ENV=production
 
 RUN npm run build
@@ -22,7 +24,8 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=3000 \
+    INTERNAL_API_URL=http://backend:3001
 
 # Usuário não-root para segurança
 RUN addgroup --system --gid 1001 nodejs && \
