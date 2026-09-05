@@ -5,26 +5,11 @@ import { ENV } from '../config/env';
 
 export interface CaktoWebhookPayload {
   secret?: string;
+  token?: string;
+  webhook_secret?: string;
   event: string;
-  data?: Array<{
-    id?: string;
-    refId?: string;
-    customer?: {
-      name?: string;
-      email?: string;
-      phone?: string;
-      docNumber?: string;
-    };
-  }> | {
-    id?: string;
-    refId?: string;
-    customer?: {
-      name?: string;
-      email?: string;
-      phone?: string;
-      docNumber?: string;
-    };
-  };
+  data?: Array<any> | Record<string, any>;
+  [key: string]: any;
 }
 
 export function isUserAdmin(email: string): boolean {
@@ -33,45 +18,83 @@ export function isUserAdmin(email: string): boolean {
   return ENV.ADMIN_EMAILS.includes(clean);
 }
 
+/**
+ * Validação de acesso por assinatura:
+ * 1. Administradores e VIPs (configurados em ADMIN_EMAILS ou com role ADMIN / LIFETIME) têm acesso irrestrito.
+ * 2. Clientes comuns (USER) só têm acesso se subscriptionStatus === 'ACTIVE' e subscriptionExpiresAt for uma data no futuro.
+ * 3. Qualquer status INACTIVE, PAST_DUE, CANCELED ou data de expiração ultrapassada resulta em acesso bloqueado (false).
+ */
 export function isSubscriptionActive(user: {
+  email?: string | null;
   role?: string | null;
   subscriptionStatus?: string | null;
   subscriptionExpiresAt?: Date | null;
 }): boolean {
   if (!user) return false;
 
-  // Administradores e contas Lifetime têm acesso garantido sempre
-  if (user.role === 'ADMIN' || user.subscriptionStatus === 'LIFETIME') {
+  // 1. VIP / Administradores: Acesso vitalício incondicional
+  if (
+    (user.email && isUserAdmin(user.email)) ||
+    user.role === 'ADMIN' ||
+    user.subscriptionStatus === 'LIFETIME'
+  ) {
     return true;
   }
 
+  // 2. Clientes comuns: Devem ter status ACTIVE e expiração estritamente no futuro
   if (user.subscriptionStatus === 'ACTIVE') {
-    if (!user.subscriptionExpiresAt) return true;
+    if (!user.subscriptionExpiresAt) return false;
     return new Date(user.subscriptionExpiresAt).getTime() > Date.now();
   }
 
+  // Qualquer outro caso é bloqueado
   return false;
 }
 
-export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise<{ success: boolean; message: string; user?: any }> {
-  const { secret, event } = payload;
+export async function processCaktoWebhook(
+  payload: CaktoWebhookPayload,
+  headers?: Record<string, any>
+): Promise<{ success: boolean; message: string; user?: any }> {
+  const { event } = payload;
 
-  // Validação resiliente da chave secreta da Cakto
-  const rawSecret = secret || (payload as any).token || (payload as any).webhook_secret;
+  // 1. Validação do Segredo (suporta body e headers HTTP)
+  const rawSecret =
+    payload.secret ||
+    payload.token ||
+    payload.webhook_secret ||
+    headers?.['x-webhook-secret'] ||
+    headers?.['x-cakto-secret'] ||
+    headers?.['authorization'];
+
   const configuredSecret = (ENV.CAKTO_WEBHOOK_SECRET || 'cakto_webhook_secreto_2026').trim();
 
   if (rawSecret) {
-    const cleanRaw = String(rawSecret).trim();
-    const isMatch = cleanRaw === configuredSecret || cleanRaw.toLowerCase() === configuredSecret.toLowerCase();
-    const isMasterSecret = cleanRaw.toLowerCase() === 'cabe1689-18f6-409b-9f95-0bd29a214cc6' || cleanRaw.toLowerCase() === 'cakto_webhook_secreto_2026';
+    const cleanRaw = String(rawSecret).replace(/^Bearer\s+/i, '').trim();
+    const isMatch =
+      cleanRaw === configuredSecret ||
+      cleanRaw.toLowerCase() === configuredSecret.toLowerCase();
+    const isMasterSecret =
+      cleanRaw.toLowerCase() === 'cabe1689-18f6-409b-9f95-0bd29a214cc6' ||
+      cleanRaw.toLowerCase() === 'cakto_webhook_secreto_2026';
 
     if (!isMatch && !isMasterSecret) {
-      console.warn(`[WEBHOOK CAKTO] Chave recebida: "${cleanRaw}", Configurada: "${configuredSecret}".`);
-      
-      // Se tiver dados legítimos de compra/pagamento da Cakto (paidAt, pix, customer), não bloqueia a liberação do cliente
+      console.warn(`[WEBHOOK CAKTO WARN] Chave recebida: "${cleanRaw}", Configurada: "${configuredSecret}".`);
+
+      // Se tiver dados legítimos de compra/pagamento da Cakto, não bloqueia o processamento
       const hasPaymentIndicator = Array.isArray(payload.data)
-        ? payload.data.some((d: any) => d.paidAt || d.pix || d.status === 'paid' || d.status === 'approved' || d.customer?.email)
-        : Boolean((payload.data as any)?.paidAt || (payload.data as any)?.pix || (payload.data as any)?.customer?.email);
+        ? payload.data.some(
+            (d: any) =>
+              d.paidAt ||
+              d.pix ||
+              d.status === 'paid' ||
+              d.status === 'approved' ||
+              d.customer?.email
+          )
+        : Boolean(
+            (payload.data as any)?.paidAt ||
+              (payload.data as any)?.pix ||
+              (payload.data as any)?.customer?.email
+          );
 
       if (!hasPaymentIndicator) {
         throw new Error('Chave secreta do Webhook inválida.');
@@ -80,6 +103,7 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
     }
   }
 
+  // 2. Extração e normalização dos dados
   let items: any[] = [];
   if (Array.isArray(payload.data)) {
     items = payload.data;
@@ -94,29 +118,75 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
   }
 
   const primaryItem = items[0];
-  const customer = primaryItem.customer;
+  const customer = primaryItem.customer || primaryItem.buyer || primaryItem.client || (payload as any).customer;
   if (!customer || !customer.email) {
     return { success: false, message: 'E-mail do cliente não informado no webhook' };
   }
 
-  const email = customer.email.trim().toLowerCase();
-  const name = customer.name ? customer.name.trim() : 'Cliente';
-  const caktoId = primaryItem.id ? String(primaryItem.id) : undefined;
+  const email = String(customer.email).trim().toLowerCase();
+  const name = customer.name ? String(customer.name).trim() : 'Cliente';
+  const transactionId = primaryItem.id ? String(primaryItem.id).trim() : undefined;
+  const subscriptionId =
+    primaryItem.subscription?.id ||
+    primaryItem.subscription ||
+    primaryItem.subscriptionId ||
+    undefined;
+  const customerId = customer.id ? String(customer.id).trim() : undefined;
+
   const isAdmin = isUserAdmin(email);
-
   const now = new Date();
-  const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  // Normalização de eventos
-  const normalizedEvent = String(event).toLowerCase().trim();
+  // Extrai data de pagamento e data de próximo pagamento se existirem
+  const paidAt = primaryItem.paidAt || primaryItem.created_at || primaryItem.createdAt
+    ? new Date(primaryItem.paidAt || primaryItem.created_at || primaryItem.createdAt)
+    : now;
 
-  // 1. Pagamento aprovado ou Assinatura renovada
+  const nextPaymentAt = primaryItem.next_payment_at || primaryItem.subscription?.nextPaymentAt || primaryItem.nextPaymentAt
+    ? new Date(primaryItem.next_payment_at || primaryItem.subscription?.nextPaymentAt || primaryItem.nextPaymentAt)
+    : null;
+
+  // Ciclo padrão de 30 dias caso não haja nextPaymentAt explícito
+  const standardExpiresAt = nextPaymentAt && nextPaymentAt.getTime() > now.getTime()
+    ? nextPaymentAt
+    : new Date(paidAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  // Normalização de eventos da Cakto
+  const normalizedEvent = String(event || '').toLowerCase().trim();
+
+  // 3. Verificação de Idempotência
+  if (transactionId) {
+    const alreadyProcessed = await prisma.webhookLog.findFirst({
+      where: {
+        provider: 'cakto',
+        eventId: transactionId,
+        event: normalizedEvent
+      }
+    });
+
+    if (alreadyProcessed) {
+      console.log(`[WEBHOOK CAKTO IDEMPOTENTE] Evento "${normalizedEvent}" com ID ${transactionId} já processado.`);
+      return { success: true, message: 'Evento já processado anteriormente (idempotente)' };
+    }
+  }
+
+  // Registra no log de auditoria
+  await prisma.webhookLog.create({
+    data: {
+      provider: 'cakto',
+      eventId: transactionId || null,
+      event: normalizedEvent,
+      email,
+      payload: JSON.stringify(payload)
+    }
+  }).catch((err) => console.error('Erro ao registrar WebhookLog:', err));
+
+  // 4. Tratamento de Eventos
+
+  // CASO A: Pagamento aprovado / Primeira contratação
   if (
     normalizedEvent.includes('approved') ||
     normalizedEvent.includes('paid') ||
-    normalizedEvent.includes('renewed') ||
-    normalizedEvent === 'purchase_approved' ||
-    normalizedEvent === 'subscription_renewed'
+    normalizedEvent === 'purchase_approved'
   ) {
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -124,39 +194,36 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
     });
 
     if (existingUser) {
-      // Se for admin, preserva role ADMIN e LIFETIME
+      // Se for conta de Administrador (VIP), garante status LIFETIME e não rebaixa
       if (isAdmin || existingUser.role === 'ADMIN') {
         const updated = await prisma.user.update({
           where: { id: existingUser.id },
           data: {
             role: 'ADMIN',
             subscriptionStatus: 'LIFETIME',
-            caktoCustomerId: caktoId || existingUser.caktoCustomerId
+            caktoCustomerId: customerId || existingUser.caktoCustomerId,
+            caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId
           }
         });
-        return { success: true, message: 'Conta de Administrador mantida ativa', user: updated };
+        return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: updated };
       }
 
-      // Calcula nova expiração: se ainda tem dias sobrando, soma 30 dias na data futura
-      let newExpiresAt = thirtyDaysLater;
-      if (existingUser.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
-        newExpiresAt = new Date(new Date(existingUser.subscriptionExpiresAt).getTime() + 30 * 24 * 60 * 60 * 1000);
-      }
-
+      // Cliente comum: ativa por 30 dias (ou até a data do próximo pagamento)
       const updated = await prisma.user.update({
         where: { id: existingUser.id },
         data: {
           subscriptionStatus: 'ACTIVE',
-          subscriptionExpiresAt: newExpiresAt,
-          caktoCustomerId: caktoId || existingUser.caktoCustomerId
+          subscriptionExpiresAt: standardExpiresAt,
+          caktoCustomerId: customerId || existingUser.caktoCustomerId,
+          caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId
         }
       });
 
-      return { success: true, message: 'Assinatura renovada com sucesso', user: updated };
+      console.log(`[CAKTO WEBHOOK] Assinatura ativada para ${email}. Válida até ${standardExpiresAt.toISOString()}`);
+      return { success: true, message: 'Assinatura ativada com sucesso', user: updated };
     } else {
-      // Cria novo usuário automaticamente
-      const tempPassword = `SaaS@${crypto.randomBytes(4).toString('hex')}`;
-      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+      // Cria novo usuário automaticamente com marcação temporária para que ele possa reivindicar na tela de cadastro
+      const hashedPassword = `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}`;
 
       const newUser = await prisma.user.create({
         data: {
@@ -165,8 +232,9 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
           password: hashedPassword,
           role: isAdmin ? 'ADMIN' : 'USER',
           subscriptionStatus: isAdmin ? 'LIFETIME' : 'ACTIVE',
-          subscriptionExpiresAt: isAdmin ? null : thirtyDaysLater,
-          caktoCustomerId: caktoId || null,
+          subscriptionExpiresAt: isAdmin ? null : standardExpiresAt,
+          caktoCustomerId: customerId || null,
+          caktoSubscriptionId: subscriptionId ? String(subscriptionId) : null,
           workspaces: {
             create: {
               name: 'Minha Empresa'
@@ -175,17 +243,49 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
         }
       });
 
-      console.log(`[CAKTO WEBHOOK] Novo cliente criado: ${email} | Senha provisória: ${tempPassword}`);
-      return { success: true, message: 'Novo cliente criado e ativado', user: newUser };
+      console.log(`[CAKTO WEBHOOK] Novo cliente criado via webhook: ${email} | Válido até ${standardExpiresAt.toISOString()}`);
+      return { success: true, message: 'Novo cliente criado e ativado com sucesso', user: newUser };
     }
   }
 
-  // 2. Cancelamento, Reembolso ou Inadimplência
+  // CASO B: Renovação recorrente de assinatura aprovada
+  if (
+    normalizedEvent.includes('renewed') ||
+    normalizedEvent === 'subscription_renewed'
+  ) {
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+
+    if (existingUser) {
+      if (isAdmin || existingUser.role === 'ADMIN') {
+        return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: existingUser };
+      }
+
+      // Calcula extensão: se a assinatura ainda estiver válida no futuro, soma 30 dias a partir da expiração atual
+      let newExpiresAt: Date;
+      if (existingUser.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
+        newExpiresAt = new Date(new Date(existingUser.subscriptionExpiresAt).getTime() + 30 * 24 * 60 * 60 * 1000);
+      } else {
+        newExpiresAt = standardExpiresAt;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          subscriptionStatus: 'ACTIVE',
+          subscriptionExpiresAt: newExpiresAt,
+          caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId
+        }
+      });
+
+      console.log(`[CAKTO WEBHOOK] Assinatura renovada para ${email}. Nova expiração: ${newExpiresAt.toISOString()}`);
+      return { success: true, message: 'Assinatura renovada com sucesso', user: updated };
+    }
+  }
+
+  // CASO C: Cancelamento de assinatura
   if (
     normalizedEvent.includes('canceled') ||
-    normalizedEvent.includes('refund') ||
-    normalizedEvent.includes('chargeback') ||
-    normalizedEvent.includes('overdue')
+    normalizedEvent === 'subscription_canceled'
   ) {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -200,9 +300,60 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload): Promise
         }
       });
 
+      console.log(`[CAKTO WEBHOOK] Assinatura cancelada para ${email}. Acesso bloqueado.`);
       return { success: true, message: 'Assinatura cancelada no sistema', user: updated };
     }
   }
 
-  return { success: true, message: `Evento ${event} processado (sem alteração de status)` };
+  // CASO D: Cobrança recusada / Falha de pagamento recorrente
+  if (
+    normalizedEvent.includes('refused') ||
+    normalizedEvent.includes('overdue') ||
+    normalizedEvent === 'purchase_refused'
+  ) {
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      if (isAdmin || existingUser.role === 'ADMIN') {
+        return { success: true, message: 'Conta admin não afetada' };
+      }
+
+      // Se a data de expiração já passou ou não existe, marca como PAST_DUE imediatamente
+      const isPastDue = !existingUser.subscriptionExpiresAt || new Date(existingUser.subscriptionExpiresAt).getTime() <= now.getTime();
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          subscriptionStatus: isPastDue ? 'PAST_DUE' : existingUser.subscriptionStatus
+        }
+      });
+
+      console.log(`[CAKTO WEBHOOK] Falha de pagamento para ${email}. Status: ${updated.subscriptionStatus}`);
+      return { success: true, message: 'Falha de pagamento registrada', user: updated };
+    }
+  }
+
+  // CASO E: Reembolso ou Chargeback (Disputa)
+  if (
+    normalizedEvent.includes('refund') ||
+    normalizedEvent.includes('chargeback')
+  ) {
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      if (isAdmin || existingUser.role === 'ADMIN') {
+        return { success: true, message: 'Conta admin não afetada' };
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          subscriptionStatus: 'CANCELED',
+          subscriptionExpiresAt: now // Encerra acesso imediatamente
+        }
+      });
+
+      console.log(`[CAKTO WEBHOOK] Reembolso/Disputa para ${email}. Acesso revogado imediatamente.`);
+      return { success: true, message: 'Acesso revogado por reembolso/chargeback', user: updated };
+    }
+  }
+
+  return { success: true, message: `Evento "${event}" processado (sem alteração de status)` };
 }

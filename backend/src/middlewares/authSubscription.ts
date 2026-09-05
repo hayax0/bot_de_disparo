@@ -36,6 +36,13 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     }
 
     if (!isSubscriptionActive(user)) {
+      if (user.subscriptionStatus === 'ACTIVE') {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { subscriptionStatus: 'PAST_DUE' }
+        }).catch(() => {});
+      }
+
       return res.status(403).json({
         error: 'Sua assinatura está inativa ou expirada. Renove seu plano para continuar utilizando a plataforma.',
         code: 'SUBSCRIPTION_REQUIRED',

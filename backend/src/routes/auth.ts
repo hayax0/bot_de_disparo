@@ -41,8 +41,45 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
   }
 
   try {
-    const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    const existingUser = await prisma.user.findUnique({
+      where: { email: cleanEmail },
+      include: { workspaces: true }
+    });
+
     if (existingUser) {
+      // Caso a conta tenha sido pré-criada pelo webhook da Cakto com senha provisória:
+      if (existingUser.password.startsWith('$WEBHOOK_TEMP$')) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const updated = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            password: hashedPassword,
+            name: name ? String(name).trim() : existingUser.name,
+          },
+          include: { workspaces: true }
+        });
+
+        const workspaceId = updated.workspaces[0]?.id;
+        const token = jwt.sign(
+          { userId: updated.id, workspaceId, role: updated.role },
+          ENV.JWT_SECRET,
+          { expiresIn: '7d' }
+        );
+
+        return res.status(200).json({
+          token,
+          user: {
+            id: updated.id,
+            email: updated.email,
+            name: updated.name,
+            role: updated.role,
+            subscriptionStatus: updated.subscriptionStatus,
+            subscriptionExpiresAt: updated.subscriptionExpiresAt,
+            workspaceId
+          }
+        });
+      }
+
       return res.status(400).json({ error: 'Já existe uma conta com este e-mail.' });
     }
 
@@ -105,6 +142,12 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
       where: { email: cleanEmail },
       include: { workspaces: true }
     });
+
+    if (user && user.password.startsWith('$WEBHOOK_TEMP$')) {
+      return res.status(401).json({
+        error: 'Sua assinatura foi confirmada pela Cakto! Acesse a aba "Cadastre-se" com este mesmo e-mail para definir sua senha de acesso.'
+      });
+    }
 
     if (!user || !await bcrypt.compare(password, user.password)) {
       return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
