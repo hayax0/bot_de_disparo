@@ -20,6 +20,8 @@ dist/
 backend/.env
 
 # WhatsApp Web & Sessions
+.baileys_auth/
+backend/.baileys_auth/
 .wwebjs_auth/
 .wwebjs_cache/
 backend/.wwebjs_auth/

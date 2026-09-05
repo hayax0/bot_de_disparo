@@ -56,7 +56,6 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
       CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:-cabe1689-18f6-409b-9f95-0bd29a214cc6}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -65,7 +64,6 @@ services:
       PLATFORM_URL: ${PLATFORM_URL:-https://botdisparo.cmpx.tec.br}
       CRON_SECRET: ${CRON_SECRET:-cmpx_cron_secret_2026}
     volumes:
-      - ./backend/.wwebjs_auth:/app/.wwebjs_auth
       - ./backend/.baileys_auth:/app/.baileys_auth
       - ./backend/uploads:/app/uploads
     ports:
