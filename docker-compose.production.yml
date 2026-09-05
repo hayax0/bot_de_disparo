@@ -66,6 +66,7 @@ services:
       CRON_SECRET: ${CRON_SECRET:-cmpx_cron_secret_2026}
     volumes:
       - ./backend/.wwebjs_auth:/app/.wwebjs_auth
+      - ./backend/.baileys_auth:/app/.baileys_auth
       - ./backend/uploads:/app/uploads
     ports:
       - "${BACKEND_PORT:-3001}:3001"
