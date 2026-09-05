@@ -11,6 +11,8 @@ test('isUserAdmin: reconhece emails de administradores/VIPs configurados', () =>
   assert.equal(isUserAdmin('VIEIRALACERDA192@GMAIL.COM'), true);
   assert.equal(isUserAdmin('vmariacamll@gmail.com'), true);
   assert.equal(isUserAdmin('VMARIACAMLL@GMAIL.COM'), true);
+  assert.equal(isUserAdmin('dyonsonandrade@gmail.com'), true);
+  assert.equal(isUserAdmin('DYONSONANDRADE@GMAIL.COM'), true);
   assert.equal(isUserAdmin('cliente@gmail.com'), false);
   assert.equal(isUserAdmin('davianicetofirme@hotmail.com'), false);
   assert.equal(isUserAdmin(''), false);
