@@ -4,7 +4,7 @@ import { EmailService } from './EmailService';
 
 export interface ReminderProcessResult {
   totalChecked: number;
-  reminders7DaysSent: number;
+  reminders5DaysSent: number;
   reminders1DaySent: number;
   expiredUpdated: number;
   errors: string[];
@@ -12,13 +12,13 @@ export interface ReminderProcessResult {
 
 export class SubscriptionReminderService {
   /**
-   * Processa verificações de vencimento e envia avisos de 7 dias e 1 dia de forma estritamente idempotente.
+   * Processa verificações de vencimento e envia avisos de 5 dias e 1 dia de forma estritamente idempotente.
    * Não depende de login do usuário; roda via Cron.
    */
   static async processReminders(now: Date = new Date()): Promise<ReminderProcessResult> {
     const result: ReminderProcessResult = {
       totalChecked: 0,
-      reminders7DaysSent: 0,
+      reminders5DaysSent: 0,
       reminders1DaySent: 0,
       expiredUpdated: 0,
       errors: []
@@ -74,14 +74,14 @@ export class SubscriptionReminderService {
           continue;
         }
 
-        // Caso B: Aviso de 7 dias (janela entre 6.0 e 7.9 dias restantes)
-        if (diffDays >= 6.0 && diffDays <= 7.9) {
+        // Caso B: Aviso de 5 dias (janela entre 4.0 e 5.9 dias restantes)
+        if (diffDays >= 4.0 && diffDays <= 5.9) {
           try {
             const existingNotification = await prisma.subscriptionNotification.findUnique({
               where: {
                 userId_type_cycle: {
                   userId: user.id,
-                  type: 'EXPIRATION_7_DAYS',
+                  type: 'EXPIRATION_5_DAYS',
                   cycle
                 }
               }
@@ -93,14 +93,14 @@ export class SubscriptionReminderService {
                 email: user.email,
                 name: user.name,
                 expiresAt,
-                daysRemaining: 7
+                daysRemaining: 5
               });
 
               await prisma.subscriptionNotification.upsert({
                 where: {
                   userId_type_cycle: {
                     userId: user.id,
-                    type: 'EXPIRATION_7_DAYS',
+                    type: 'EXPIRATION_5_DAYS',
                     cycle
                   }
                 },
@@ -112,7 +112,7 @@ export class SubscriptionReminderService {
                 },
                 create: {
                   userId: user.id,
-                  type: 'EXPIRATION_7_DAYS',
+                  type: 'EXPIRATION_5_DAYS',
                   cycle,
                   recipientEmail: user.email,
                   resendEmailId: emailResult.id || null,
@@ -123,13 +123,13 @@ export class SubscriptionReminderService {
               });
 
               if (emailResult.success) {
-                result.reminders7DaysSent++;
+                result.reminders5DaysSent++;
               } else {
-                result.errors.push(`Falha no envio de 7 dias para ${user.email}: ${emailResult.error}`);
+                result.errors.push(`Falha no envio de 5 dias para ${user.email}: ${emailResult.error}`);
               }
             }
           } catch (err: any) {
-            result.errors.push(`Erro ao processar lembrete de 7 dias para ${user.email}: ${err.message}`);
+            result.errors.push(`Erro ao processar lembrete de 5 dias para ${user.email}: ${err.message}`);
           }
         }
 
@@ -194,7 +194,7 @@ export class SubscriptionReminderService {
 
       console.log(
         `[SUBSCRIPTION CRON] Finalizado: ${result.totalChecked} checados, ` +
-        `${result.reminders7DaysSent} avisos de 7 dias, ${result.reminders1DaySent} avisos de 1 dia, ` +
+        `${result.reminders5DaysSent} avisos de 5 dias, ${result.reminders1DaySent} avisos de 1 dia, ` +
         `${result.expiredUpdated} expirados.`
       );
 

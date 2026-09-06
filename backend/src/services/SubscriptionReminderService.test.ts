@@ -15,23 +15,29 @@ test('SubscriptionReminder: administradores e VIPs são estritamente excluídos 
   }
 });
 
-test('SubscriptionReminder: cálculo de dias restantes identifica corretamente janelas de 7 dias e 1 dia', () => {
+test('SubscriptionReminder: cálculo de dias restantes identifica corretamente janelas de 5 dias e 1 dia', () => {
   const now = new Date('2026-10-01T12:00:00Z');
 
-  // Caso 7 dias restantes
-  const expires7Days = new Date('2026-10-08T12:00:00Z');
-  const diffDays7 = (expires7Days.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-  assert.equal(diffDays7 >= 6.0 && diffDays7 <= 7.9, true);
+  // Caso 5 dias restantes (dentro da janela de 5 dias)
+  const expires5Days = new Date('2026-10-06T12:00:00Z');
+  const diffDays5 = (expires5Days.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  assert.equal(diffDays5 >= 4.0 && diffDays5 <= 5.9, true);
 
-  // Caso 1 dia restante
+  // Caso 1 dia restante (dentro da janela de 1 dia)
   const expires1Day = new Date('2026-10-02T12:00:00Z');
   const diffDays1 = (expires1Day.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
   assert.equal(diffDays1 >= 0.0 && diffDays1 <= 1.9, true);
 
-  // Caso 15 dias restantes (fora da janela de aviso)
+  // Caso 7 dias restantes (não deve cair na janela de 5 dias nem de 1 dia)
+  const expires7Days = new Date('2026-10-08T12:00:00Z');
+  const diffDays7 = (expires7Days.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  assert.equal(diffDays7 >= 4.0 && diffDays7 <= 5.9, false);
+  assert.equal(diffDays7 >= 0.0 && diffDays7 <= 1.9, false);
+
+  // Caso 15 dias restantes (fora de qualquer janela de aviso)
   const expires15Days = new Date('2026-10-16T12:00:00Z');
   const diffDays15 = (expires15Days.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-  assert.equal(diffDays15 >= 6.0 && diffDays15 <= 7.9, false);
+  assert.equal(diffDays15 >= 4.0 && diffDays15 <= 5.9, false);
   assert.equal(diffDays15 >= 0.0 && diffDays15 <= 1.9, false);
 });
 

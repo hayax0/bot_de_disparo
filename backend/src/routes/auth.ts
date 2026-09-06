@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { isUserAdmin } from '../services/SubscriptionManager';
+import { EmailService } from '../services/EmailService';
 
 const router = Router();
 
@@ -109,6 +110,29 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
       ENV.JWT_SECRET,
       { expiresIn: '7d' }
     );
+
+    // Dispara o e-mail de convite de assinatura para novos cadastros (usuários comuns INACTIVE)
+    if (!isAdmin && user.subscriptionStatus === 'INACTIVE') {
+      EmailService.sendRegistrationInvitationEmail({
+        email: user.email,
+        name: user.name,
+        checkoutUrl: ENV.CAKTO_CHECKOUT_URL
+      }).then(async (emailResult) => {
+        await prisma.subscriptionNotification.create({
+          data: {
+            userId: user.id,
+            type: 'REGISTRATION_INVITE',
+            cycle: 'REGISTRATION',
+            recipientEmail: user.email,
+            resendEmailId: emailResult.id || null,
+            status: emailResult.success ? 'SENT' : 'FAILED',
+            errorMessage: emailResult.error || null,
+          }
+        }).catch((err) => console.warn('[SUBSCRIPTION NOTIFICATION REGISTER WARN]:', err.message));
+      }).catch((err) => {
+        console.error(`[AUTH REGISTER EMAIL ERROR] Falha ao enviar convite para ${user.email}:`, err.message || err);
+      });
+    }
 
     res.status(201).json({ 
       token, 

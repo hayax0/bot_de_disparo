@@ -24,8 +24,9 @@ export const ENV = {
     .split(',')
     .map(e => e.trim()),
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
-  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || 'CMPX Bot Disparo <noreply@botdisparo.cmpx.tec.br>',
+  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || 'Disparador <noreply@botdisparo.cmpx.tec.br>',
   RESEND_REPLY_TO: process.env.RESEND_REPLY_TO || 'cmpxsuporte@gmail.com',
   PLATFORM_URL: process.env.PLATFORM_URL || 'https://botdisparo.cmpx.tec.br',
   CRON_SECRET: process.env.CRON_SECRET || 'cmpx_cron_secret_2026',
+  CAKTO_CHECKOUT_URL: process.env.CAKTO_CHECKOUT_URL || 'https://pay.cakto.com.br/at474et_1080517',
 };

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { isSubscriptionActive, isUserAdmin } from '../services/SubscriptionManager';
+import { ENV } from '../config/env';
 
 export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction): Promise<any> {
   const userId = (req as any).user?.userId;
@@ -46,7 +47,7 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
       return res.status(403).json({
         error: 'Sua assinatura está inativa ou expirada. Renove seu plano para continuar utilizando a plataforma.',
         code: 'SUBSCRIPTION_REQUIRED',
-        checkoutUrl: 'https://pay.cakto.com.br/at474et_1080517'
+        checkoutUrl: ENV.CAKTO_CHECKOUT_URL
       });
     }
 
