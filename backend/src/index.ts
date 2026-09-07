@@ -28,9 +28,10 @@ process.on('unhandledRejection', (reason: any) => {
 import authRoutes from './routes/auth';
 import whatsappRoutes from './routes/whatsapp';
 import campaignsRoutes from './routes/campaigns';
+import historyRoutes from './routes/history';
 import webhooksRoutes from './routes/webhooks';
 import cronRoutes from './routes/cron';
-import { campaignWorker, recoverOrphanedLeads } from './services/CampaignRunner';
+import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
 import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
 
@@ -57,6 +58,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/campaigns', campaignsRoutes);
+app.use('/api/history', historyRoutes);
 app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/cron', cronRoutes);
 
@@ -99,6 +101,8 @@ const server = app.listen(ENV.PORT, () => {
   WhatsappManager.startWatchdog(60000);
   // Recupera leads QUEUED sem job na fila (após reinício do servidor/Redis)
   recoverOrphanedLeads();
+  // Consolida e sincroniza histórico permanente com leads SENT antigos
+  backfillDispatchHistory();
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────

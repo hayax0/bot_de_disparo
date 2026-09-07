@@ -100,15 +100,49 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     await WhatsappManager.sendMessage(workspaceId, lead.phone, message);
     sentSuccessfully = true;
 
-    await prisma.lead.update({
-      where: { id: leadId },
-      data: {
-        status: 'SENT',
-        sentAt: new Date(),
-        messageContent: message,
-        errorMessage: null
-      }
-    });
+    const normalizedPhone = WhatsappManager.normalizeBrPhone(lead.phone);
+    const now = new Date();
+
+    await prisma.$transaction([
+      prisma.lead.update({
+        where: { id: leadId },
+        data: {
+          status: 'SENT',
+          sentAt: now,
+          messageContent: message,
+          errorMessage: null
+        }
+      }),
+      prisma.dispatchHistory.upsert({
+        where: {
+          workspaceId_phone: {
+            workspaceId,
+            phone: normalizedPhone
+          }
+        },
+        create: {
+          workspaceId,
+          phone: normalizedPhone,
+          companyTitle: lead.title,
+          website: lead.website || null,
+          neighborhood: lead.neighborhood || null,
+          firstSentAt: now,
+          lastSentAt: now,
+          lastMessage: message,
+          lastCampaignName: campaign.name,
+          sendCount: 1
+        },
+        update: {
+          companyTitle: lead.title,
+          ...(lead.website ? { website: lead.website } : {}),
+          ...(lead.neighborhood ? { neighborhood: lead.neighborhood } : {}),
+          lastSentAt: now,
+          lastMessage: message,
+          lastCampaignName: campaign.name,
+          sendCount: { increment: 1 }
+        }
+      })
+    ]);
   } catch (error: any) {
     console.error(`[WORKER ERROR] Falha ao enviar para o lead ${leadId} (${lead.phone}):`, error?.message || error);
 
@@ -236,4 +270,111 @@ export async function recoverOrphanedLeads() {
   }
 }
 
+// ── Backfill de leads SENT antigos para o DispatchHistory ──────────
+export async function backfillDispatchHistory() {
+  try {
+    const sentLeads = await prisma.lead.findMany({
+      where: { status: 'SENT' },
+      include: {
+        campaign: {
+          select: { workspaceId: true, name: true }
+        }
+      },
+      orderBy: { sentAt: 'asc' }
+    });
+
+    if (sentLeads.length === 0) return;
+
+    // Agrupa por workspaceId + normalizedPhone
+    const grouped = new Map<string, {
+      workspaceId: string;
+      phone: string;
+      companyTitle: string;
+      website?: string | null;
+      neighborhood?: string | null;
+      firstSentAt: Date;
+      lastSentAt: Date;
+      lastMessage?: string | null;
+      lastCampaignName?: string | null;
+      sendCount: number;
+    }>();
+
+    for (const lead of sentLeads) {
+      const workspaceId = lead.campaign?.workspaceId;
+      if (!workspaceId) continue;
+      const normalizedPhone = WhatsappManager.normalizeBrPhone(lead.phone);
+      const key = `${workspaceId}_${normalizedPhone}`;
+      const sentTime = lead.sentAt || lead.createdAt || new Date();
+
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, {
+          workspaceId,
+          phone: normalizedPhone,
+          companyTitle: lead.title,
+          website: lead.website,
+          neighborhood: lead.neighborhood,
+          firstSentAt: sentTime,
+          lastSentAt: sentTime,
+          lastMessage: lead.messageContent,
+          lastCampaignName: lead.campaign?.name,
+          sendCount: 1
+        });
+      } else {
+        existing.sendCount += 1;
+        if (sentTime >= existing.lastSentAt) {
+          existing.lastSentAt = sentTime;
+          existing.lastMessage = lead.messageContent;
+          existing.lastCampaignName = lead.campaign?.name;
+          if (lead.title) existing.companyTitle = lead.title;
+          if (lead.website) existing.website = lead.website;
+          if (lead.neighborhood) existing.neighborhood = lead.neighborhood;
+        }
+        if (sentTime < existing.firstSentAt) {
+          existing.firstSentAt = sentTime;
+        }
+      }
+    }
+
+    let synced = 0;
+    for (const item of grouped.values()) {
+      await prisma.dispatchHistory.upsert({
+        where: {
+          workspaceId_phone: {
+            workspaceId: item.workspaceId,
+            phone: item.phone
+          }
+        },
+        create: {
+          workspaceId: item.workspaceId,
+          phone: item.phone,
+          companyTitle: item.companyTitle,
+          website: item.website || null,
+          neighborhood: item.neighborhood || null,
+          firstSentAt: item.firstSentAt,
+          lastSentAt: item.lastSentAt,
+          lastMessage: item.lastMessage || null,
+          lastCampaignName: item.lastCampaignName || null,
+          sendCount: item.sendCount
+        },
+        update: {
+          companyTitle: item.companyTitle,
+          ...(item.website ? { website: item.website } : {}),
+          ...(item.neighborhood ? { neighborhood: item.neighborhood } : {}),
+          ...(item.lastMessage ? { lastMessage: item.lastMessage } : {}),
+          ...(item.lastCampaignName ? { lastCampaignName: item.lastCampaignName } : {})
+        }
+      });
+      synced++;
+    }
+
+    if (synced > 0) {
+      console.log(`[BACKFILL] ${synced} empresas consolidadas com sucesso no DispatchHistory.`);
+    }
+  } catch (err) {
+    console.error('[BACKFILL ERROR] Erro no backfill do DispatchHistory:', err);
+  }
+}
+
 console.log('[BULLMQ WORKER] Worker de campanhas iniciado (concurrency=2, maxStalledCount=1).');
+

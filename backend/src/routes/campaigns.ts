@@ -8,6 +8,7 @@ import { ENV } from '../config/env';
 import { messageQueue } from '../services/queue';
 import { temWebsiteValido } from '../services/ProposalEngine';
 import { requireActiveSubscription } from '../middlewares/authSubscription';
+import { WhatsappManager } from '../services/WhatsappManager';
 
 const router = Router();
 
@@ -71,6 +72,24 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
+// Obter a última copy utilizada no workspace para preencher novas campanhas
+router.get('/last-copy', async (req: Request, res: Response): Promise<any> => {
+  const workspaceId = (req as any).user.workspaceId;
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { lastMessageComSite: true, lastMessageSemSite: true }
+    });
+    res.json({
+      messageComSite: ws?.lastMessageComSite || null,
+      messageSemSite: ws?.lastMessageSemSite || null
+    });
+  } catch (error) {
+    console.error('Erro ao buscar última copy do workspace:', error);
+    res.status(500).json({ error: 'Falha ao buscar última copy.' });
+  }
+});
+
 // Criar nova campanha
 router.post('/', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const { name, messageComSite, messageSemSite, delayMin, delayMax } = req.body;
@@ -109,6 +128,18 @@ router.post('/', requireActiveSubscription, async (req: Request, res: Response):
         workspaceId
       }
     });
+
+    // Salva a última abordagem efetivamente utilizada no Workspace (sem sobrescrever valores válidos com vazio)
+    const updateCopy: any = {};
+    if (comSite) updateCopy.lastMessageComSite = comSite;
+    if (semSite) updateCopy.lastMessageSemSite = semSite;
+    if (Object.keys(updateCopy).length > 0) {
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: updateCopy
+      }).catch(err => console.warn('[WORKSPACE COPY] Falha ao persistir última copy no workspace:', err));
+    }
+
     res.status(201).json(campaign);
   } catch (error) {
     console.error('Erro ao criar campanha:', error);
@@ -402,6 +433,8 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
       return null;
     };
 
+    const candidatePhonesSet = new Set<string>();
+
     for (const lead of leads) {
       const rawPhone = extractPhone(lead);
       if (!rawPhone) {
@@ -409,15 +442,13 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
         continue;
       }
 
-      let num = rawPhone.replace(/\D/g, '').replace(/^0+/, '');
-      if (num.length >= 10 && num.length <= 11) {
-        num = '55' + num;
-      } else if (num.length === 12 || num.length === 13) {
-        if (!num.startsWith('55')) num = '55' + num;
-      } else if (num.length < 10) {
+      const num = WhatsappManager.normalizeBrPhone(rawPhone);
+      if (num.length < 10) {
         skipped++;
         continue;
       }
+
+      candidatePhonesSet.add(num);
 
       let title = extractTitle(lead);
       if (!title) {
@@ -436,7 +467,7 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
         });
         imported++;
       } catch (err: any) {
-        // If it's a unique constraint violation on campaignId + phone, we can just skip it (it's a duplicate)
+        // Se violar unicidade campaignId + phone, pula como duplicado
         if (err.code === 'P2002') {
           skipped++;
         } else {
@@ -453,7 +484,31 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
       });
     }
 
-    res.json({ imported, skipped, total: leads.length });
+    // Consulta em lote no DispatchHistory para identificar contatos já realizados anteriormente (Zero N+1)
+    const candidatePhones = Array.from(candidatePhonesSet);
+    const alreadySentLeads = candidatePhones.length > 0
+      ? await prisma.dispatchHistory.findMany({
+          where: {
+            workspaceId,
+            phone: { in: candidatePhones }
+          },
+          select: {
+            companyTitle: true,
+            phone: true,
+            lastSentAt: true,
+            lastCampaignName: true,
+            sendCount: true
+          }
+        })
+      : [];
+
+    res.json({ 
+      imported, 
+      skipped, 
+      total: leads.length,
+      alreadySentCount: alreadySentLeads.length,
+      alreadySentLeads
+    });
   } catch (error: any) {
     console.error('Erro ao processar importação de leads:', error);
     res.status(500).json({ error: error.message || 'Falha ao processar arquivo de leads.' });
@@ -468,7 +523,7 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
   }
 });
 
-// Listar leads detalhados da campanha
+// Listar leads detalhados da campanha com informações do histórico permanente
 router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
@@ -482,6 +537,47 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
       orderBy: { createdAt: 'asc' }
     });
 
+    // Consulta em lote única ao DispatchHistory (Zero N+1)
+    const phones = Array.from(new Set(leads.map(l => WhatsappManager.normalizeBrPhone(l.phone))));
+    const historyRecords = phones.length > 0
+      ? await prisma.dispatchHistory.findMany({
+          where: {
+            workspaceId,
+            phone: { in: phones }
+          },
+          select: {
+            phone: true,
+            lastSentAt: true,
+            sendCount: true,
+            lastCampaignName: true
+          }
+        })
+      : [];
+
+    const historyMap = new Map<string, typeof historyRecords[0]>();
+    for (const h of historyRecords) {
+      historyMap.set(h.phone, h);
+    }
+
+    const leadsWithHistory = leads.map(lead => {
+      const normalized = WhatsappManager.normalizeBrPhone(lead.phone);
+      const hist = historyMap.get(normalized);
+      return {
+        ...lead,
+        historyInfo: hist ? {
+          alreadySent: true,
+          lastSentAt: hist.lastSentAt,
+          sendCount: hist.sendCount,
+          lastCampaignName: hist.lastCampaignName
+        } : {
+          alreadySent: false,
+          lastSentAt: null,
+          sendCount: 0,
+          lastCampaignName: null
+        }
+      };
+    });
+
     const counts = {
       total: leads.length,
       pending: leads.filter(l => l.status === 'PENDING' || l.status === 'QUEUED').length,
@@ -490,7 +586,7 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
       error: leads.filter(l => l.status === 'ERROR').length,
     };
 
-    res.json({ campaign, leads, counts });
+    res.json({ campaign, leads: leadsWithHistory, counts });
   } catch (error) {
     console.error('Erro ao buscar leads:', error);
     res.status(500).json({ error: 'Erro ao buscar leads da campanha.' });

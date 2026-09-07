@@ -33,12 +33,38 @@ model Workspace {
   id        String   @id @default(uuid())
   name      String
   userId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  lastMessageComSite String?           @db.Text
+  lastMessageSemSite String?           @db.Text
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaigns  Campaign[]
-  whatsapp   WhatsappSession?
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns        Campaign[]
+  dispatchHistory  DispatchHistory[]
+  whatsapp         WhatsappSession?
+}
+
+model DispatchHistory {
+  id               String    @id @default(uuid())
+  workspaceId      String
+  companyTitle     String
+  phone            String
+  website          String?
+  neighborhood     String?
+  firstSentAt      DateTime  @default(now())
+  lastSentAt       DateTime  @default(now())
+  lastMessage      String?   @db.Text
+  lastCampaignName String?
+  sendCount        Int       @default(1)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phone])
+  @@index([workspaceId])
+  @@index([workspaceId, phone])
+  @@index([workspaceId, lastSentAt])
 }
 
 model WhatsappSession {

@@ -38,7 +38,11 @@ import {
   Activity,
   Crown,
   CreditCard,
-  Copy
+  Copy,
+  History,
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface Campaign {
@@ -64,6 +68,30 @@ interface Lead {
   status: 'PENDING' | 'QUEUED' | 'SENT' | 'REPLIED' | 'ERROR' | 'IGNORED';
   errorMessage?: string | null;
   sentAt?: string | null;
+  historyInfo?: {
+    alreadySent: boolean;
+    lastSentAt: string | null;
+    sendCount: number;
+    lastCampaignName: string | null;
+  };
+}
+
+interface DispatchHistoryItem {
+  id: string;
+  companyTitle: string;
+  phone: string;
+  website?: string | null;
+  neighborhood?: string | null;
+  firstSentAt: string;
+  lastSentAt: string;
+  lastMessage?: string | null;
+  lastCampaignName?: string | null;
+  sendCount: number;
+}
+
+interface HistoryStats {
+  totalCompanies: number;
+  totalDispatches: number;
 }
 
 interface CampaignDetails {
@@ -117,6 +145,27 @@ function formatEta(seconds: number): string {
   return `~${h}h ${m}min`;
 }
 
+// Formata telefone brasileiro para exibição amigável
+function formatPhone(phone: string): string {
+  if (!phone) return '—';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const num = digits.slice(4);
+    if (num.length === 9) {
+      return `+55 (${ddd}) ${num.slice(0, 5)}-${num.slice(5)}`;
+    }
+    return `+55 (${ddd}) ${num.slice(0, 4)}-${num.slice(4)}`;
+  }
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return phone;
+}
+
 export default function Dashboard() {
   const { token, user, isHydrated, hydrate, logout } = useAuth();
   const router = useRouter();
@@ -135,6 +184,20 @@ export default function Dashboard() {
     hydrate();
   }, [hydrate]);
   
+  // Abas do Dashboard
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'history'>('campaigns');
+
+  // Histórico Permanente de Disparos por Workspace
+  const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
+  const [historyPagination, setHistoryPagination] = useState({ page: 1, limit: 25, total: 0, totalPages: 1 });
+  const [historyStats, setHistoryStats] = useState<HistoryStats>({ totalCompanies: 0, totalDispatches: 0 });
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedHistoryMessage, setSelectedHistoryMessage] = useState<DispatchHistoryItem | null>(null);
+
+  // Persistência da última copy utilizada
+  const [lastUsedCopy, setLastUsedCopy] = useState<{ messageComSite: string | null; messageSemSite: string | null } | null>(null);
+
   // Modais e Drawers
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -178,6 +241,41 @@ export default function Dashboard() {
     }
   }, []);
 
+  // Carregar histórico de disparos do Workspace
+  const fetchHistory = useCallback(async (page = 1, search = historySearch) => {
+    setHistoryLoading(true);
+    try {
+      const res = await api.get('/history', {
+        params: { page, limit: 25, search: search.trim() }
+      });
+      setHistoryItems(res.data.items || []);
+      setHistoryPagination(res.data.pagination || { page: 1, limit: 25, total: 0, totalPages: 1 });
+      if (res.data.stats) {
+        setHistoryStats(res.data.stats);
+      }
+    } catch (err: unknown) {
+      let msg = 'Erro ao carregar histórico de disparos.';
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        msg = err.response.data.error;
+      }
+      addToast('error', msg);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historySearch, addToast]);
+
+  // Carregar última copy utilizada no Workspace
+  const fetchLastCopy = useCallback(async () => {
+    try {
+      const res = await api.get('/campaigns/last-copy');
+      if (res.data) {
+        setLastUsedCopy(res.data);
+      }
+    } catch (err) {
+      console.warn('Falha ao carregar última copy:', err);
+    }
+  }, []);
+
   // Carregar campanhas + métricas reais (barra de progresso / ETA)
   const fetchCampaigns = useCallback(async () => {
     try {
@@ -215,7 +313,7 @@ export default function Dashboard() {
     let isMounted = true;
     const loadData = async () => {
       if (isMounted) {
-        await Promise.all([fetchStatus(), fetchCampaigns()]);
+        await Promise.all([fetchStatus(), fetchCampaigns(), fetchHistory(1, ''), fetchLastCopy()]);
       }
     };
     loadData();
@@ -230,7 +328,7 @@ export default function Dashboard() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isHydrated, token, fetchStatus, fetchCampaigns, router]);
+  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchLastCopy, router]);
 
   // Polling de stats + saúde da fila enquanto o modal de detalhes estiver aberto
   useEffect(() => {
@@ -269,11 +367,13 @@ export default function Dashboard() {
         setQueueHealth(null);
         setCampaignToDelete(null);
         setIsMobileMenuOpen(false);
+        setSelectedHistoryMessage(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
 
   const handleConnect = async () => {
     if (connecting) return;
@@ -372,6 +472,16 @@ export default function Dashboard() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Preencher cópia utilizada anteriormente ao abrir modal de Nova Campanha
+  const openNewCampaignModal = useCallback(() => {
+    setNewCampaign(prev => ({
+      ...prev,
+      messageComSite: prev.messageComSite || lastUsedCopy?.messageComSite || '',
+      messageSemSite: prev.messageSemSite || lastUsedCopy?.messageSemSite || ''
+    }));
+    setIsModalOpen(true);
+  }, [lastUsedCopy]);
+
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCampaign.file) {
@@ -402,7 +512,12 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
+      const alreadySent = importRes.data.alreadySentCount || 0;
+      if (alreadySent > 0) {
+        addToast('success', `Campanha criada! ${importRes.data.imported} leads importados. Atenção: ${alreadySent} já foram contatados anteriormente.`);
+      } else {
+        addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
+      }
       setIsModalOpen(false);
       setNewCampaign({ 
         name: '', 
@@ -413,6 +528,8 @@ export default function Dashboard() {
         delayMax: 180 
       });
       fetchCampaigns();
+      fetchHistory(1, historySearch);
+      fetchLastCopy();
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
         setIsSubscriptionModalOpen(true);
@@ -488,6 +605,7 @@ export default function Dashboard() {
         setQueueHealth(null);
       }
       fetchCampaigns();
+      fetchHistory(1, historySearch);
     } catch (err: unknown) {
       let msg = 'Erro ao excluir campanha.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
@@ -596,10 +714,49 @@ export default function Dashboard() {
 
           {/* Navegação */}
           <nav className="space-y-1.5">
-            <div className="px-3 py-2 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white flex items-center gap-3 text-xs font-semibold shadow-inner">
-              <Activity size={16} className="text-purple-400" />
-              <span>Painel Geral</span>
-            </div>
+            <button
+              onClick={() => {
+                setActiveTab('campaigns');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'campaigns'
+                  ? 'bg-white/[0.08] border border-white/[0.1] text-white shadow-inner'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Activity size={16} className={activeTab === 'campaigns' ? 'text-purple-400' : 'text-slate-500'} />
+                <span>Minhas Campanhas</span>
+              </div>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-400">
+                {campaigns.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab('history');
+                setIsMobileMenuOpen(false);
+                fetchHistory(1, historySearch);
+              }}
+              className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-white/[0.08] border border-white/[0.1] text-white shadow-inner'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <History size={16} className={activeTab === 'history' ? 'text-purple-400' : 'text-slate-500'} />
+                <span>Histórico de Contatos</span>
+              </div>
+              {historyStats.totalCompanies > 0 && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                  {historyStats.totalCompanies}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => setIsTutorialOpen(true)}
               className="w-full px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer"
@@ -695,7 +852,7 @@ export default function Dashboard() {
               <span>Como extrair leads</span>
             </button>
             <button 
-              onClick={() => setIsModalOpen(true)}
+              onClick={openNewCampaignModal}
               className="btn-primary-dark px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Plus size={15} />
@@ -909,8 +1066,50 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Cards de Métricas (KPIs Globais) */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* Navegação por Abas: Campanhas x Histórico de Disparos */}
+        <div className="flex items-center gap-2 border-b border-white/[0.08] pb-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('campaigns')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'campaigns'
+                ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+            }`}
+          >
+            <Layers size={15} />
+            <span>Minhas Campanhas</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white/[0.08] text-slate-300 font-mono">
+              {campaigns.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('history');
+              fetchHistory(1, historySearch);
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'history'
+                ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+            }`}
+          >
+            <History size={15} />
+            <span>Histórico de Empresas Contatadas</span>
+            {historyStats.totalCompanies > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/20 text-purple-300 font-mono">
+                {historyStats.totalCompanies}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'campaigns' && (
+          <>
+            {/* Cards de Métricas (KPIs Globais) */}
+            <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
           <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
             <div className="flex items-center justify-between text-slate-400 mb-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider">Campanhas</span>
@@ -984,7 +1183,7 @@ export default function Dashboard() {
                 Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.
               </p>
               <button 
-                onClick={() => setIsModalOpen(true)}
+                onClick={openNewCampaignModal}
                 className="btn-primary-dark px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-2"
               >
                 <Plus size={15} />
@@ -1101,6 +1300,250 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+      </>
+    )}
+
+    {/* VISÃO: HISTÓRICO DE EMPRESAS CONTATADAS */}
+    {activeTab === 'history' && (
+      <div className="space-y-6 animate-in fade-in">
+        {/* KPIs do Histórico */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Contatos Únicos</span>
+              <Users size={15} className="text-purple-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-white">{historyStats.totalCompanies}</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Telefones únicos contatados</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Disparos Efetivados</span>
+              <Zap size={15} className="text-emerald-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-400">{historyStats.totalDispatches}</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Total de mensagens entregues</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Persistência</span>
+              <ShieldCheck size={15} className="text-indigo-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-indigo-400">Permanente</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Independente de campanhas</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Isolamento</span>
+              <CheckCircle2 size={15} className="text-sky-400" />
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-sky-400">100% Seguro</div>
+            <div className="text-[10px] text-slate-500 mt-1 font-mono">Exclusivo do seu Workspace</div>
+          </div>
+        </section>
+
+        {/* Cabeçalho da Tabela e Barra de Busca */}
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <History size={16} className="text-purple-400" />
+                <span>Empresas que Já Receberam Disparos</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Histórico mantido permanentemente mesmo se você apagar a campanha original.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative w-full sm:w-72">
+                <Search size={14} className="absolute left-3 top-3 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Buscar por empresa, telefone, bairro..."
+                  value={historySearch}
+                  onChange={e => {
+                    setHistorySearch(e.target.value);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      fetchHistory(1, historySearch);
+                    }
+                  }}
+                  className="w-full pl-9 pr-8 py-2 text-xs glass-input rounded-xl"
+                />
+                {historySearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistorySearch('');
+                      fetchHistory(1, '');
+                    }}
+                    className="absolute right-2.5 top-2.5 text-slate-500 hover:text-white text-xs cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fetchHistory(1, historySearch)}
+                className="btn-secondary-dark px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                title="Pesquisar"
+              >
+                <Search size={13} />
+                <span className="hidden sm:inline">Buscar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Tabela do Histórico */}
+          <div className="glass-card rounded-2xl border border-white/[0.08] overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-white/[0.03] border-b border-white/[0.08] text-slate-400 font-semibold">
+                  <tr>
+                    <th className="p-3">Empresa</th>
+                    <th className="p-3">Telefone</th>
+                    <th className="p-3">Site / Bairro</th>
+                    <th className="p-3">1º Contato</th>
+                    <th className="p-3">Último Contato</th>
+                    <th className="p-3 text-center">Envios</th>
+                    <th className="p-3">Última Campanha</th>
+                    <th className="p-3 text-center">Última Mensagem</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {historyLoading ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-400">
+                        <div className="flex items-center justify-center gap-2">
+                          <RefreshCw size={15} className="animate-spin text-purple-400" />
+                          <span>Carregando histórico de disparos...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : historyItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-10 text-center text-slate-500">
+                        <div className="flex flex-col items-center max-w-sm mx-auto space-y-2">
+                          <History size={28} className="text-slate-600 mb-1" />
+                          <p className="font-semibold text-slate-300">Nenhum histórico de disparo encontrado</p>
+                          <p className="text-xs text-slate-500">
+                            {historySearch
+                              ? 'Nenhum contato corresponde ao termo de busca pesquisado.'
+                              : 'Conforme suas campanhas forem enviando mensagens com sucesso, o histórico consolidado aparecerá aqui.'}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    historyItems.map(item => (
+                      <tr key={item.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="p-3 font-semibold text-slate-200 max-w-[180px] truncate" title={item.companyTitle}>
+                          {item.companyTitle}
+                        </td>
+                        <td className="p-3 text-slate-300 font-mono whitespace-nowrap">
+                          {formatPhone(item.phone)}
+                        </td>
+                        <td className="p-3 text-slate-400 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            {item.website ? (
+                              <a
+                                href={item.website.startsWith('http') ? item.website : `https://${item.website}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded font-medium border border-emerald-500/20 transition-colors"
+                                title={item.website}
+                              >
+                                <Globe size={11} /> Site
+                              </a>
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">Sem site</span>
+                            )}
+                            {item.neighborhood && (
+                              <span className="inline-flex items-center gap-0.5 text-slate-400 text-[11px] truncate max-w-[120px]" title={item.neighborhood}>
+                                <MapPin size={11} className="text-slate-500 shrink-0" /> {item.neighborhood}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3 text-slate-400 whitespace-nowrap font-mono text-[11px]">
+                          {new Date(item.firstSentAt).toLocaleDateString('pt-BR')}
+                        </td>
+                        <td className="p-3 text-slate-300 whitespace-nowrap font-mono text-[11px]">
+                          {new Date(item.lastSentAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                            item.sendCount > 1
+                              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                              : 'bg-white/[0.06] text-slate-300 border border-white/[0.1]'
+                          }`}>
+                            {item.sendCount}x
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-300 max-w-[160px] truncate" title={item.lastCampaignName || ''}>
+                          {item.lastCampaignName || '—'}
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          {item.lastMessage ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedHistoryMessage(item)}
+                              className="btn-secondary-dark px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1.5 hover:text-purple-300 hover:border-purple-500/40 cursor-pointer"
+                              title="Visualizar última mensagem enviada"
+                            >
+                              <Eye size={12} className="text-purple-400" />
+                              <span>Ver Mensagem</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-600 text-[11px]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Paginação */}
+            {historyPagination.totalPages > 1 && (
+              <div className="p-3 bg-white/[0.02] border-t border-white/[0.08] flex items-center justify-between text-xs text-slate-400">
+                <div>
+                  Mostrando página <b className="text-slate-200">{historyPagination.page}</b> de{' '}
+                  <b className="text-slate-200">{historyPagination.totalPages}</b> ({historyPagination.total} contatos)
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={historyPagination.page <= 1 || historyLoading}
+                    onClick={() => fetchHistory(historyPagination.page - 1, historySearch)}
+                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft size={13} />
+                    <span>Anterior</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={historyPagination.page >= historyPagination.totalPages || historyLoading}
+                    onClick={() => fetchHistory(historyPagination.page + 1, historySearch)}
+                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <span>Próxima</span>
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    )}
 
       </main>
 
@@ -1176,6 +1619,24 @@ export default function Dashboard() {
                   Escreva seu próprio texto ou use uma das copys validadas abaixo:
                 </p>
                 <div className="flex flex-wrap gap-2">
+                  {lastUsedCopy && (lastUsedCopy.messageComSite || lastUsedCopy.messageSemSite) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCampaign(prev => ({
+                          ...prev,
+                          messageComSite: lastUsedCopy.messageComSite || '',
+                          messageSemSite: lastUsedCopy.messageSemSite || ''
+                        }));
+                        addToast('info', 'Última copy usada restaurada!');
+                      }}
+                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Restaurar a última abordagem personalizada que você utilizou"
+                    >
+                      <RefreshCw size={12} />
+                      <span>🔄 Restaurar última copy usada</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setNewCampaign({
@@ -1470,7 +1931,22 @@ export default function Dashboard() {
                         ) : (
                           filteredLeads.map(lead => (
                             <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
-                              <td className="p-3 font-semibold text-slate-200 max-w-[180px] truncate">{lead.title}</td>
+                              <td className="p-3 font-semibold text-slate-200 max-w-[200px]">
+                                <div className="truncate">{lead.title}</div>
+                                {lead.historyInfo?.alreadySent && (
+                                  <div 
+                                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] font-medium"
+                                    title={`Campanha anterior: ${lead.historyInfo.lastCampaignName || 'N/A'}`}
+                                  >
+                                    <AlertTriangle size={10} className="text-amber-400 shrink-0" />
+                                    <span>
+                                      Já contatado {lead.historyInfo.lastSentAt ? new Date(lead.historyInfo.lastSentAt).toLocaleDateString('pt-BR') : ''}
+                                      {lead.historyInfo.sendCount > 1 ? ` (${lead.historyInfo.sendCount}x)` : ''}
+                                      {lead.historyInfo.lastCampaignName ? ` · ${lead.historyInfo.lastCampaignName}` : ''}
+                                    </span>
+                                  </div>
+                                )}
+                              </td>
                               <td className="p-3 text-slate-400 font-mono whitespace-nowrap">{lead.phone}</td>
                               <td className="p-3 text-slate-400 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
@@ -1728,6 +2204,66 @@ export default function Dashboard() {
               >
                 Talvez mais tarde
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Visualizar Última Mensagem Enviada no Histórico */}
+      {selectedHistoryMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <MessageSquare size={16} className="text-purple-400" />
+                  <span>Última Mensagem Enviada</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {selectedHistoryMessage.companyTitle} · {formatPhone(selectedHistoryMessage.phone)}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedHistoryMessage(null)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>Campanha: <b className="text-slate-200">{selectedHistoryMessage.lastCampaignName || '—'}</b></span>
+                <span>Enviada em: <b className="text-slate-200">{new Date(selectedHistoryMessage.lastSentAt).toLocaleString('pt-BR')}</b></span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/[0.08] text-xs text-slate-200 whitespace-pre-wrap font-sans max-h-72 overflow-y-auto leading-relaxed select-text">
+                {selectedHistoryMessage.lastMessage}
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedHistoryMessage.lastMessage) {
+                      navigator.clipboard.writeText(selectedHistoryMessage.lastMessage);
+                      addToast('success', 'Mensagem copiada para a área de transferência!');
+                    }
+                  }}
+                  className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Copy size={13} />
+                  <span>Copiar Mensagem</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedHistoryMessage(null)}
+                  className="btn-primary-dark px-4 py-1.5 rounded-xl text-xs cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>
