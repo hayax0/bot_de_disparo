@@ -4,13 +4,47 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   Browsers,
-  WASocket
+  WASocket,
+  proto,
+  CacheStore
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from '../lib/prisma';
+
+// Armazenamento em memória compatível com a interface CacheStore do Baileys 6.7.24
+export class MemoryCacheStore implements CacheStore {
+  private map = new Map<string, any>();
+  private maxItems: number;
+
+  constructor(maxItems = 5000) {
+    this.maxItems = maxItems;
+  }
+
+  get<T>(key: string): T | undefined {
+    return this.map.get(key);
+  }
+
+  set<T>(key: string, value: T): void {
+    if (this.map.size >= this.maxItems) {
+      const oldest = this.map.keys().next().value;
+      if (oldest !== undefined) {
+        this.map.delete(oldest);
+      }
+    }
+    this.map.set(key, value);
+  }
+
+  del(key: string): void {
+    this.map.delete(key);
+  }
+
+  flushAll(): void {
+    this.map.clear();
+  }
+}
 
 // Clientes ativos em memória (workspaceId -> WASocket)
 const sessions = new Map<string, WASocket>();
@@ -105,6 +139,28 @@ export class WhatsappManager {
   // Workspaces atualmente em processo de pareamento por código (bloqueia sobreposição de QR no banco)
   private static pairingActive = new Set<string>();
 
+  // Armazenamento em memória das mensagens enviadas para atender retries criptográficos do Signal/Baileys (key.id -> proto.IMessage)
+  private static sentMessages = new Map<string, proto.IMessage>();
+  private static readonly MAX_SENT_CACHE = 5000;
+
+  static cacheSentMessage(id: string, message: proto.IMessage) {
+    if (this.sentMessages.size >= this.MAX_SENT_CACHE) {
+      const oldestKey = this.sentMessages.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.sentMessages.delete(oldestKey);
+      }
+    }
+    this.sentMessages.set(id, message);
+  }
+
+  static getCachedMessage(id: string): proto.IMessage | undefined {
+    return this.sentMessages.get(id);
+  }
+
+  static clearSentMessagesCache() {
+    this.sentMessages.clear();
+  }
+
   static isPairingActive(workspaceId: string): boolean {
     const cached = this.pairingCache.get(workspaceId);
     if (!cached) return false;
@@ -153,12 +209,24 @@ export class WhatsappManager {
       version: [2, 3000, 1017054665] as [number, number, number]
     }));
 
+    const msgRetryCounterCache = new MemoryCacheStore(5000);
+
     const sock = makeWASocket({
       version,
       logger,
       auth: {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger),
+      },
+      msgRetryCounterCache,
+      getMessage: async (key: proto.IMessageKey) => {
+        if (key.id) {
+          const cached = WhatsappManager.getCachedMessage(key.id);
+          if (cached) {
+            return cached;
+          }
+        }
+        return undefined;
       },
       printQRInTerminal: false,
       browser: Browsers.appropriate('Chrome'),
@@ -420,14 +488,9 @@ export class WhatsappManager {
       throw new Error('WhatsApp não está conectado no momento.');
     }
 
-    let targetChatId = await this.resolveNumberId(client, phone);
+    const targetChatId = await this.resolveNumberId(client, phone);
     if (!targetChatId) {
-      const normalized = this.normalizeBrPhone(phone);
-      if (normalized.startsWith('55') && (normalized.length === 12 || normalized.length === 13)) {
-        targetChatId = `${normalized}@s.whatsapp.net`;
-      } else {
-        throw new Error('Número não possui conta ativa no WhatsApp (ou é telefone fixo)');
-      }
+      throw new Error('Número não possui conta ativa no WhatsApp (ou é telefone fixo)');
     }
 
     // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 3.5s)
@@ -436,7 +499,10 @@ export class WhatsappManager {
 
     try {
       if (typeof client.sendMessage === 'function') {
-        await client.sendMessage(targetChatId, { text: message });
+        const sent = await client.sendMessage(targetChatId, { text: message });
+        if (sent?.key?.id && sent?.message) {
+          WhatsappManager.cacheSentMessage(sent.key.id, sent.message);
+        }
       } else {
         throw new Error('Cliente WhatsApp inválido.');
       }

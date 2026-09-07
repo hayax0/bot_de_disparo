@@ -611,12 +611,13 @@ router.post('/:id/start', requireActiveSubscription, async (req: Request, res: R
       });
     }
 
-    // 3. Buscar leads pendentes (ou que ficaram como QUEUED)
+    // 3. Buscar leads pendentes (ou que ficaram como QUEUED) em ordem cronológica (createdAt asc)
     const pendingLeads = await prisma.lead.findMany({
       where: { 
         campaignId: id, 
         status: { in: ['PENDING', 'QUEUED'] }
-      }
+      },
+      orderBy: { createdAt: 'asc' }
     });
 
     if (pendingLeads.length === 0) {

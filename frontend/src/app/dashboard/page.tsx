@@ -61,7 +61,7 @@ interface Lead {
   phone: string;
   website?: string | null;
   neighborhood?: string | null;
-  status: 'PENDING' | 'SENT' | 'REPLIED' | 'ERROR' | 'IGNORED';
+  status: 'PENDING' | 'QUEUED' | 'SENT' | 'REPLIED' | 'ERROR' | 'IGNORED';
   errorMessage?: string | null;
   sentAt?: string | null;
 }
@@ -1426,9 +1426,11 @@ export default function Dashboard() {
                   <div className="flex gap-1.5 overflow-x-auto pb-1 sm:pb-0">
                     {[
                       { key: 'ALL', label: 'Todos' },
-                      { key: 'PENDING', label: 'Pendentes' },
-                      { key: 'SENT', label: 'Enviados' },
-                      { key: 'ERROR', label: 'Erros' }
+                      { key: 'SENT', label: 'Enviado' },
+                      { key: 'PENDING', label: 'Pendente' },
+                      { key: 'QUEUED', label: 'Na Fila' },
+                      { key: 'REPLIED', label: 'Respondidos' },
+                      { key: 'ERROR', label: 'Erro' }
                     ].map(f => (
                       <button
                         key={f.key}
@@ -1492,14 +1494,28 @@ export default function Dashboard() {
                                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                     : lead.status === 'PENDING'
                                     ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : lead.status === 'QUEUED'
+                                    ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
                                     : lead.status === 'REPLIED'
                                     ? 'bg-purple-500/10 text-purple-300 border border-purple-500/20'
                                     : 'bg-red-500/10 text-red-400 border border-red-500/20'
                                 }`}>
                                   {lead.status === 'SENT' && <Check size={11} />}
                                   {lead.status === 'PENDING' && <Clock size={11} />}
+                                  {lead.status === 'QUEUED' && <Clock size={11} className="animate-spin" />}
+                                  {lead.status === 'REPLIED' && <Check size={11} />}
                                   {lead.status === 'ERROR' && <AlertCircle size={11} />}
-                                  {lead.status}
+                                  {lead.status === 'SENT'
+                                    ? 'Enviado'
+                                    : lead.status === 'PENDING'
+                                    ? 'Pendente'
+                                    : lead.status === 'QUEUED'
+                                    ? 'Na Fila'
+                                    : lead.status === 'REPLIED'
+                                    ? 'Respondeu'
+                                    : lead.status === 'ERROR'
+                                    ? 'Erro'
+                                    : lead.status}
                                 </span>
                               </td>
                               <td
