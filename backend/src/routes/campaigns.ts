@@ -580,8 +580,10 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
 
     const counts = {
       total: leads.length,
-      pending: leads.filter(l => l.status === 'PENDING' || l.status === 'QUEUED').length,
+      pending: leads.filter(l => l.status === 'PENDING' || l.status === 'QUEUED' || l.status === 'SENDING').length,
       sent: leads.filter(l => l.status === 'SENT').length,
+      delivered: leads.filter(l => l.status === 'DELIVERED').length,
+      read: leads.filter(l => l.status === 'READ').length,
       replied: leads.filter(l => l.status === 'REPLIED').length,
       error: leads.filter(l => l.status === 'ERROR').length,
     };
@@ -608,13 +610,22 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<any> => {
       _count: { status: true }
     });
 
-    const counts: Record<string, number> = { PENDING: 0, QUEUED: 0, SENT: 0, REPLIED: 0, ERROR: 0 };
+    const counts: Record<string, number> = {
+      PENDING: 0,
+      QUEUED: 0,
+      SENDING: 0,
+      SENT: 0,
+      DELIVERED: 0,
+      READ: 0,
+      REPLIED: 0,
+      ERROR: 0
+    };
     for (const g of grouped) counts[g.status] = g._count.status;
 
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const sent = counts.SENT + counts.REPLIED;
-    const remaining = counts.PENDING + counts.QUEUED;
-    const progress = total > 0 ? Math.round(((sent + counts.ERROR) / total) * 100) : 0;
+    const sent = (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0) + (counts.REPLIED || 0);
+    const remaining = (counts.PENDING || 0) + (counts.QUEUED || 0) + (counts.SENDING || 0);
+    const progress = total > 0 ? Math.round(((sent + (counts.ERROR || 0)) / total) * 100) : 0;
 
     // Estimativa de tempo restante: delays médios + pausas de lote (8 envios → pausa de ~10-15min)
     const avgDelayS = (campaign.delayMin + campaign.delayMax) / 2;
@@ -627,7 +638,10 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<any> => {
       total,
       pending: counts.PENDING,
       queued: counts.QUEUED,
+      sending: counts.SENDING,
       sent: counts.SENT,
+      delivered: counts.DELIVERED,
+      read: counts.READ,
       replied: counts.REPLIED,
       error: counts.ERROR,
       progress,

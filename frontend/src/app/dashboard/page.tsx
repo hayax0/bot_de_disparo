@@ -31,6 +31,7 @@ import {
   Globe,
   MapPin,
   Check,
+  CheckCheck,
   AlertCircle,
   Users,
   Zap,
@@ -65,9 +66,12 @@ interface Lead {
   phone: string;
   website?: string | null;
   neighborhood?: string | null;
-  status: 'PENDING' | 'QUEUED' | 'SENT' | 'REPLIED' | 'ERROR' | 'IGNORED';
+  status: 'PENDING' | 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'ERROR' | 'IGNORED';
   errorMessage?: string | null;
   sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  wppMessageId?: string | null;
   historyInfo?: {
     alreadySent: boolean;
     lastSentAt: string | null;
@@ -101,6 +105,8 @@ interface CampaignDetails {
     total: number;
     pending: number;
     sent: number;
+    delivered?: number;
+    read?: number;
     replied: number;
     error: number;
   };
@@ -110,7 +116,10 @@ interface CampaignStats {
   total: number;
   pending: number;
   queued: number;
+  sending?: number;
   sent: number;
+  delivered?: number;
+  read?: number;
   replied: number;
   error: number;
   progress: number;
@@ -1841,22 +1850,30 @@ export default function Dashboard() {
               <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
                 
                 {/* KPIs da Campanha */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Pendentes</span>
-                    <p className="text-lg font-bold text-amber-400 mt-0.5">{campaignDetails?.counts.pending || 0}</p>
+                    <p className="text-base font-bold text-amber-400 mt-0.5">{campaignDetails?.counts.pending || 0}</p>
                   </div>
-                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Enviados</span>
-                    <p className="text-lg font-bold text-emerald-400 mt-0.5">{campaignDetails?.counts.sent || 0}</p>
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Aceito pelo servidor do WhatsApp (1 tick)">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Enviados (1 ✓)</span>
+                    <p className="text-base font-bold text-sky-400 mt-0.5">{campaignDetails?.counts.sent || 0}</p>
                   </div>
-                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Entregue no aparelho do contato (2 ticks cinzas)">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Entregues (2 ✓✓)</span>
+                    <p className="text-base font-bold text-emerald-400 mt-0.5">{campaignDetails?.counts.delivered || 0}</p>
+                  </div>
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Lido pelo destinatário (2 ticks azuis)">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Lidos (2 ✓✓)</span>
+                    <p className="text-base font-bold text-cyan-400 mt-0.5">{campaignDetails?.counts.read || 0}</p>
+                  </div>
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Respondidos</span>
-                    <p className="text-lg font-bold text-purple-400 mt-0.5">{campaignDetails?.counts.replied || 0}</p>
+                    <p className="text-base font-bold text-purple-400 mt-0.5">{campaignDetails?.counts.replied || 0}</p>
                   </div>
-                  <div className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Erros</span>
-                    <p className="text-lg font-bold text-red-400 mt-0.5">{campaignDetails?.counts.error || 0}</p>
+                    <p className="text-base font-bold text-red-400 mt-0.5">{campaignDetails?.counts.error || 0}</p>
                   </div>
                 </div>
 
@@ -1887,10 +1904,12 @@ export default function Dashboard() {
                   <div className="flex gap-1.5 overflow-x-auto pb-1 sm:pb-0">
                     {[
                       { key: 'ALL', label: 'Todos' },
-                      { key: 'SENT', label: 'Enviado' },
-                      { key: 'PENDING', label: 'Pendente' },
-                      { key: 'QUEUED', label: 'Na Fila' },
+                      { key: 'DELIVERED', label: '✓✓ Entregues' },
+                      { key: 'READ', label: '✓✓ Lidos' },
+                      { key: 'SENT', label: '✓ Enviados' },
                       { key: 'REPLIED', label: 'Respondidos' },
+                      { key: 'QUEUED', label: 'Na Fila' },
+                      { key: 'PENDING', label: 'Pendente' },
                       { key: 'ERROR', label: 'Erro' }
                     ].map(f => (
                       <button
@@ -1966,27 +1985,52 @@ export default function Dashboard() {
                               </td>
                               <td className="p-3 whitespace-nowrap">
                                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold text-[10px] ${
-                                  lead.status === 'SENT'
+                                  lead.status === 'DELIVERED'
                                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                    : lead.status === 'PENDING'
-                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                    : lead.status === 'QUEUED'
+                                    : lead.status === 'READ'
+                                    ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+                                    : lead.status === 'SENT'
                                     ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                                    : lead.status === 'PENDING'
+                                    ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+                                    : lead.status === 'QUEUED'
+                                    ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                                    : lead.status === 'SENDING'
+                                    ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
                                     : lead.status === 'REPLIED'
                                     ? 'bg-purple-500/10 text-purple-300 border border-purple-500/20'
                                     : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                }`}>
+                                }`}
+                                title={
+                                  lead.status === 'SENT'
+                                    ? '✓ Aceito pelo servidor do WhatsApp — aguardando entrega no aparelho'
+                                    : lead.status === 'DELIVERED'
+                                    ? '✓✓ Entrega confirmada no aparelho do contato'
+                                    : lead.status === 'READ'
+                                    ? '✓✓ Leitura confirmada pelo destinatário'
+                                    : undefined
+                                }
+                                >
+                                  {lead.status === 'DELIVERED' && <CheckCheck size={11} className="text-emerald-400" />}
+                                  {lead.status === 'READ' && <CheckCheck size={11} className="text-cyan-400" />}
                                   {lead.status === 'SENT' && <Check size={11} />}
                                   {lead.status === 'PENDING' && <Clock size={11} />}
                                   {lead.status === 'QUEUED' && <Clock size={11} className="animate-spin" />}
-                                  {lead.status === 'REPLIED' && <Check size={11} />}
+                                  {lead.status === 'SENDING' && <Clock size={11} className="animate-spin" />}
+                                  {lead.status === 'REPLIED' && <MessageSquare size={11} />}
                                   {lead.status === 'ERROR' && <AlertCircle size={11} />}
-                                  {lead.status === 'SENT'
-                                    ? 'Enviado'
+                                  {lead.status === 'DELIVERED'
+                                    ? 'Entregue'
+                                    : lead.status === 'READ'
+                                    ? 'Lido'
+                                    : lead.status === 'SENT'
+                                    ? 'Enviado ao WhatsApp'
                                     : lead.status === 'PENDING'
                                     ? 'Pendente'
                                     : lead.status === 'QUEUED'
                                     ? 'Na Fila'
+                                    : lead.status === 'SENDING'
+                                    ? 'Enviando...'
                                     : lead.status === 'REPLIED'
                                     ? 'Respondeu'
                                     : lead.status === 'ERROR'
@@ -1998,11 +2042,17 @@ export default function Dashboard() {
                                 className="p-3 text-slate-500 text-[11px] max-w-[200px] truncate font-mono"
                                 title={lead.errorMessage || undefined}
                               >
-                                {lead.sentAt
-                                  ? new Date(lead.sentAt).toLocaleString('pt-BR')
-                                  : lead.status === 'ERROR'
-                                    ? <span className="text-red-400/90">{lead.errorMessage || 'Falha desconhecida'}</span>
-                                    : (lead.errorMessage || '—')}
+                                {lead.status === 'ERROR' ? (
+                                  <span className="text-red-400/90">{lead.errorMessage || 'Falha desconhecida'}</span>
+                                ) : lead.readAt ? (
+                                  <span className="text-cyan-400/90">Lido: {new Date(lead.readAt).toLocaleString('pt-BR')}</span>
+                                ) : lead.deliveredAt ? (
+                                  <span className="text-emerald-400/90">Entregue: {new Date(lead.deliveredAt).toLocaleString('pt-BR')}</span>
+                                ) : lead.sentAt ? (
+                                  <span>Enviado: {new Date(lead.sentAt).toLocaleString('pt-BR')}</span>
+                                ) : (
+                                  lead.errorMessage || '—'
+                                )}
                               </td>
                             </tr>
                           ))

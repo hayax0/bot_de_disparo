@@ -46,6 +46,9 @@ export class MemoryCacheStore implements CacheStore {
   }
 }
 
+// Estados de conexão explícitos por Workspace
+export type WorkspaceConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED';
+
 // Clientes ativos em memória (workspaceId -> WASocket)
 const sessions = new Map<string, WASocket>();
 // Promessas de inicialização em andamento (evita criar 2 sockets concorrentes para o mesmo workspace)
@@ -102,28 +105,28 @@ function clearReconnectTimer(workspaceId: string) {
   }
 }
 
-function scheduleReconnect(workspaceId: string) {
+function scheduleReconnect(workspaceId: string, immediate = false) {
   if (manualDisconnects.has(workspaceId)) return;
   if (sessions.has(workspaceId) || initializing.has(workspaceId)) return;
   if (reconnectTimers.has(workspaceId)) return;
 
   const attempt = (reconnectAttempts.get(workspaceId) || 0) + 1;
   if (attempt > MAX_RECONNECT_ATTEMPTS) {
-    console.error(`[WHATSAPP RECONNECT] Limite de ${MAX_RECONNECT_ATTEMPTS} tentativas atingido p/ workspace ${workspaceId}. Aguardando ação manual via watchdog.`);
+    console.error(`[WHATSAPP RECONNECT] Limite de ${MAX_RECONNECT_ATTEMPTS} tentativas atingido p/ workspace ${workspaceId}.`);
     reconnectAttempts.delete(workspaceId);
     return;
   }
   reconnectAttempts.set(workspaceId, attempt);
 
-  const exponential = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1), MAX_RECONNECT_DELAY_MS);
-  const jitter = Math.floor(Math.random() * 3000);
-  const delay = exponential + jitter;
+  const delay = immediate
+    ? 1500
+    : Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1), MAX_RECONNECT_DELAY_MS) + Math.floor(Math.random() * 2000);
 
   console.log(`[WHATSAPP RECONNECT] Reconexão agendada p/ workspace ${workspaceId} em ${Math.round(delay / 1000)}s (tentativa ${attempt}/${MAX_RECONNECT_ATTEMPTS})`);
 
   const timer = setTimeout(() => {
     reconnectTimers.delete(workspaceId);
-    if (manualDisconnects.has(workspaceId) || sessions.has(workspaceId)) return;
+    if (manualDisconnects.has(workspaceId) || sessions.has(workspaceId) || initializing.has(workspaceId)) return;
     WhatsappManager.getClient(workspaceId).catch(err => {
       console.error(`[WHATSAPP RECONNECT] Falha ao reconectar workspace ${workspaceId}:`, err?.message || err);
     });
@@ -161,6 +164,46 @@ export class WhatsappManager {
     this.sentMessages.clear();
   }
 
+  // Recupera mensagem para retries criptográficos do Baileys/Signal (Cache em memória -> Fallback no banco de dados)
+  static async recoverMessageContent(key: proto.IMessageKey): Promise<proto.IMessage | undefined> {
+    if (!key?.id) return undefined;
+
+    // 1. Tenta recuperar do cache rápido em memória
+    const cached = WhatsappManager.getCachedMessage(key.id);
+    if (cached) {
+      return cached;
+    }
+
+    // 2. Fallback resiliente: busca no banco de dados para retries pós-restart
+    try {
+      const lead = await prisma.lead.findFirst({
+        where: { wppMessageId: key.id },
+        select: { messageContent: true }
+      });
+      if (lead?.messageContent) {
+        console.log(`[WhatsApp Retry] Mensagem recuperada do banco de dados p/ retry criptográfico: messageId=${key.id}`);
+        return {
+          extendedTextMessage: {
+            text: lead.messageContent
+          }
+        };
+      }
+    } catch (dbErr) {
+      console.error(`[WhatsApp Retry] Erro ao buscar mensagem no banco para retry (id=${key.id}):`, dbErr);
+    }
+
+    return undefined;
+  }
+
+  // Máscara de telefone para logs seguros (ex: 5521997679775 -> 5521*****9775)
+  static maskPhone(phone: string): string {
+    const clean = phone.replace(/\D/g, '');
+    if (clean.length <= 6) return clean;
+    const start = clean.slice(0, 4);
+    const end = clean.slice(-4);
+    return `${start}${'*'.repeat(Math.max(2, clean.length - 8))}${end}`;
+  }
+
   static isPairingActive(workspaceId: string): boolean {
     const cached = this.pairingCache.get(workspaceId);
     if (!cached) return false;
@@ -175,6 +218,12 @@ export class WhatsappManager {
   static clearPairingState(workspaceId: string) {
     this.pairingCache.delete(workspaceId);
     this.pairingActive.delete(workspaceId);
+  }
+
+  static getConnectionState(workspaceId: string): WorkspaceConnectionState {
+    if (sessions.has(workspaceId)) return 'CONNECTED';
+    if (initializing.has(workspaceId) || reconnectTimers.has(workspaceId)) return 'CONNECTING';
+    return 'DISCONNECTED';
   }
 
   static async getClient(workspaceId: string): Promise<WASocket> {
@@ -219,15 +268,7 @@ export class WhatsappManager {
         keys: makeCacheableSignalKeyStore(state.keys, logger),
       },
       msgRetryCounterCache,
-      getMessage: async (key: proto.IMessageKey) => {
-        if (key.id) {
-          const cached = WhatsappManager.getCachedMessage(key.id);
-          if (cached) {
-            return cached;
-          }
-        }
-        return undefined;
-      },
+      getMessage: WhatsappManager.recoverMessageContent,
       printQRInTerminal: false,
       browser: Browsers.appropriate('Chrome'),
       // DESATIVAÇÃO TOTAL DE SINCRONIZAÇÃO DE HISTÓRICO (mandatório p/ bot de disparos)
@@ -237,7 +278,7 @@ export class WhatsappManager {
       generateHighQualityLinkPreview: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 30000,
+      keepAliveIntervalMs: 25000,
     });
 
     // Salva credenciais atualizadas de forma segura
@@ -282,16 +323,26 @@ export class WhatsappManager {
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
-        console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada para o workspace ${workspaceId}: status ${statusCode} (isLoggedOut=${isLoggedOut})`);
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+        const isReplaced = statusCode === DisconnectReason.connectionReplaced;
+
+        console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada p/ workspace ${workspaceId}: status ${statusCode} (loggedOut=${isLoggedOut}, restartRequired=${isRestartRequired}, replaced=${isReplaced})`);
 
         sessions.delete(workspaceId);
 
         if (isLoggedOut) {
-          console.log(`[WHATSAPP LOGOUT] Logout permanente detectado para workspace ${workspaceId}. Limpando arquivos de sessão...`);
+          console.log(`[WHATSAPP LOGOUT] Logout permanente p/ workspace ${workspaceId}. Limpando arquivos...`);
           WhatsappManager.clearPairingState(workspaceId);
           reconnectAttempts.delete(workspaceId);
           clearReconnectTimer(workspaceId);
           cleanSessionDirectory(workspaceId);
+          await prisma.whatsappSession.update({
+            where: { workspaceId },
+            data: { status: 'DISCONNECTED', sessionData: null }
+          }).catch(() => {});
+        } else if (isReplaced) {
+          console.warn(`[WHATSAPP WARNING] Sessão substituída por outra conexão (440) no workspace ${workspaceId}. Evitando reconexão em loop.`);
+          clearReconnectTimer(workspaceId);
           await prisma.whatsappSession.update({
             where: { workspaceId },
             data: { status: 'DISCONNECTED', sessionData: null }
@@ -301,8 +352,27 @@ export class WhatsappManager {
             where: { workspaceId },
             data: { status: 'DISCONNECTED', sessionData: null }
           }).catch(() => {});
-          scheduleReconnect(workspaceId);
+          scheduleReconnect(workspaceId, isRestartRequired);
         }
+      }
+    });
+
+    // ── Processamento de ACKs e Confirmações de Entrega/Leitura ──
+    sock.ev.on('messages.update', async (updates) => {
+      try {
+        for (const update of updates) {
+          // Apenas processamos confirmações de mensagens enviadas por nós
+          if (!update.key?.fromMe) continue;
+          const messageId = update.key?.id;
+          if (!messageId) continue;
+
+          const status = update.update?.status;
+          if (status === undefined || status === null) continue;
+
+          await WhatsappManager.handleMessageStatusUpdate(workspaceId, messageId, status, update.key.remoteJid);
+        }
+      } catch (err) {
+        console.error('[WHATSAPP ACK ERROR] Erro ao processar messages.update:', err);
       }
     });
 
@@ -324,7 +394,7 @@ export class WhatsappManager {
                 { phone: { endsWith: senderPhone.length >= 8 ? senderPhone.slice(-8) : senderPhone } }
               ],
               campaign: { workspaceId },
-              status: 'SENT'
+              status: { in: ['SENT', 'DELIVERED', 'READ'] }
             },
             orderBy: { sentAt: 'desc' }
           });
@@ -334,7 +404,7 @@ export class WhatsappManager {
               where: { id: mostRecentLead.id },
               data: { status: 'REPLIED' }
             });
-            console.log(`[LEAD REPLIED] Contato ${senderPhone} respondeu; Lead "${mostRecentLead.title}" atualizado para REPLIED.`);
+            console.log(`[LEAD REPLIED] Contato ${WhatsappManager.maskPhone(senderPhone)} respondeu; Lead "${mostRecentLead.title}" atualizado para REPLIED.`);
           }
         }
       } catch (err) {
@@ -345,6 +415,82 @@ export class WhatsappManager {
     return sock;
   }
 
+  // Atualização atômica, idempotente e monotônica do status do Lead a partir dos ACKs do Baileys
+  static async handleMessageStatusUpdate(
+    workspaceId: string,
+    messageId: string,
+    status: proto.WebMessageInfo.Status | number,
+    remoteJid?: string | null
+  ) {
+    try {
+      const lead = await prisma.lead.findFirst({
+        where: {
+          wppMessageId: messageId,
+          campaign: { workspaceId }
+        }
+      });
+
+      if (!lead) {
+        return;
+      }
+
+      const maskedPhone = this.maskPhone(lead.phone);
+      const now = new Date();
+
+      // Se o lead já estiver em REPLIED, preserva REPLIED (não retrocede)
+      if (lead.status === 'REPLIED') {
+        if (status === proto.WebMessageInfo.Status.DELIVERY_ACK && !lead.deliveredAt) {
+          await prisma.lead.update({ where: { id: lead.id }, data: { deliveredAt: now } });
+        } else if ((status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) && !lead.readAt) {
+          await prisma.lead.update({ where: { id: lead.id }, data: { readAt: now } });
+        }
+        return;
+      }
+
+      // Ordem monotônica: SENDING -> SENT -> DELIVERED -> READ
+      if (status === proto.WebMessageInfo.Status.SERVER_ACK) {
+        // 1 tick: WhatsApp aceitou/processou o envio
+        if (lead.status === 'PENDING' || lead.status === 'QUEUED' || lead.status === 'SENDING') {
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              status: 'SENT',
+              sentAt: lead.sentAt || now
+            }
+          });
+          console.log(`[WhatsApp ACK] SERVER_ACK recebido (1 tick ✓) | workspace=${workspaceId} leadId=${lead.id} messageId=${messageId} phone=${maskedPhone}`);
+        }
+      } else if (status === proto.WebMessageInfo.Status.DELIVERY_ACK) {
+        // 2 ticks cinzas: Entregue ao aparelho de destino
+        if (lead.status === 'PENDING' || lead.status === 'QUEUED' || lead.status === 'SENDING' || lead.status === 'SENT') {
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              status: 'DELIVERED',
+              deliveredAt: lead.deliveredAt || now
+            }
+          });
+          console.log(`[WhatsApp ACK] DELIVERY_ACK recebido (2 ticks ✓✓) | workspace=${workspaceId} leadId=${lead.id} messageId=${messageId} phone=${maskedPhone}`);
+        }
+      } else if (status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) {
+        // 2 ticks azuis: Mensagem visualizada pelo destinatário
+        if (lead.status !== 'READ') {
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              status: 'READ',
+              deliveredAt: lead.deliveredAt || now,
+              readAt: lead.readAt || now
+            }
+          });
+          console.log(`[WhatsApp ACK] READ recebido (2 ticks azuis ✓✓) | workspace=${workspaceId} leadId=${lead.id} messageId=${messageId} phone=${maskedPhone}`);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[WHATSAPP ACK ERROR] Falha ao atualizar status para messageId=${messageId}:`, err?.message || err);
+    }
+  }
+
   // Restaura sessões ativas automaticamente na inicialização do servidor
   static async restoreConnectedSessions() {
     try {
@@ -352,10 +498,10 @@ export class WhatsappManager {
         where: { status: 'CONNECTED' }
       });
       for (const sess of activeSessions) {
-        if (!sessions.has(sess.workspaceId) && !initializing.has(sess.workspaceId)) {
+        if (!sessions.has(sess.workspaceId) && !initializing.has(sess.workspaceId) && !reconnectTimers.has(sess.workspaceId) && !manualDisconnects.has(sess.workspaceId)) {
           console.log(`[WHATSAPP RESTORE] Restaurando cliente em background para workspace ${sess.workspaceId}...`);
           this.getClient(sess.workspaceId).catch(e => {
-            console.error(`Erro ao restaurar sessão para ${sess.workspaceId}:`, e);
+            console.error(`Erro ao restaurar sessão para ${sess.workspaceId}:`, e?.message || e);
           });
         }
       }
@@ -372,6 +518,7 @@ export class WhatsappManager {
     console.log(`[WHATSAPP WATCHDOG] Watchdog ativo (intervalo de ${intervalMs / 1000}s).`);
   }
 
+  // Consulta de status do WhatsApp pura (sem abrir conexões silenciosas durante polling)
   static async getStatus(workspaceId: string) {
     const session = await prisma.whatsappSession.findUnique({
       where: { workspaceId }
@@ -381,24 +528,27 @@ export class WhatsappManager {
       return { status: 'DISCONNECTED', qrCode: null };
     }
 
-    const hasLiveClient = sessions.has(workspaceId) || initializing.has(workspaceId);
+    const isLive = sessions.has(workspaceId);
+    const isConnecting = initializing.has(workspaceId) || reconnectTimers.has(workspaceId);
 
-    // Se está CONNECTED no banco mas sem socket vivo, reconecta em background
-    if (!hasLiveClient && session.status === 'CONNECTED') {
-      const hasReconnectScheduled = reconnectTimers.has(workspaceId);
-      this.getClient(workspaceId).catch(err => {
-        console.error(`[AUTO RECONNECT] Erro ao reconectar workspace ${workspaceId}:`, err);
-      });
-      return { status: hasReconnectScheduled ? 'DISCONNECTED' : 'QRCODE', qrCode: null, reconnecting: true };
+    // Se está CONNECTED no banco mas o socket não está vivo, reporta estado sem disparar socket concorrente
+    if (!isLive && session.status === 'CONNECTED') {
+      return {
+        status: isConnecting ? 'CONNECTING' : 'DISCONNECTED',
+        qrCode: null,
+        reconnecting: isConnecting
+      };
     }
 
-    // QR órfão: reseta para DISCONNECTED
-    if (!hasLiveClient && session.status === 'QRCODE') {
-      await prisma.whatsappSession.update({
-        where: { workspaceId },
-        data: { status: 'DISCONNECTED', sessionData: null }
-      }).catch(() => {});
-      return { status: 'DISCONNECTED', qrCode: null };
+    // QR órfão: se não está nem conectando nem ativo, limpa no banco
+    if (!isLive && session.status === 'QRCODE') {
+      if (!isConnecting) {
+        await prisma.whatsappSession.update({
+          where: { workspaceId },
+          data: { status: 'DISCONNECTED', sessionData: null }
+        }).catch(() => {});
+        return { status: 'DISCONNECTED', qrCode: null };
+      }
     }
 
     return {
@@ -443,7 +593,9 @@ export class WhatsappManager {
           if (item && item.exists && item.jid) {
             return item.jid;
           }
-        } catch {}
+        } catch (queryErr: any) {
+          console.warn(`[WhatsApp USync] Falha ao consultar onWhatsApp(${num}):`, queryErr?.message || queryErr);
+        }
       } else if (typeof client?.getNumberId === 'function') {
         try {
           const res = await client.getNumberId(num);
@@ -457,7 +609,10 @@ export class WhatsappManager {
 
     // 1. Tenta com o número exato fornecido
     const direct = await checkNumber(clean);
-    if (direct) return direct;
+    if (direct) {
+      console.log(`[WhatsApp JID] Número ${this.maskPhone(phone)} resolvido diretamente -> ${direct}`);
+      return direct;
+    }
 
     // 2. Se for número do Brasil (55 + DDD + 8 ou 9 dígitos)
     if (clean.startsWith('55') && (clean.length === 12 || clean.length === 13)) {
@@ -468,21 +623,29 @@ export class WhatsappManager {
       if (clean.length === 13 && rest.startsWith('9')) {
         const withoutNine = `55${ddd}${rest.slice(1)}`;
         const fallbackRes = await checkNumber(withoutNine);
-        if (fallbackRes) return fallbackRes;
+        if (fallbackRes) {
+          console.log(`[WhatsApp JID] Número ${this.maskPhone(phone)} resolvido sem 9º dígito -> ${fallbackRes}`);
+          return fallbackRes;
+        }
       }
 
       // Se tem 12 dígitos (55 + DDD + 8 dígitos), tenta com o 9º dígito
       if (clean.length === 12) {
         const withNine = `55${ddd}9${rest}`;
         const fallbackRes = await checkNumber(withNine);
-        if (fallbackRes) return fallbackRes;
+        if (fallbackRes) {
+          console.log(`[WhatsApp JID] Número ${this.maskPhone(phone)} resolvido com 9º dígito -> ${fallbackRes}`);
+          return fallbackRes;
+        }
       }
     }
 
+    console.warn(`[WhatsApp JID] Número ${this.maskPhone(phone)} não possui WhatsApp ativo (resolveNumberId retornou null)`);
     return null;
   }
 
-  static async sendMessage(workspaceId: string, phone: string, message: string) {
+  // Envia mensagem e retorna os dados reais de envio do Baileys { messageId, jid }
+  static async sendMessage(workspaceId: string, phone: string, message: string): Promise<{ messageId: string; jid: string }> {
     const client = sessions.get(workspaceId);
     if (!client) {
       throw new Error('WhatsApp não está conectado no momento.');
@@ -493,6 +656,9 @@ export class WhatsappManager {
       throw new Error('Número não possui conta ativa no WhatsApp (ou é telefone fixo)');
     }
 
+    const maskedPhone = this.maskPhone(phone);
+    console.log(`[WhatsApp] Preparando envio | workspace=${workspaceId} phone=${maskedPhone} jid=${targetChatId}`);
+
     // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 3.5s)
     const delay = Math.max(1500, Math.min(3500, message.length * 15));
     await new Promise(r => setTimeout(r, delay));
@@ -500,9 +666,17 @@ export class WhatsappManager {
     try {
       if (typeof client.sendMessage === 'function') {
         const sent = await client.sendMessage(targetChatId, { text: message });
-        if (sent?.key?.id && sent?.message) {
-          WhatsappManager.cacheSentMessage(sent.key.id, sent.message);
+        const messageId = sent?.key?.id;
+        if (!messageId) {
+          throw new Error('Baileys não retornou o identificador da mensagem enviada.');
         }
+
+        if (sent?.message) {
+          WhatsappManager.cacheSentMessage(messageId, sent.message);
+        }
+
+        console.log(`[WhatsApp] Mensagem despachada no socket | workspace=${workspaceId} messageId=${messageId} jid=${targetChatId}`);
+        return { messageId, jid: targetChatId };
       } else {
         throw new Error('Cliente WhatsApp inválido.');
       }

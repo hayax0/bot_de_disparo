@@ -100,17 +100,21 @@ model Lead {
   phone          String
   website        String?
   neighborhood   String?
-  status         String    @default("PENDING") // PENDING, SENT, REPLIED, ERROR, IGNORED
+  status         String    @default("PENDING") // PENDING, QUEUED, SENDING, SENT, DELIVERED, READ, REPLIED, ERROR, IGNORED
   errorMessage   String?
   messageContent String?
   attempts       Int       @default(0)
   sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  wppMessageId   String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, phone])
+  @@index([wppMessageId])
 }
 
 model WebhookLog {
