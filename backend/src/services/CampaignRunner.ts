@@ -10,7 +10,7 @@ async function checkCampaignCompletion(campaignId: string) {
     const pendingCount = await prisma.lead.count({
       where: {
         campaignId,
-        status: { in: ['PENDING', 'QUEUED'] }
+        status: { in: ['PENDING', 'QUEUED', 'SENDING'] }
       }
     });
 
@@ -62,7 +62,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
 
   // Campanha pausada/excluída: devolve o lead para PENDING para ser retomado depois
   if (campaign.status !== 'RUNNING') {
-    if (lead.status === 'QUEUED') {
+    if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
       await prisma.lead.update({
         where: { id: leadId },
         data: { status: 'PENDING' }
@@ -71,8 +71,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     return;
   }
 
-  // Idempotência: Se o lead já foi enviado, não reenvia
-  if (lead.status === 'SENT' || lead.status === 'REPLIED') {
+  // Idempotência: Se o lead já foi enviado ou entregue, não reenvia
+  if (['SENT', 'DELIVERED', 'READ', 'REPLIED'].includes(lead.status)) {
     await checkCampaignCompletion(campaignId);
     return;
   }
@@ -95,9 +95,19 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     return;
   }
 
+  // Marca status intermediário SENDING
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      status: 'SENDING',
+      attempts: job.attemptsMade + 1,
+      errorMessage: null
+    }
+  });
+
   let sentSuccessfully = false;
   try {
-    await WhatsappManager.sendMessage(workspaceId, lead.phone, message);
+    const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message);
     sentSuccessfully = true;
 
     const normalizedPhone = WhatsappManager.normalizeBrPhone(lead.phone);
@@ -108,6 +118,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
         where: { id: leadId },
         data: {
           status: 'SENT',
+          wppMessageId: sentResult.messageId,
           sentAt: now,
           messageContent: message,
           errorMessage: null
@@ -208,7 +219,7 @@ campaignWorker.on('failed', async (job, err) => {
     if (leadId) {
       // Não sobrescreve se o worker já gravou o estado final no processor
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-      if (lead && lead.status !== 'SENT' && lead.status !== 'REPLIED' && lead.status !== 'ERROR') {
+      if (lead && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
         await prisma.lead.update({
           where: { id: leadId },
           data: {
@@ -227,7 +238,7 @@ campaignWorker.on('failed', async (job, err) => {
 });
 
 // ── Recovery de órfãos no boot ──────────────────────────────────────
-// Leads marcados como QUEUED no banco cujo job correspondente NÃO existe
+// Leads marcados como QUEUED ou SENDING no banco cujo job correspondente NÃO existe
 // mais na fila (Redis esvaziado, job removido, etc.) voltam a PENDING
 // para poderem ser reenfileirados no próximo start da campanha.
 export async function recoverOrphanedLeads() {
@@ -239,7 +250,10 @@ export async function recoverOrphanedLeads() {
 
     for (const campaign of runningCampaigns) {
       const queuedLeads = await prisma.lead.findMany({
-        where: { campaignId: campaign.id, status: 'QUEUED' },
+        where: {
+          campaignId: campaign.id,
+          status: { in: ['QUEUED', 'SENDING'] }
+        },
         select: { id: true }
       });
 
@@ -262,7 +276,7 @@ export async function recoverOrphanedLeads() {
           where: { id: { in: orphanIds } },
           data: { status: 'PENDING' }
         });
-        console.log(`[RECOVERY] Campanha "${campaign.name}": ${orphanIds.length} leads órfãos (QUEUED sem job) voltaram para PENDING.`);
+        console.log(`[RECOVERY] Campanha "${campaign.name}": ${orphanIds.length} leads órfãos (QUEUED/SENDING sem job) voltaram para PENDING.`);
       }
     }
   } catch (err) {
@@ -270,11 +284,11 @@ export async function recoverOrphanedLeads() {
   }
 }
 
-// ── Backfill de leads SENT antigos para o DispatchHistory ──────────
+// ── Backfill de leads SENT/DELIVERED/READ antigos para o DispatchHistory ──────────
 export async function backfillDispatchHistory() {
   try {
     const sentLeads = await prisma.lead.findMany({
-      where: { status: 'SENT' },
+      where: { status: { in: ['SENT', 'DELIVERED', 'READ', 'REPLIED'] } },
       include: {
         campaign: {
           select: { workspaceId: true, name: true }
