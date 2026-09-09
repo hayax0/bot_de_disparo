@@ -81,7 +81,7 @@ export default function LoginPage() {
                   value={name}
                   onChange={e => setName(e.target.value)}
                   className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
-                  placeholder="Ex: Caio Campos"
+                  placeholder="Ex: Seu Nome ou Empresa"
                 />
               </div>
             </div>
