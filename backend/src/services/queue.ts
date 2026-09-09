@@ -4,14 +4,14 @@ import { ENV } from '../config/env';
 
 const redisUrl = process.env.REDIS_URL;
 
-const baseOptions = {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-};
-
 // Fábrica de conexões: BullMQ recomenda conexões DEDICADAS por componente
 // (Queue, QueueEvents e Worker nunca devem compartilhar a mesma conexão)
-export function createConnection(): IORedis {
+export function createConnection(blocking = true): IORedis {
+  const baseOptions = {
+    maxRetriesPerRequest: blocking ? null : 1,
+    enableOfflineQueue: blocking,
+    enableReadyCheck: false,
+  };
   return redisUrl
     ? new IORedis(redisUrl, baseOptions)
     : new IORedis({
@@ -23,9 +23,9 @@ export function createConnection(): IORedis {
 }
 
 // Conexão compartilhada apenas para healthcheck / operações leves
-const connection = createConnection();
+const connection = createConnection(false);
 
-export const messageQueue = new Queue('message-queue', { connection: createConnection() });
+export const messageQueue = new Queue('message-queue', { connection: createConnection(false) });
 export const queueEvents = new QueueEvents('message-queue', { connection: createConnection() });
 
 export { connection };

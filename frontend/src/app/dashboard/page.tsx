@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
+import { useEffect, useState, useMemo, useCallback, useSyncExternalStore, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -309,27 +309,31 @@ export default function Dashboard() {
   }, []);
 
   // Carregar histórico de disparos do Workspace
-  const fetchHistory = useCallback(async (page = 1, search = historySearch) => {
+  const historyRequest = useRef(0);
+  const fetchHistory = useCallback(async (page = 1, search = '') => {
+    const requestId = ++historyRequest.current;
     setHistoryLoading(true);
     try {
       const res = await api.get('/history', {
         params: { page, limit: 25, search: search.trim() }
       });
+      if (requestId !== historyRequest.current) return;
       setHistoryItems(res.data.items || []);
       setHistoryPagination(res.data.pagination || { page: 1, limit: 25, total: 0, totalPages: 1 });
       if (res.data.stats) {
         setHistoryStats(res.data.stats);
       }
     } catch (err: unknown) {
+      if (requestId !== historyRequest.current) return;
       let msg = 'Erro ao carregar histórico de disparos.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
       }
       addToast('error', msg);
     } finally {
-      setHistoryLoading(false);
+      if (requestId === historyRequest.current) setHistoryLoading(false);
     }
-  }, [historySearch, addToast]);
+  }, [addToast]);
 
   // Carregar última copy utilizada no Workspace
   const fetchLastCopy = useCallback(async () => {
@@ -1274,7 +1278,7 @@ export default function Dashboard() {
                           ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
                           : 'bg-white/[0.05] text-slate-400 border border-white/[0.1]'
                       }`}>
-                        {camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
+                        {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
                       </span>
                     </div>
 
@@ -1338,7 +1342,7 @@ export default function Dashboard() {
                     ) : (
                       <button
                         onClick={() => handleStart(camp.id)}
-                        disabled={waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
+                        disabled={camp.status === 'STARTING' || waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
                         className="btn-primary-dark p-2 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Iniciar Campanha'}
                       >
@@ -1356,6 +1360,7 @@ export default function Dashboard() {
 
                     <button 
                       onClick={() => setCampaignToDelete(camp)}
+                      disabled={camp.status === 'STARTING'}
                       className="p-2 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                       title="Excluir Campanha"
                     >

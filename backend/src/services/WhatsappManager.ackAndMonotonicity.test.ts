@@ -1,3 +1,4 @@
+import { mockMethod } from '../test-support/mockMethod';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WhatsappManager } from './WhatsappManager';
@@ -351,3 +352,36 @@ test('Dois Leads do mesmo telefone possuem IDs independentes e ACKs não colidem
   }
 });
 
+test('ACKs concorrentes: compare-and-set impede DELIVERY_ACK de sobrescrever READ', async t => {
+  const lead: any = { id: 'race', status: 'SENT', phone: '5511999999999', wppMessageId: 'm', deliveredAt: null, readAt: null };
+  let first = true;
+  mockMethod(t, prisma.lead, 'findFirst', async () => ({ ...lead }));
+  mockMethod(t, prisma.lead, 'update', async ({ where, data }: any) => {
+    if (first) {
+      first = false;
+      // Outro evento é processado entre a leitura e a gravação do ACK de entrega.
+      await WhatsappManager.handleMessageStatusUpdate('w', 'm', 4);
+    }
+    if (where.status !== lead.status) throw Object.assign(new Error('CAS conflict'), { code: 'P2025' });
+    Object.assign(lead, data);
+    return lead;
+  });
+  await WhatsappManager.handleMessageStatusUpdate('w', 'm', 3);
+  assert.equal(lead.status, 'READ');
+  assert.ok(lead.readAt instanceof Date);
+});
+
+test('ACKs concorrentes: READ relê o estado quando DELIVERY_ACK vence primeiro', async t => {
+  const lead: any = { id: 'race', status: 'SENT', phone: '5511999999999', wppMessageId: 'm', deliveredAt: null, readAt: null };
+  let first = true;
+  mockMethod(t, prisma.lead, 'findFirst', async () => ({ ...lead }));
+  mockMethod(t, prisma.lead, 'update', async ({ where, data }: any) => {
+    if (first) { first = false; await WhatsappManager.handleMessageStatusUpdate('w', 'm', 3); }
+    if (where.status !== lead.status) throw Object.assign(new Error('CAS conflict'), { code: 'P2025' });
+    Object.assign(lead, data);
+    return lead;
+  });
+  await WhatsappManager.handleMessageStatusUpdate('w', 'm', 4);
+  assert.equal(lead.status, 'READ');
+  assert.ok(lead.deliveredAt instanceof Date);
+});

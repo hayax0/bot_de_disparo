@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, DelayedError } from 'bullmq';
 import { createConnection, messageQueue } from './queue';
 import { prisma } from '../lib/prisma';
 import { WhatsappManager } from './WhatsappManager';
@@ -43,7 +43,7 @@ function isUnrecoverableError(errMsg: string): boolean {
 }
 
 // Job processor com isolamento, idempotência e auditoria
-export const campaignWorker = new Worker('message-queue', async (job: Job) => {
+export const campaignWorker = new Worker('message-queue', async (job: Job, token?: string) => {
   const { leadId, campaignId, workspaceId } = job.data;
 
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
@@ -59,6 +59,24 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
   if (!lead || !campaign) {
     console.warn(`[WORKER] Job ${job.id}: lead ou campanha não encontrados (possivelmente excluídos). Ignorando.`);
     return;
+  }
+
+  if (lead.campaignId !== campaignId || campaign.workspaceId !== workspaceId) throw new Error('Job com workspace ou campanha incompatível.');
+  if (['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR', 'IGNORED'].includes(lead.status)) {
+    await checkCampaignCompletion(campaignId);
+    return;
+  }
+  if (lead.sendStartedAt || lead.status === 'SENDING') {
+    await prisma.lead.updateMany({
+      where: { id: leadId, status: { in: ['SENDING', 'QUEUED', 'PENDING'] } },
+      data: { status: 'ERROR', errorMessage: 'Envio anterior sem confirmação final. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
+    });
+    await checkCampaignCompletion(campaignId);
+    return;
+  }
+  if (campaign.status === 'STARTING') {
+    await job.moveToDelayed(Date.now() + 5000, token);
+    throw new DelayedError();
   }
 
   // BLINDAGEM DE ACESSO: Valida se o usuário possui assinatura ativa antes de qualquer envio
@@ -116,29 +134,31 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
     return;
   }
 
-  // Marca status intermediário SENDING
-  await prisma.lead.update({
-    where: { id: leadId },
-    data: {
-      status: 'SENDING',
-      attempts: job.attemptsMade + 1,
-      errorMessage: null
-    }
-  });
-
+  let sendStarted = false;
   let sentSuccessfully = false;
   try {
-    const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message);
+    const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message, async messageId => {
+      const claimed = await prisma.lead.updateMany({
+        where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] }, campaign: { status: 'RUNNING' } },
+        data: { status: 'SENDING', sendStartedAt: new Date(), wppMessageId: messageId, messageContent: message,
+          attempts: job.attemptsMade + 1, errorMessage: null },
+      });
+      if (claimed.count !== 1) throw new Error('Envio interrompido ou já iniciado.');
+      sendStarted = true;
+    });
     sentSuccessfully = true;
 
     const normalizedPhone = WhatsappManager.normalizeBrPhone(lead.phone);
     const now = new Date();
 
     await prisma.$transaction([
+      prisma.lead.updateMany({
+        where: { id: leadId, status: { in: ['PENDING', 'QUEUED', 'SENDING'] } },
+        data: { status: 'SENT' },
+      }),
       prisma.lead.update({
         where: { id: leadId },
         data: {
-          status: 'SENT',
           wppMessageId: sentResult.messageId,
           sentAt: now,
           messageContent: message,
@@ -178,20 +198,25 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
   } catch (error: any) {
     console.error(`[WORKER ERROR] Falha ao enviar para o lead ${leadId} (${lead.phone}):`, error?.message || error);
 
-    // Se a mensagem já foi enviada no WhatsApp mas o banco falhou, não relança para evitar duplicação
-    if (!sentSuccessfully) {
+    if (sendStarted || sentSuccessfully) {
+      // O marcador durável também protege retries após crash ou banco indisponível.
+      await prisma.lead.updateMany({
+        where: { id: leadId, status: { in: ['PENDING', 'QUEUED', 'SENDING'] } },
+        data: { status: 'ERROR', errorMessage: 'Envio iniciado, mas sem confirmação final no sistema. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
+      });
+    } else {
       const maxAttempts = job.opts.attempts || 1;
-      const isFinalAttempt = job.attemptsMade >= maxAttempts;
+      const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
       const errMsg = error?.message || String(error);
       const unrecoverable = isUnrecoverableError(errMsg);
 
       if (unrecoverable || isFinalAttempt) {
         // Marca erro definitivo e não bloqueia a fila com retries inúteis
-        await prisma.lead.update({
-          where: { id: leadId },
+        await prisma.lead.updateMany({
+          where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
           data: {
             status: 'ERROR',
-            attempts: job.attemptsMade,
+            attempts: job.attemptsMade + 1,
             errorMessage: unrecoverable
               ? errMsg
               : (error?.message || 'Falha após esgotar tentativas de envio no WhatsApp')
@@ -202,12 +227,12 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
         }
       } else {
         // Falha temporária recuperável (ex: oscilação de rede): reagenda via BullMQ
-        await prisma.lead.update({
-          where: { id: leadId },
+        await prisma.lead.updateMany({
+          where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
           data: {
-            attempts: job.attemptsMade,
+            attempts: job.attemptsMade + 1,
             status: 'QUEUED',
-            errorMessage: `Tentativa ${job.attemptsMade}/${maxAttempts} falhou: ${errMsg} (reagendando...)`
+            errorMessage: `Tentativa ${job.attemptsMade + 1}/${maxAttempts} falhou: ${errMsg} (reagendando...)`
           }
         });
         throw error;
@@ -219,6 +244,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
 
 }, {
   connection: createConnection(), // conexão dedicada p/ o Worker (best practice BullMQ)
+  autorun: false,                 // O boot reconcilia campanhas antes de liberar o consumo.
   concurrency: 2,                 // reduzido: menos pressão no WhatsApp/Chromium = menos crash e menos ban
   maxStalledCount: 1,             // 1 hesitação e o job vai para retry ao invés de loop infinito
 }); 
@@ -241,8 +267,8 @@ campaignWorker.on('failed', async (job, err) => {
       // Não sobrescreve se o worker já gravou o estado final no processor
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
       if (lead && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
-        await prisma.lead.update({
-          where: { id: leadId },
+        await prisma.lead.updateMany({
+          where: { id: leadId, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] } },
           data: {
             status: 'ERROR',
             errorMessage: err?.message || 'Falha definitiva após todas as tentativas'
@@ -259,13 +285,14 @@ campaignWorker.on('failed', async (job, err) => {
 });
 
 // ── Recovery de órfãos no boot ──────────────────────────────────────
-// Leads marcados como QUEUED ou SENDING no banco cujo job correspondente NÃO existe
-// mais na fila (Redis esvaziado, job removido, etc.) voltam a PENDING
-// para poderem ser reenfileirados no próximo start da campanha.
+// QUEUED sem job pode voltar a PENDING. SENDING/intent persistido exige conferência;
+// um envio externo pode ter ocorrido mesmo sem confirmação no banco.
 export async function recoverOrphanedLeads() {
   try {
+    // Preparações interrompidas não devem ficar bloqueadas após reinício.
+    await prisma.campaign.updateMany({ where: { status: 'STARTING' }, data: { status: 'PAUSED' } });
     const runningCampaigns = await prisma.campaign.findMany({
-      where: { status: 'RUNNING' },
+      where: { status: { in: ['RUNNING', 'PAUSED'] } },
       select: { id: true, name: true }
     });
 
@@ -275,30 +302,49 @@ export async function recoverOrphanedLeads() {
           campaignId: campaign.id,
           status: { in: ['QUEUED', 'SENDING'] }
         },
-        select: { id: true }
+        select: { id: true, status: true, sendStartedAt: true }
       });
 
-      if (queuedLeads.length === 0) continue;
+      if (queuedLeads.length === 0) {
+        await prisma.campaign.updateMany({ where: { id: campaign.id, status: 'RUNNING', leads: { some: { status: 'PENDING' } } }, data: { status: 'PAUSED' } });
+        await checkCampaignCompletion(campaign.id);
+        continue;
+      }
 
       const orphanIds: string[] = [];
+      const uncertainIds: string[] = [];
       const CHUNK = 100;
       for (let i = 0; i < queuedLeads.length; i += CHUNK) {
         const chunk = queuedLeads.slice(i, i + CHUNK);
         const results = await Promise.all(
           chunk.map(lead => messageQueue.getJob(`${campaign.id}_${lead.id}`))
         );
-        results.forEach((job, idx) => {
-          if (!job) orphanIds.push(chunk[idx].id);
-        });
+        for (let idx = 0; idx < results.length; idx++) {
+          const job = results[idx];
+          const state = job ? await job.getState() : 'unknown';
+          if (!job || state === 'completed' || state === 'failed') {
+            const lead = chunk[idx];
+            if (lead.status === 'SENDING' || lead.sendStartedAt) uncertainIds.push(lead.id);
+            else orphanIds.push(lead.id);
+          }
+        }
       }
 
       if (orphanIds.length > 0) {
         await prisma.lead.updateMany({
-          where: { id: { in: orphanIds } },
+          where: { id: { in: orphanIds }, status: 'QUEUED', sendStartedAt: null },
           data: { status: 'PENDING' }
         });
-        console.log(`[RECOVERY] Campanha "${campaign.name}": ${orphanIds.length} leads órfãos (QUEUED/SENDING sem job) voltaram para PENDING.`);
+        console.log(`[RECOVERY] Campanha "${campaign.name}": ${orphanIds.length} leads QUEUED sem envio voltaram para PENDING.`);
       }
+      if (uncertainIds.length) {
+        await prisma.lead.updateMany({
+          where: { id: { in: uncertainIds }, status: { in: ['QUEUED', 'SENDING'] } },
+          data: { status: 'ERROR', errorMessage: 'Envio interrompido sem confirmação. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
+        });
+      }
+      await prisma.campaign.updateMany({ where: { id: campaign.id, status: 'RUNNING', leads: { some: { status: 'PENDING' } } }, data: { status: 'PAUSED' } });
+      await checkCampaignCompletion(campaign.id);
     }
   } catch (err) {
     console.error('[RECOVERY] Erro ao recuperar leads órfãos no boot:', err);

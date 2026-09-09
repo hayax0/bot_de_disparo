@@ -110,6 +110,7 @@ model Lead {
   deliveredAt    DateTime?
   readAt         DateTime?
   wppMessageId   String?
+  sendStartedAt  DateTime? // Barreira durável: envio iniciado não pode ser repetido automaticamente.
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -123,6 +124,7 @@ model WebhookLog {
   id          String   @id @default(uuid())
   provider    String   @default("cakto") // cakto
   eventId     String?  // transaction id / event id
+  idempotencyKey String? @unique
   event       String   // purchase_approved, subscription_renewed, etc.
   email       String?
   payload     String   @db.Text
@@ -130,6 +132,14 @@ model WebhookLog {
 
   @@index([provider, eventId])
   @@index([email])
+}
+
+model RegistrationVerification {
+  email       String   @id
+  codeHash    String
+  expiresAt   DateTime
+  requestedAt DateTime @default(now())
+  attempts    Int      @default(0)
 }
 
 model SubscriptionNotification {

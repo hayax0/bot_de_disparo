@@ -19,10 +19,10 @@ test('isUserAdmin: reconhece emails de administradores/VIPs configurados', () =>
 });
 
 test('isSubscriptionActive: administradores e contas VIP/lifetime têm acesso irrestrito', () => {
-  // Usuário com e-mail VIP/Admin tem acesso irrestrito independente do status
-  assert.equal(isSubscriptionActive({ email: 'caiocampos1009@gmail.com', role: 'USER', subscriptionStatus: 'INACTIVE', subscriptionExpiresAt: null }), true);
-  assert.equal(isSubscriptionActive({ email: 'vitoriacampos241003@gmail.com', role: 'USER', subscriptionStatus: 'CANCELED', subscriptionExpiresAt: null }), true);
-  assert.equal(isSubscriptionActive({ email: 'vieiralacerda192@gmail.com', role: 'USER', subscriptionStatus: 'PAST_DUE', subscriptionExpiresAt: null }), true);
+  // E-mail na lista não comprova identidade nem concede privilégio.
+  assert.equal(isSubscriptionActive({ email: 'caiocampos1009@gmail.com', role: 'USER', subscriptionStatus: 'INACTIVE', subscriptionExpiresAt: null }), false);
+  assert.equal(isSubscriptionActive({ email: 'vitoriacampos241003@gmail.com', role: 'USER', subscriptionStatus: 'CANCELED', subscriptionExpiresAt: null }), false);
+  assert.equal(isSubscriptionActive({ email: 'vieiralacerda192@gmail.com', role: 'USER', subscriptionStatus: 'PAST_DUE', subscriptionExpiresAt: null }), false);
 
   // Role ADMIN ou status LIFETIME têm acesso irrestrito
   assert.equal(isSubscriptionActive({ role: 'ADMIN', subscriptionStatus: 'INACTIVE', subscriptionExpiresAt: null }), true);

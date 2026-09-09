@@ -9,6 +9,7 @@ import { messageQueue } from '../services/queue';
 import { temWebsiteValido } from '../services/ProposalEngine';
 import { requireActiveSubscription } from '../middlewares/authSubscription';
 import { WhatsappManager } from '../services/WhatsappManager';
+import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 
 const router = Router();
 
@@ -700,110 +701,9 @@ router.post('/:id/start', requireActiveSubscription, async (req: Request, res: R
   const workspaceId = (req as any).user.workspaceId;
 
   try {
-    const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
-    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
-
-    // 1. Bloqueio ATÔMICO contra execução dupla: só 1 request consegue transicionar para RUNNING
-    //    (evita race condition quando dois cliques de "iniciar" chegam simultaneamente)
-    const transitioned = await prisma.campaign.updateMany({
-      where: { id, status: { not: 'RUNNING' } },
-      data: { status: 'RUNNING' }
-    });
-    if (transitioned.count === 0) {
-      return res.status(409).json({ error: 'Esta campanha já está em execução.' });
-    }
-
-    // 2. Validar se o WhatsApp do workspace está realmente CONECTADO
-    const waSession = await prisma.whatsappSession.findUnique({ where: { workspaceId } });
-    if (!waSession || waSession.status !== 'CONNECTED') {
-      return res.status(400).json({ 
-        error: 'O WhatsApp não está conectado. Conecte seu aparelho através do QR Code antes de iniciar os envios.' 
-      });
-    }
-
-    // 3. Buscar leads pendentes (ou que ficaram como QUEUED) em ordem cronológica (createdAt asc)
-    const pendingLeads = await prisma.lead.findMany({
-      where: { 
-        campaignId: id, 
-        status: { in: ['PENDING', 'QUEUED'] }
-      },
-      orderBy: { createdAt: 'asc' }
-    });
-
-    if (pendingLeads.length === 0) {
-      return res.json({ message: 'Nenhum lead pendente nesta campanha.', jobsQueued: 0 });
-    }
-
-    // 4. Marcar leads como QUEUED (campanha já marcada RUNNING atomicamente no passo 1)
-    await prisma.lead.updateMany({
-      where: {
-        campaignId: id,
-        status: { in: ['PENDING', 'QUEUED'] }
-      },
-      data: { status: 'QUEUED' }
-    });
-
-    let currentDelay = 1000; // Primeiro envio inicia em 1 segundo
-    const minW = campaign.delayMin * 1000;
-    const maxW = campaign.delayMax * 1000;
-
-    const LOTE_MAXIMO = 8;
-    const PAUSA_LOTE_MIN = 600000; // 10 min
-    const PAUSA_LOTE_MAX = 900000; // 15 min
-
-    let countInBatch = 0;
-    let jobsQueued = 0;
-
-    // Pré-calcula todos os jobs (delays + IDs determinísticos) antes de enfileirar em lotes paralelos.
-    // Isso evita que o endpoint fique minutos em loop sequencial com listas grandes (timeout no frontend).
-    const jobsToQueue: Array<{ name: string; data: object; opts: object }> = [];
-
-    for (let i = 0; i < pendingLeads.length; i++) {
-      const lead = pendingLeads[i];
-      if (i > 0) {
-        const delay = Math.floor(Math.random() * (maxW - minW + 1)) + minW;
-        currentDelay += delay;
-      }
-      countInBatch++;
-
-      // jobId DETERMINÍSTICO (sem Date.now): cliques duplicados/retries nunca criam job duplicado —
-      // o BullMQ ignora add() com jobId que já existe na fila.
-      jobsToQueue.push({
-        name: 'send-message',
-        data: { leadId: lead.id, campaignId: id, workspaceId },
-        opts: {
-          jobId: `${id}_${lead.id}`,
-          delay: currentDelay,
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: true,
-          removeOnFail: false
-        }
-      });
-
-      // Pausa longa de segurança anti-ban a cada LOTE_MAXIMO envios
-      if (countInBatch >= LOTE_MAXIMO) {
-        const pausaLote = Math.floor(Math.random() * (PAUSA_LOTE_MAX - PAUSA_LOTE_MIN + 1)) + PAUSA_LOTE_MIN;
-        currentDelay += pausaLote;
-        countInBatch = 0;
-      }
-    }
-
-    // Enfileira em lotes paralelos de 200 para não bloquear o event loop por muito tempo
-    const CHUNK = 200;
-    for (let start = 0; start < jobsToQueue.length; start += CHUNK) {
-      const chunk = jobsToQueue.slice(start, start + CHUNK);
-      const results = await Promise.allSettled(
-        chunk.map(j => messageQueue.add(j.name, j.data, j.opts as any))
-      );
-      for (const r of results) {
-        if (r.status === 'fulfilled') jobsQueued++;
-        else console.error('[QUEUE ERROR] Falha ao enfileirar job de campanha:', r.reason?.message || r.reason);
-      }
-    }
-
-    res.json({ message: 'Campanha iniciada com sucesso!', jobsQueued });
+    res.json(await startCampaign(prisma, messageQueue, id, workspaceId));
   } catch (error) {
+    if (error instanceof CampaignStartError) return res.status(error.status).json({ error: error.message });
     console.error('Erro ao iniciar campanha:', error);
     res.status(500).json({ error: 'Erro ao iniciar campanha.' });
   }
@@ -818,7 +718,8 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
 
-    await prisma.campaign.update({ where: { id }, data: { status: 'PAUSED' } });
+    const paused = await prisma.campaign.updateMany({ where: { id, status: { not: 'STARTING' } }, data: { status: 'PAUSED' } });
+    if (!paused.count) return res.status(409).json({ error: 'Aguarde a preparação da campanha antes de pausar.' });
 
     // Drena os jobs delayed/waiting desta campanha (pause real, instantâneo)
     let removedJobs = 0;
@@ -856,6 +757,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
   try {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
+    if (campaign.status === 'STARTING') return res.status(409).json({ error: 'Aguarde a preparação da campanha antes de excluir.' });
 
     // Remove jobs pendentes desta campanha antes de excluir (evita jobs órfãos)
     try {

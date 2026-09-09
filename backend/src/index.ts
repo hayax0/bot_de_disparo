@@ -93,14 +93,18 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
-const server = app.listen(ENV.PORT, () => {
+const server = app.listen(ENV.PORT, async () => {
   console.log(`🚀 SaaS Bot Server running on port ${ENV.PORT} [${ENV.NODE_ENV}]`);
   // Restaura sessões ativas do WhatsApp em background
   WhatsappManager.restoreConnectedSessions();
   // Watchdog: restaura sessões que ficaram órfãs (Chromium crashado, etc.)
   WhatsappManager.startWatchdog(60000);
   // Recupera leads QUEUED sem job na fila (após reinício do servidor/Redis)
-  recoverOrphanedLeads();
+  await recoverOrphanedLeads();
+  campaignWorker.run().catch(err => {
+    console.error('[WORKER] Consumo da fila interrompido:', err);
+    Sentry.captureException(err);
+  });
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
 });

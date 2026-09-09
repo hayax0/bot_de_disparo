@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
 
@@ -16,17 +16,13 @@ export default function LoginPage() {
   const setAuth = useAuth(state => state.setAuth);
   const router = useRouter();
 
-  const [isRegister, setIsRegister] = useState(false);
-  const [name, setName] = useState('');
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMessage(null);
     try {
-      const endpoint = isRegister ? '/auth/register' : '/auth/login';
-      const payload = isRegister ? { email, password, name } : { email, password };
-      const res = await api.post(endpoint, payload);
+      const res = await api.post('/auth/login', { email, password });
       setAuth(res.data.token, res.data.user);
       router.push('/dashboard');
     } catch (err: unknown) {
@@ -53,10 +49,10 @@ export default function LoginPage() {
             <Image src="/logo.png" alt="Logo" width={56} height={56} priority className="w-full h-full object-cover" />
           </div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-            {isRegister ? 'Criar sua conta' : 'Bem-vindo de volta'}
+            Bem-vindo de volta
           </h1>
           <p className="text-xs text-slate-400 mt-1.5 text-center">
-            {isRegister ? 'Inicie sua prospecção automatizada via WhatsApp' : 'Acesse o painel do Disparador de Mensagens'}
+            Acesse o painel do Disparador de Mensagens
           </p>
         </div>
 
@@ -68,24 +64,6 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleAuth} className="space-y-4">
-          {isRegister && (
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Seu Nome</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <User size={16} />
-                </div>
-                <input 
-                  type="text" 
-                  required
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
-                  placeholder="Ex: Seu Nome ou Empresa"
-                />
-              </div>
-            </div>
-          )}
           
           <div>
             <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
@@ -133,7 +111,7 @@ export default function LoginPage() {
               </span>
             ) : (
               <>
-                {isRegister ? 'Registrar Conta' : 'Entrar na Plataforma'}
+                Entrar na Plataforma
                 <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
               </>
             )}
@@ -143,14 +121,13 @@ export default function LoginPage() {
         <div className="mt-6 text-center pt-4 border-t border-white/[0.06]">
           <button 
             onClick={() => {
-              setIsRegister(!isRegister);
-              setErrorMessage(null);
+              router.push('/register');
             }} 
             className="text-xs font-medium text-slate-400 hover:text-purple-300 transition-colors cursor-pointer"
           >
-            {isRegister ? 'Já tem uma conta? ' : 'Não tem conta? '}
+            Não tem conta?{' '}
             <span className="text-purple-400 font-semibold underline underline-offset-4">
-              {isRegister ? 'Entre aqui' : 'Registre-se gratuitamente'}
+              Registre-se gratuitamente
             </span>
           </button>
         </div>

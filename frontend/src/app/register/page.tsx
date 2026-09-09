@@ -14,10 +14,24 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [verificationRequired, setVerificationRequired] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [codeMessage, setCodeMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setAuth = useAuth(state => state.setAuth);
   const router = useRouter();
+
+  const requestCode = async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await api.post('/auth/register/code', { email });
+      setCodeMessage(res.data.message);
+    } catch (err) {
+      setErrorMessage(axios.isAxiosError(err) ? err.response?.data?.error || 'Falha ao enviar código.' : 'Falha ao enviar código.');
+    } finally { setLoading(false); }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,7 +47,8 @@ export default function RegisterPage() {
         email, 
         password, 
         name,
-        termsAccepted: true 
+        termsAccepted: true,
+        verificationCode,
       });
       setAuth(res.data.token, res.data.user);
       router.push('/dashboard');
@@ -41,6 +56,7 @@ export default function RegisterPage() {
       let msg = 'Falha ao criar conta. Verifique os dados informados.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
+        if (err.response.data.code === 'EMAIL_VERIFICATION_REQUIRED') setVerificationRequired(true);
       }
       setErrorMessage(msg);
     } finally {
@@ -103,7 +119,7 @@ export default function RegisterPage() {
                 type="email" 
                 required
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={e => { setEmail(e.target.value); setVerificationRequired(false); setVerificationCode(''); setCodeMessage(''); }}
                 className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
                 placeholder="seu@email.com"
               />
@@ -126,6 +142,20 @@ export default function RegisterPage() {
               />
             </div>
           </div>
+
+          {verificationRequired && (
+            <div className="space-y-2" aria-live="polite">
+              <p className="text-xs text-slate-300">Para proteger sua conta, confirme que este e-mail pertence a você.</p>
+              <button type="button" disabled={loading} onClick={requestCode} className="text-sm text-purple-300 underline disabled:opacity-50">
+                Enviar código por e-mail
+              </button>
+              {codeMessage && <p className="text-xs text-slate-300">{codeMessage}</p>}
+              <label htmlFor="verification-code" className="block text-sm text-slate-300">Código de confirmação</label>
+              <input id="verification-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+                value={verificationCode} onChange={e => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm" placeholder="6 dígitos" />
+            </div>
+          )}
 
           <div className="pt-2">
             <label className="flex items-start gap-2.5 cursor-pointer select-none">

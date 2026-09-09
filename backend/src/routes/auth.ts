@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { isUserAdmin, isSubscriptionActive } from '../services/SubscriptionManager';
 import { EmailService } from '../services/EmailService';
+import { consumeRegistrationCode, RegistrationError, requestRegistrationCode, validateRegistrationCode } from '../services/RegistrationVerification';
 
 const router = Router();
 
@@ -25,8 +26,20 @@ const authenticate = (req: Request, res: Response, next: Function): any => {
   }
 };
 
+router.post('/register/code', async (req: Request, res: Response): Promise<any> => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!emailRegex.test(email) || email.length > 254) return res.status(400).json({ error: 'Informe um e-mail válido.' });
+  try {
+    await requestRegistrationCode(email);
+    return res.json({ message: 'Código enviado. Confira sua caixa de entrada e spam.' });
+  } catch (error) {
+    if (error instanceof RegistrationError) return res.status(error.status).json({ error: error.message });
+    return res.status(500).json({ error: 'Não foi possível solicitar o código.' });
+  }
+});
+
 router.post('/register', async (req: Request, res: Response): Promise<any> => {
-  const { email, password, name, termsAccepted } = req.body;
+  const { email, password, name, termsAccepted, verificationCode } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
@@ -43,7 +56,7 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
     return res.status(400).json({ error: 'Formato de e-mail inválido.' });
   }
 
-  if (String(password).length < 6) {
+  if (typeof password !== 'string' || password.length < 6 || Buffer.byteLength(password) > 72) {
     return res.status(400).json({ error: 'A senha deve conter no mínimo 6 caracteres.' });
   }
 
@@ -56,16 +69,25 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
     if (existingUser) {
       // Caso a conta tenha sido pré-criada pelo webhook da Cakto com senha provisória:
       if (existingUser.password.startsWith('$WEBHOOK_TEMP$')) {
+        const claim = await validateRegistrationCode(cleanEmail, verificationCode);
         const hashedPassword = await bcrypt.hash(password, 10);
-        const updated = await prisma.user.update({
+        const updated = await prisma.$transaction(async tx => {
+          await consumeRegistrationCode(tx, cleanEmail, claim);
+          const changed = await tx.user.updateMany({
+            where: { id: existingUser.id, password: existingUser.password },
+            data: {
+              password: hashedPassword,
+              name: name ? String(name).trim() : existingUser.name,
+              termsAcceptedAt: new Date(),
+              termsVersion: '1.0',
+              ...(isUserAdmin(cleanEmail) ? { role: 'ADMIN', subscriptionStatus: 'LIFETIME' } : {}),
+            },
+          });
+          if (changed.count !== 1) throw new RegistrationError('Esta conta já foi ativada. Faça login.', 409);
+          return tx.user.findUniqueOrThrow({
           where: { id: existingUser.id },
-          data: {
-            password: hashedPassword,
-            name: name ? String(name).trim() : existingUser.name,
-            termsAcceptedAt: new Date(),
-            termsVersion: '1.0',
-          },
           include: { workspaces: true }
+          });
         });
 
         const workspaceId = updated.workspaces[0]?.id;
@@ -93,8 +115,11 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
     }
 
     const isAdmin = isUserAdmin(cleanEmail);
+    const claim = isAdmin ? await validateRegistrationCode(cleanEmail, verificationCode) : null;
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({
+    const user = await prisma.$transaction(async tx => {
+      if (claim) await consumeRegistrationCode(tx, cleanEmail, claim);
+      return tx.user.create({
       data: {
         email: cleanEmail,
         password: hashedPassword,
@@ -112,6 +137,7 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
       include: {
         workspaces: true
       }
+      });
     });
 
     const workspaceId = user.workspaces[0]?.id;
@@ -157,6 +183,7 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
       } 
     });
   } catch (error) {
+    if (error instanceof RegistrationError) return res.status(error.status).json({ error: error.message, code: error.code });
     console.error('Register error:', error);
     res.status(500).json({ error: 'Erro interno ao criar conta.' });
   }
@@ -187,17 +214,6 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
       return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
     }
 
-    // Se o email está na lista de admins mas não estava como ADMIN no banco, atualiza automaticamente
-    if (isUserAdmin(cleanEmail) && user.role !== 'ADMIN') {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          role: 'ADMIN',
-          subscriptionStatus: 'LIFETIME'
-        },
-        include: { workspaces: true }
-      });
-    }
 
     const workspaceId = user.workspaces[0]?.id;
 
@@ -256,15 +272,6 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<any
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
 
-    // Auto-promove admin no /me também se necessário
-    if (isUserAdmin(user.email) && user.role !== 'ADMIN') {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'ADMIN', subscriptionStatus: 'LIFETIME' }
-      });
-      user.role = 'ADMIN';
-      user.subscriptionStatus = 'LIFETIME';
-    }
 
     res.json({ user });
   } catch (error) {
@@ -296,15 +303,6 @@ router.post('/verify-payment', authenticate, async (req: Request, res: Response)
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    // Auto-promove admin se aplicável
-    if (isUserAdmin(user.email) && user.role !== 'ADMIN') {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'ADMIN', subscriptionStatus: 'LIFETIME' }
-      });
-      user.role = 'ADMIN';
-      user.subscriptionStatus = 'LIFETIME';
-    }
 
     const active = isSubscriptionActive(user);
 

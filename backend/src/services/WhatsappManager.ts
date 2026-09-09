@@ -12,6 +12,7 @@ import pino from 'pino';
 import qrcode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 
 // Armazenamento em memória compatível com a interface CacheStore do Baileys 6.7.24
@@ -438,8 +439,9 @@ export class WhatsappManager {
     workspaceId: string,
     messageId: string,
     status: proto.WebMessageInfo.Status | number,
-    remoteJid?: string | null
-  ) {
+    remoteJid?: string | null,
+    retry = 0,
+  ): Promise<void> {
     try {
       const lead = await prisma.lead.findFirst({
         where: {
@@ -454,13 +456,14 @@ export class WhatsappManager {
 
       const maskedPhone = this.maskPhone(lead.phone);
       const now = new Date();
+      const awaitingConfirmation = lead.status === 'ERROR' && Boolean(lead.sendStartedAt);
 
       // Se o lead já estiver em REPLIED, preserva REPLIED (não retrocede)
       if (lead.status === 'REPLIED') {
         if (status === proto.WebMessageInfo.Status.DELIVERY_ACK && !lead.deliveredAt) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { deliveredAt: now } });
+          await prisma.lead.update({ where: { id: lead.id, deliveredAt: null }, data: { deliveredAt: now } });
         } else if ((status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) && !lead.readAt) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { readAt: now } });
+          await prisma.lead.update({ where: { id: lead.id, readAt: null }, data: { readAt: now } });
         }
         return;
       }
@@ -468,11 +471,12 @@ export class WhatsappManager {
       // Ordem monotônica: SENDING -> SENT -> DELIVERED -> READ
       if (status === proto.WebMessageInfo.Status.SERVER_ACK) {
         // 1 tick: WhatsApp aceitou/processou o envio
-        if (lead.status === 'PENDING' || lead.status === 'QUEUED' || lead.status === 'SENDING') {
+        if (lead.status === 'PENDING' || lead.status === 'QUEUED' || lead.status === 'SENDING' || awaitingConfirmation) {
           await prisma.lead.update({
-            where: { id: lead.id },
+            where: { id: lead.id, status: lead.status },
             data: {
               status: 'SENT',
+              errorMessage: null,
               sentAt: lead.sentAt || now
             }
           });
@@ -480,11 +484,12 @@ export class WhatsappManager {
         }
       } else if (status === proto.WebMessageInfo.Status.DELIVERY_ACK) {
         // 2 ticks cinzas: Entregue ao aparelho de destino
-        if (lead.status === 'PENDING' || lead.status === 'QUEUED' || lead.status === 'SENDING' || lead.status === 'SENT') {
+        if (lead.status === 'PENDING' || lead.status === 'QUEUED' || lead.status === 'SENDING' || lead.status === 'SENT' || awaitingConfirmation) {
           await prisma.lead.update({
-            where: { id: lead.id },
+            where: { id: lead.id, status: lead.status },
             data: {
               status: 'DELIVERED',
+              errorMessage: null,
               deliveredAt: lead.deliveredAt || now
             }
           });
@@ -494,9 +499,10 @@ export class WhatsappManager {
         // 2 ticks azuis: Mensagem visualizada pelo destinatário
         if (lead.status !== 'READ') {
           await prisma.lead.update({
-            where: { id: lead.id },
+            where: { id: lead.id, status: lead.status },
             data: {
               status: 'READ',
+              errorMessage: null,
               deliveredAt: lead.deliveredAt || now,
               readAt: lead.readAt || now
             }
@@ -505,6 +511,10 @@ export class WhatsappManager {
         }
       }
     } catch (err: any) {
+      // Compare-and-set: se outro ACK/resposta venceu a corrida, relê o estado antes de decidir.
+      if (err?.code === 'P2025' && retry < 3) {
+        return this.handleMessageStatusUpdate(workspaceId, messageId, status, remoteJid, retry + 1);
+      }
       console.error(`[WHATSAPP ACK ERROR] Falha ao atualizar status para messageId=${messageId}:`, err?.message || err);
     }
   }
@@ -603,6 +613,7 @@ export class WhatsappManager {
       clean = '55' + clean;
     }
 
+    let queryFailed = false;
     const checkNumber = async (num: string): Promise<string | null> => {
       if (typeof client?.onWhatsApp === 'function') {
         try {
@@ -612,7 +623,7 @@ export class WhatsappManager {
             return item.jid;
           }
         } catch (queryErr: any) {
-          console.warn(`[WhatsApp USync] Falha ao consultar onWhatsApp(${num}):`, queryErr?.message || queryErr);
+          queryFailed = true;
         }
       } else if (typeof client?.getNumberId === 'function') {
         try {
@@ -620,7 +631,9 @@ export class WhatsappManager {
           if (res && res._serialized) {
             return res._serialized;
           }
-        } catch {}
+        } catch { queryFailed = true; }
+      } else {
+        queryFailed = true;
       }
       return null;
     };
@@ -658,12 +671,13 @@ export class WhatsappManager {
       }
     }
 
+    if (queryFailed) throw new Error('Consulta ao WhatsApp indisponível temporariamente. Tente novamente.');
     console.warn(`[WhatsApp JID] Número ${this.maskPhone(phone)} não possui WhatsApp ativo (resolveNumberId retornou null)`);
     return null;
   }
 
   // Envia mensagem e retorna os dados reais de envio do Baileys { messageId, jid }
-  static async sendMessage(workspaceId: string, phone: string, message: string): Promise<{ messageId: string; jid: string }> {
+  static async sendMessage(workspaceId: string, phone: string, message: string, beforeSend?: (messageId: string) => Promise<void>): Promise<{ messageId: string; jid: string }> {
     const client = sessions.get(workspaceId);
     if (!client) {
       throw new Error('WhatsApp não está conectado no momento.');
@@ -681,9 +695,13 @@ export class WhatsappManager {
     const delay = Math.max(1500, Math.min(3500, message.length * 15));
     await new Promise(r => setTimeout(r, delay));
 
+    const outgoingId = crypto.randomBytes(16).toString('hex').toUpperCase();
+    // Persiste a intenção e o ID antes de qualquer efeito externo. ACKs precoces já encontram o lead.
+    if (beforeSend) await beforeSend(outgoingId);
+
     try {
       if (typeof client.sendMessage === 'function') {
-        const sent = await client.sendMessage(targetChatId, { text: message });
+        const sent = await client.sendMessage(targetChatId, { text: message }, { messageId: outgoingId });
         const messageId = sent?.key?.id;
         if (!messageId) {
           throw new Error('Baileys não retornou o identificador da mensagem enviada.');

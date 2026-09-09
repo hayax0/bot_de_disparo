@@ -194,6 +194,22 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
 }
 
 export class EmailService {
+  static async sendRegistrationCode(email: string, code: string): Promise<EmailSendResult> {
+    const client = getResendClient();
+    if (!client) return { success: false };
+    try {
+      const response = await client.emails.send({
+        from: ENV.RESEND_FROM_EMAIL,
+        to: email,
+        replyTo: ENV.RESEND_REPLY_TO,
+        subject: 'Confirme seu e-mail — Disparador',
+        text: `Seu código de confirmação é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se você não solicitou um cadastro, ignore esta mensagem.`,
+      });
+      return { success: !response.error, id: response.data?.id };
+    } catch {
+      return { success: false };
+    }
+  }
   /**
    * Envia o e-mail de Convite para Assinatura imediatamente após o cadastro na plataforma
    */
