@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -43,8 +43,10 @@ import {
   History,
   MessageSquare,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Lock
 } from 'lucide-react';
+import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 
 interface Campaign {
   id: string;
@@ -175,9 +177,17 @@ function formatPhone(phone: string): string {
   return phone;
 }
 
+const subscribeClock = (callback: () => void) => {
+  const interval = setInterval(callback, 30000);
+  return () => clearInterval(interval);
+};
+const getClockSnapshot = () => Date.now();
+const getClockServerSnapshot = () => 0;
+
 export default function Dashboard() {
   const { token, user, isHydrated, hydrate, logout } = useAuth();
   const router = useRouter();
+  const clientTime = useSyncExternalStore(subscribeClock, getClockSnapshot, getClockServerSnapshot);
   
   const [waStatus, setWaStatus] = useState<{ status: string; qrCode?: string | null } | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -239,6 +249,54 @@ export default function Dashboard() {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
   }, []);
+
+  // Estado e verificação ativa de assinatura (Paywall Oficial)
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [verifyPaymentFeedback, setVerifyPaymentFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  const isSubscriptionActive = useMemo(() => {
+    if (!user) return false;
+    if (user.role === 'ADMIN' || user.subscriptionStatus === 'LIFETIME') return true;
+    if (user.subscriptionStatus === 'ACTIVE' || user.subscriptionStatus === 'CANCELED') {
+      if (!user.subscriptionExpiresAt) return false;
+      if (clientTime === null) return user.subscriptionStatus === 'ACTIVE';
+      return new Date(user.subscriptionExpiresAt).getTime() > clientTime;
+    }
+    return false;
+  }, [user, clientTime]);
+
+  const handleVerifyPayment = async () => {
+    setVerifyingPayment(true);
+    setVerifyPaymentFeedback(null);
+    try {
+      const res = await api.post('/auth/verify-payment');
+      if (res.data?.active) {
+        setVerifyPaymentFeedback({
+          type: 'success',
+          message: 'Pagamento confirmado com sucesso! Seu acesso está liberado.'
+        });
+        const updatedUser = { ...user, ...res.data.user };
+        useAuth.getState().setAuth(token, updatedUser);
+        addToast('success', 'Assinatura ativa confirmada!');
+      } else {
+        setVerifyPaymentFeedback({
+          type: 'info',
+          message: 'Pagamento ainda não confirmado pela Cakto. Se você acabou de pagar, aguarde alguns instantes e tente novamente.'
+        });
+      }
+    } catch (err: unknown) {
+      let msg = 'Erro ao verificar pagamento no servidor.';
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        msg = err.response.data.error;
+      }
+      setVerifyPaymentFeedback({
+        type: 'error',
+        message: msg
+      });
+    } finally {
+      setVerifyingPayment(false);
+    }
+  };
 
   // Carregar status do WhatsApp
   const fetchStatus = useCallback(async () => {
@@ -2314,6 +2372,110 @@ export default function Dashboard() {
                   Fechar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Paywall Overlay Intransponível: bloqueia visualização e interação para usuários sem assinatura ativa */}
+      {isHydrated && user && !isSubscriptionActive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#07080B]/95 backdrop-blur-2xl animate-in fade-in select-none">
+          <div className="w-full max-w-md tech-card rounded-3xl p-6 sm:p-8 border border-purple-500/40 shadow-2xl shadow-purple-950/50 bg-[#0C0E16] relative text-center">
+            
+            {/* Ícone de bloqueio */}
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-500/20">
+              <Lock size={26} />
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold mb-2">
+              <span>Assinatura Necessária</span>
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+              Acesso Bloqueado
+            </h2>
+
+            <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
+              {user.subscriptionStatus === 'PAST_DUE'
+                ? 'Sua assinatura anterior venceu ou está com pagamento pendente.'
+                : user.subscriptionExpiresAt && clientTime !== null && new Date(user.subscriptionExpiresAt).getTime() <= clientTime
+                ? 'O período da sua assinatura mensal expirou.'
+                : 'Sua conta ainda não possui uma assinatura ativa para utilizar a plataforma.'}
+            </p>
+
+            {/* Box do Plano Oficial */}
+            <div className="my-5 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] text-left">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-semibold text-purple-400 uppercase tracking-wider block">
+                    {OFFICIAL_PLAN.name}
+                  </span>
+                  <div className="text-2xl font-black text-white mt-0.5">
+                    {OFFICIAL_PLAN.currency} {OFFICIAL_PLAN.price}{' '}
+                    <span className="text-xs font-normal text-slate-400">{OFFICIAL_PLAN.period}</span>
+                  </div>
+                </div>
+                <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
+                  Liberação Imediata
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                Libera conexão WhatsApp, fila inteligente com delay anti-bloqueio, spintax e execução contínua 24/7 na nuvem.
+              </p>
+            </div>
+
+            {/* Feedback da verificação de pagamento */}
+            {verifyPaymentFeedback && (
+              <div
+                className={`mb-4 p-3 rounded-xl text-xs font-medium border text-left leading-relaxed ${
+                  verifyPaymentFeedback.type === 'success'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : verifyPaymentFeedback.type === 'error'
+                    ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                }`}
+              >
+                {verifyPaymentFeedback.message}
+              </div>
+            )}
+
+            {/* Botões de Ação */}
+            <div className="space-y-2.5">
+              <a
+                href={CAKTO_CHECKOUT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full btn-tech-primary py-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 cursor-pointer"
+              >
+                <Zap size={16} />
+                <span>Ativar Assinatura na Cakto</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={handleVerifyPayment}
+                disabled={verifyingPayment}
+                className="w-full py-3 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-purple-500/30 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={verifyingPayment ? 'animate-spin' : ''} />
+                <span>{verifyingPayment ? 'Consultando servidor...' : 'Verificar Pagamento'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  router.push('/login');
+                }}
+                className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <LogOut size={13} />
+                <span>Encerrar Sessão</span>
+              </button>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500">
+              Pagamento 100% seguro processado via Cakto Pagamentos.
             </div>
           </div>
         </div>

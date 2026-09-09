@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
-import { isUserAdmin } from '../services/SubscriptionManager';
+import { isUserAdmin, isSubscriptionActive } from '../services/SubscriptionManager';
 import { EmailService } from '../services/EmailService';
 
 const router = Router();
@@ -26,10 +26,16 @@ const authenticate = (req: Request, res: Response, next: Function): any => {
 };
 
 router.post('/register', async (req: Request, res: Response): Promise<any> => {
-  const { email, password, name } = req.body;
+  const { email, password, name, termsAccepted } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+  }
+
+  if (termsAccepted !== true && termsAccepted !== 'true') {
+    return res.status(400).json({ 
+      error: 'É obrigatório ler e aceitar os Termos de Uso e a Política de Privacidade para criar uma conta.' 
+    });
   }
 
   const cleanEmail = String(email).trim().toLowerCase();
@@ -56,6 +62,8 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
           data: {
             password: hashedPassword,
             name: name ? String(name).trim() : existingUser.name,
+            termsAcceptedAt: new Date(),
+            termsVersion: '1.0',
           },
           include: { workspaces: true }
         });
@@ -93,6 +101,8 @@ router.post('/register', async (req: Request, res: Response): Promise<any> => {
         name: name ? String(name).trim() : null,
         role: isAdmin ? 'ADMIN' : 'USER',
         subscriptionStatus: isAdmin ? 'LIFETIME' : 'INACTIVE',
+        termsAcceptedAt: new Date(),
+        termsVersion: '1.0',
         workspaces: {
           create: {
             name: `${name ? String(name).trim() : 'Minha Empresa'}`,
@@ -260,6 +270,69 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<any
   } catch (error) {
     console.error('Auth /me error:', error);
     res.status(500).json({ error: 'Erro ao buscar dados do usuário.' });
+  }
+});
+
+// Endpoint seguro para o botão "Verificar Pagamento" consultar o backend
+router.post('/verify-payment', authenticate, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Não autorizado' });
+    }
+
+    let user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        subscriptionStatus: true,
+        subscriptionExpiresAt: true,
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    // Auto-promove admin se aplicável
+    if (isUserAdmin(user.email) && user.role !== 'ADMIN') {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'ADMIN', subscriptionStatus: 'LIFETIME' }
+      });
+      user.role = 'ADMIN';
+      user.subscriptionStatus = 'LIFETIME';
+    }
+
+    const active = isSubscriptionActive(user);
+
+    // Se no banco ainda consta ACTIVE mas a data já passou, sincroniza para PAST_DUE
+    if (!active && user.subscriptionStatus === 'ACTIVE') {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { subscriptionStatus: 'PAST_DUE' }
+      }).catch(() => {});
+      user.subscriptionStatus = 'PAST_DUE';
+    }
+
+    return res.json({
+      active,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionExpiresAt: user.subscriptionExpiresAt,
+      },
+      message: active
+        ? 'Assinatura ativa e confirmada!'
+        : 'Pagamento ainda não confirmado ou assinatura pendente.'
+    });
+  } catch (error) {
+    console.error('Erro em /auth/verify-payment:', error);
+    res.status(500).json({ error: 'Erro ao verificar pagamento no servidor.' });
   }
 });
 

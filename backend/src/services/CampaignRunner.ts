@@ -3,6 +3,7 @@ import { createConnection, messageQueue } from './queue';
 import { prisma } from '../lib/prisma';
 import { WhatsappManager } from './WhatsappManager';
 import { gerarProposta } from './ProposalEngine';
+import { isSubscriptionActive } from './SubscriptionManager';
 
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
@@ -57,6 +58,26 @@ export const campaignWorker = new Worker('message-queue', async (job: Job) => {
 
   if (!lead || !campaign) {
     console.warn(`[WORKER] Job ${job.id}: lead ou campanha não encontrados (possivelmente excluídos). Ignorando.`);
+    return;
+  }
+
+  // BLINDAGEM DE ACESSO: Valida se o usuário possui assinatura ativa antes de qualquer envio
+  const user = campaign.workspace?.user;
+  if (!user || !isSubscriptionActive(user)) {
+    console.warn(`[WORKER] Job ${job.id} bloqueado: Usuário ${user?.email || 'desconhecido'} com assinatura inativa ou expirada. Pausando campanha ${campaignId}.`);
+    
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'PAUSED' }
+    }).catch(() => {});
+
+    if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { status: 'PENDING' }
+      }).catch(() => {});
+    }
+
     return;
   }
 

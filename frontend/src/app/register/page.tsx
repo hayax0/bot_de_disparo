@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setAuth = useAuth(state => state.setAuth);
@@ -20,10 +21,20 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!termsAccepted) {
+      setErrorMessage('É obrigatório ler e aceitar os Termos de Uso e a Política de Privacidade.');
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(null);
     try {
-      const res = await api.post('/auth/register', { email, password, name });
+      const res = await api.post('/auth/register', { 
+        email, 
+        password, 
+        name,
+        termsAccepted: true 
+      });
       setAuth(res.data.token, res.data.user);
       router.push('/dashboard');
     } catch (err: unknown) {
@@ -114,6 +125,36 @@ export default function RegisterPage() {
                 placeholder="Mínimo 6 caracteres"
               />
             </div>
+          </div>
+
+          <div className="pt-2">
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input 
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={e => setTermsAccepted(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-white/20 bg-white/[0.05] text-purple-600 focus:ring-purple-500 focus:ring-offset-0 cursor-pointer"
+              />
+              <span className="text-xs text-slate-400 leading-relaxed">
+                Li e concordo expressamente com os{' '}
+                <Link 
+                  href="/termos" 
+                  target="_blank" 
+                  className="text-purple-400 font-semibold hover:underline"
+                >
+                  Termos de Uso
+                </Link>{' '}
+                e a{' '}
+                <Link 
+                  href="/privacidade" 
+                  target="_blank" 
+                  className="text-purple-400 font-semibold hover:underline"
+                >
+                  Política de Privacidade
+                </Link>
+                .
+              </span>
+            </label>
           </div>
 
           <button 

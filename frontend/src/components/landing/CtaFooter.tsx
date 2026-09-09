@@ -81,6 +81,12 @@ export function CtaFooter() {
             <a href="#faq" className="hover:text-white transition-colors">
               FAQ
             </a>
+            <Link href="/termos" className="hover:text-white transition-colors">
+              Termos de Uso
+            </Link>
+            <Link href="/privacidade" className="hover:text-white transition-colors">
+              Política de Privacidade
+            </Link>
             <Link href="/login" className="hover:text-white transition-colors font-medium">
               Login
             </Link>

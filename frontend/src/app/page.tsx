@@ -12,6 +12,7 @@ import { ComparisonSection } from "@/components/landing/ComparisonSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { CtaFooter } from "@/components/landing/CtaFooter";
+import { CookieConsentBanner } from "@/components/landing/CookieConsentBanner";
 
 export default function LandingPage() {
   const { containerRef } = useGsapScroll();
@@ -64,6 +65,9 @@ export default function LandingPage() {
 
       {/* CTA Final & Rodapé Institucional */}
       <CtaFooter />
+
+      {/* Banner de Consentimento de Cookies & LGPD */}
+      <CookieConsentBanner />
     </div>
   );
 }
