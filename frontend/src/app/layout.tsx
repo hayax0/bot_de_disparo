@@ -5,8 +5,24 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: "Disparador de Mensagens",
-  description: "Plataforma de Prospecção Automática via WhatsApp",
+  title: "Disparador de Mensagens — Prospecção Automática no WhatsApp",
+  description:
+    "Plataforma de automação e prospecção ativa via WhatsApp com controle de cadência humana, execução 100% em nuvem e histórico permanente por workspace.",
+  keywords: [
+    "prospecção whatsapp",
+    "disparador de mensagens",
+    "automação whatsapp",
+    "vendas b2b",
+    "cadência de disparo",
+    "envio em massa seguro",
+  ],
+  openGraph: {
+    title: "Disparador de Mensagens — Prospecção Automática no WhatsApp",
+    description:
+      "Automatize sua prospecção ativa no WhatsApp com cadência humana, delays inteligentes e execução 24/7 na nuvem.",
+    locale: "pt_BR",
+    type: "website",
+  },
   icons: {
     icon: [
       { url: '/icon.png', href: '/icon.png' },
