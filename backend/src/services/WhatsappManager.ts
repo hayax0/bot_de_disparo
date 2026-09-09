@@ -286,6 +286,9 @@ export class WhatsappManager {
       // DESATIVAÇÃO TOTAL DE SINCRONIZAÇÃO DE HISTÓRICO (mandatório p/ bot de disparos)
       shouldSyncHistoryMessage: () => false,
       syncFullHistory: false,
+      // Ignora grupos e status no nível de protocolo (evita descriptografia desnecessária e loops de retry que acionam sync no celular)
+      shouldIgnoreJid: (jid: string) => jid?.includes('@g.us') || jid?.includes('status@broadcast'),
+      maxMsgRetryCount: 2,
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
       connectTimeoutMs: 60000,
