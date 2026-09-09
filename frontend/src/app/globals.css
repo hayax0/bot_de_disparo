@@ -208,4 +208,15 @@ html.lenis, html.lenis body {
   }
 }
 
+/* Blindagem para Mobile e Dispositivos Touch: */
+/* Garante visibilidade e posicionamento imediatos, evitando seções invisíveis no scroll */
+@media (max-width: 767px), (hover: none) {
+  .gsap-reveal,
+  .manifesto-stagger {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+
 
