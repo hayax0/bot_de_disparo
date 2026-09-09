@@ -99,13 +99,13 @@ export function LandingNavbar() {
               >
                 Entrar
               </Link>
-              <a
-                href="#planos"
+              <Link
+                href="/register"
                 className="btn-tech-primary px-4 py-2 rounded-xl text-xs sm:text-sm flex items-center gap-2"
               >
-                <span>Começar Agora</span>
+                <span>Criar Conta</span>
                 <ArrowRight size={14} />
-              </a>
+              </Link>
             </>
           )}
         </div>
@@ -155,14 +155,14 @@ export function LandingNavbar() {
                 >
                   Entrar na Conta
                 </Link>
-                <a
-                  href="#planos"
+                <Link
+                  href="/register"
                   onClick={handleNavClick}
                   className="w-full btn-tech-primary py-2.5 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2"
                 >
-                  <span>Começar Agora</span>
+                  <span>Criar Conta</span>
                   <ArrowRight size={14} />
-                </a>
+                </Link>
               </>
             )}
           </div>

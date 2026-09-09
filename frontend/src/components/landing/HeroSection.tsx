@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowRight, ShieldCheck, Zap } from "lucide-react";
 import { LiveWhatsAppMockup } from "./LiveWhatsAppMockup";
 
@@ -34,13 +35,13 @@ export function HeroSection() {
 
             {/* CTAs de Alta Conversão */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
-              <a
-                href="#planos"
+              <Link
+                href="/register"
                 className="w-full sm:w-auto btn-tech-primary px-7 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-600/25"
               >
                 <span>Começar Agora</span>
                 <ArrowRight size={16} />
-              </a>
+              </Link>
 
               <a
                 href="#como-funciona"

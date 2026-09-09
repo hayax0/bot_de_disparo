@@ -1,4 +1,5 @@
 import { XCircle, CheckCircle2, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 export function ComparisonSection() {
   const comparisonRows = [
@@ -94,13 +95,13 @@ export function ComparisonSection() {
             <span className="text-xs text-slate-400">
               Mais reuniões e contatos qualificados com uma fração do esforço manual diário.
             </span>
-            <a
-              href="#planos"
+            <Link
+              href="/register"
               className="btn-tech-primary px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0"
             >
-              <span>Liberar Acesso</span>
+              <span>Criar Conta & Começar</span>
               <ArrowRight size={14} />
-            </a>
+            </Link>
           </div>
         </div>
       </div>

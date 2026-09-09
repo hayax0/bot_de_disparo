@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { CheckCircle2, Zap, ShieldCheck, ArrowRight } from "lucide-react";
-import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from "@/lib/constants";
+import { OFFICIAL_PLAN } from "@/lib/constants";
 
 export function PricingSection() {
   return (
@@ -65,21 +66,19 @@ export function PricingSection() {
             </ul>
           </div>
 
-          {/* Botão de Checkout Oficial Cakto */}
+          {/* Botão de Cadastro & Início */}
           <div className="space-y-3 pt-2">
-            <a
-              href={CAKTO_CHECKOUT_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              href="/register"
               className="w-full btn-tech-primary py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 text-center"
             >
-              <span>Contratar Acesso Agora</span>
+              <span>Criar Minha Conta & Começar</span>
               <ArrowRight size={16} />
-            </a>
+            </Link>
 
             <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 text-center">
               <ShieldCheck size={14} className="text-purple-400" />
-              <span>Pagamento 100% seguro processado via Cakto</span>
+              <span>Cadastre sua conta em 1 minuto • Ativação via PIX ou Cartão</span>
             </div>
           </div>
         </div>

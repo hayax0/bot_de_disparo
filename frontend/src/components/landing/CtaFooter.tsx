@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Zap } from "lucide-react";
-import { CAKTO_CHECKOUT_URL } from "@/lib/constants";
 
 export function CtaFooter() {
   const currentYear = new Date().getFullYear();
@@ -29,21 +28,19 @@ export function CtaFooter() {
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-2">
-              <a
-                href={CAKTO_CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/register"
                 className="w-full sm:w-auto btn-tech-primary px-8 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
               >
-                <span>Contratar Acesso Imediato</span>
+                <span>Criar Minha Conta</span>
                 <ArrowRight size={16} />
-              </a>
+              </Link>
 
               <Link
                 href="/login"
                 className="w-full sm:w-auto px-6 py-3.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-purple-500/30 transition-colors flex items-center justify-center"
               >
-                <span>Acessar Minha Conta</span>
+                <span>Já sou cliente (Entrar)</span>
               </Link>
             </div>
           </div>
