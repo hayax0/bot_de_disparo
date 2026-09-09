@@ -63,22 +63,23 @@ export function useGsapScroll() {
         );
       });
 
-      // Efeito de "Texto que vai surgindo/acendendo com o scroll" (Text Reveal Scrub)
-      const textScrubElements = gsap.utils.toArray<HTMLElement>(".gsap-text-scrub span");
-      if (textScrubElements.length > 0) {
+      // Animação de entrada dos cards do manifesto
+      const manifestoElements = gsap.utils.toArray<HTMLElement>(".manifesto-stagger");
+      if (manifestoElements.length > 0) {
         gsap.fromTo(
-          textScrubElements,
-          { opacity: 0.2, color: "#64748b" },
+          manifestoElements,
+          { opacity: 0, y: 30, scale: 0.98 },
           {
             opacity: 1,
-            color: "#f8fafc",
-            stagger: 0.1,
-            ease: "none",
+            y: 0,
+            scale: 1,
+            duration: 0.7,
+            stagger: 0.15,
+            ease: "power2.out",
             scrollTrigger: {
-              trigger: ".gsap-text-scrub-trigger",
-              start: "top 75%",
-              end: "bottom 45%",
-              scrub: 1,
+              trigger: ".manifesto-trigger",
+              start: "top 80%",
+              toggleActions: "play none none none",
             },
           }
         );
