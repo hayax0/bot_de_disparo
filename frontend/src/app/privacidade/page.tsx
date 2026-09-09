@@ -103,7 +103,7 @@ export default function PrivacidadePage() {
                 <strong className="text-white">Dados Cadastrais do Usuário:</strong> Nome, endereço de e-mail e credenciais de acesso protegidas por algoritmo irreversível de hash (<code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded text-purple-300">bcrypt</code>).
               </li>
               <li>
-                <strong className="text-white">Dados de Faturamento e Assinatura:</strong> Identificador de cliente no gateway oficial (Cakto), status da assinatura (ACTIVE, PAST_DUE, CANCELED), ciclo de faturamento e datas de renovação/expiração. Os dados de cartão de crédito não são armazenados em nossos servidores, sendo processados diretamente pelo gateway certificado PCI-DSS.
+                <strong className="text-white">Dados de Faturamento e Assinatura:</strong> Identificador de cliente no gateway oficial de pagamentos, status da assinatura (ACTIVE, PAST_DUE, CANCELED), ciclo de faturamento e datas de renovação/expiração. Os dados de cartão de crédito não são armazenados em nossos servidores, sendo processados diretamente pelo gateway certificado PCI-DSS.
               </li>
               <li>
                 <strong className="text-white">Dados de Leads Inseridos pelo Usuário:</strong> Números de telefone, nomes de empresas, websites e bairros que o Usuário faz upload para realização de suas campanhas.
@@ -167,7 +167,7 @@ export default function PrivacidadePage() {
             </p>
             <ul className="space-y-1.5 list-disc list-inside pl-2 text-slate-300">
               <li>
-                <strong className="text-white">Processamento de Pagamentos:</strong> Cakto (para liquidação de assinaturas e gestão de cobrança);
+                <strong className="text-white">Processamento de Pagamentos:</strong> Gateway de pagamentos homologado e certificado PCI-DSS (para liquidação de assinaturas e gestão de cobrança);
               </li>
               <li>
                 <strong className="text-white">Disparo de E-mails Transacionais:</strong> Resend (exclusivamente para confirmações e notificações de conta);

@@ -281,7 +281,7 @@ export default function Dashboard() {
       } else {
         setVerifyPaymentFeedback({
           type: 'info',
-          message: 'Pagamento ainda não confirmado pela Cakto. Se você acabou de pagar, aguarde alguns instantes e tente novamente.'
+          message: 'Pagamento ainda não confirmado. Se você acabou de pagar, aguarde alguns instantes e tente novamente.'
         });
       }
     } catch (err: unknown) {
@@ -2304,7 +2304,7 @@ export default function Dashboard() {
                 className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Zap size={15} />
-                <span>Assinar Agora na Cakto</span>
+                <span>Assinar Agora</span>
               </a>
               <button 
                 onClick={() => setIsSubscriptionModalOpen(false)}
@@ -2448,7 +2448,7 @@ export default function Dashboard() {
                 className="w-full btn-tech-primary py-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 cursor-pointer"
               >
                 <Zap size={16} />
-                <span>Ativar Assinatura na Cakto</span>
+                <span>Ativar Assinatura</span>
               </a>
 
               <button
@@ -2475,7 +2475,7 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500">
-              Pagamento 100% seguro processado via Cakto Pagamentos.
+              Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
             </div>
           </div>
         </div>

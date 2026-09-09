@@ -179,7 +179,7 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
 
     if (user && user.password.startsWith('$WEBHOOK_TEMP$')) {
       return res.status(401).json({
-        error: 'Sua assinatura foi confirmada pela Cakto! Acesse a aba "Cadastre-se" com este mesmo e-mail para definir sua senha de acesso.'
+        error: 'Sua assinatura foi confirmada! Acesse a aba "Cadastre-se" com este mesmo e-mail para definir sua senha de acesso.'
       });
     }
 

@@ -239,7 +239,7 @@ export class EmailService {
 
       <div class="highlight-box">
         <p style="margin: 0 0 8px 0; color: #ffffff; font-weight: 700;">🔓 Próximo passo para começar a prospectar:</p>
-        <p style="margin: 0; color: #cbd5e1;">Para liberar todas as ferramentas e iniciar suas campanhas imediatamente, clique no botão abaixo e ative sua assinatura na Cakto:</p>
+        <p style="margin: 0; color: #cbd5e1;">Para liberar todas as ferramentas e iniciar suas campanhas imediatamente, clique no botão abaixo e ative sua assinatura:</p>
       </div>
 
       <div class="btn-container">
@@ -515,7 +515,7 @@ export class EmailService {
     const htmlContent = `
       <h2>Atenção: Falha no pagamento da sua assinatura Disparador</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
-      <p>Houve uma falha ao processar o pagamento da renovação da sua assinatura na Cakto.</p>
+      <p>Houve uma falha ao processar o pagamento da renovação da sua assinatura.</p>
       <div class="highlight-box">
         <p style="margin: 0;">Para evitar a interrupção das suas campanhas, por favor verifique o limite do seu cartão ou atualize seus dados de pagamento.</p>
       </div>

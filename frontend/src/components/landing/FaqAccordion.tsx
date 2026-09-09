@@ -42,7 +42,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Como funciona a contratação e liberação da minha conta?",
     answer:
-      "A assinatura é mensal no valor de R$ 145,99, processada de forma 100% segura através da plataforma Cakto. Pagamentos via PIX ou Cartão de Crédito são aprovados instantaneamente e liberam seu acesso na mesma hora.",
+      "A assinatura é mensal no valor de R$ 145,99, processada de forma 100% segura e criptografada. Pagamentos via PIX ou Cartão de Crédito são aprovados instantaneamente e liberam seu acesso na mesma hora.",
   },
 ];
 
