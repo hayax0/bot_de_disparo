@@ -260,6 +260,18 @@ export class WhatsappManager {
 
     const msgRetryCounterCache = new MemoryCacheStore(5000);
 
+    // Se for novo pareamento (não registrado), expurga resíduos de sessões anteriores que poderiam causar Bad MAC
+    if (!state.creds?.registered) {
+      try {
+        const files = fs.readdirSync(authDir);
+        for (const f of files) {
+          if (f.startsWith('session-') || f.startsWith('sender-key-') || f.startsWith('app-state-')) {
+            try { fs.unlinkSync(path.join(authDir, f)); } catch {}
+          }
+        }
+      } catch {}
+    }
+
     const sock = makeWASocket({
       version,
       logger,
@@ -270,7 +282,7 @@ export class WhatsappManager {
       msgRetryCounterCache,
       getMessage: WhatsappManager.recoverMessageContent,
       printQRInTerminal: false,
-      browser: Browsers.appropriate('Chrome'),
+      browser: Browsers.windows('Chrome'),
       // DESATIVAÇÃO TOTAL DE SINCRONIZAÇÃO DE HISTÓRICO (mandatório p/ bot de disparos)
       shouldSyncHistoryMessage: () => false,
       syncFullHistory: false,
@@ -321,17 +333,20 @@ export class WhatsappManager {
       }
 
       if (connection === 'close') {
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
-        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
-        const isReplaced = statusCode === DisconnectReason.connectionReplaced;
+        const error = lastDisconnect?.error as any;
+        const statusCode = error?.output?.statusCode;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut; // 401
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired; // 515
+        const isReplaced = statusCode === DisconnectReason.connectionReplaced; // 440
+        const isBadSession = statusCode === DisconnectReason.badSession; // 500
+        const isForbidden = statusCode === 403;
 
-        console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada p/ workspace ${workspaceId}: status ${statusCode} (loggedOut=${isLoggedOut}, restartRequired=${isRestartRequired}, replaced=${isReplaced})`);
+        console.log(`[WHATSAPP DISCONNECTED] Sessão desconectada p/ workspace ${workspaceId}: status ${statusCode} (loggedOut=${isLoggedOut}, restartRequired=${isRestartRequired}, replaced=${isReplaced}, badSession=${isBadSession})`);
 
         sessions.delete(workspaceId);
 
-        if (isLoggedOut) {
-          console.log(`[WHATSAPP LOGOUT] Logout permanente p/ workspace ${workspaceId}. Limpando arquivos...`);
+        if (isLoggedOut || isBadSession || isForbidden) {
+          console.log(`[WHATSAPP LOGOUT] ${isBadSession ? 'Sessão corrompida (badSession 500)' : 'Desconexão permanente/Logout'} p/ workspace ${workspaceId}. Limpando arquivos residuais...`);
           WhatsappManager.clearPairingState(workspaceId);
           reconnectAttempts.delete(workspaceId);
           clearReconnectTimer(workspaceId);
