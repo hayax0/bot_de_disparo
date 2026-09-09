@@ -69,6 +69,19 @@ test('normalizeBrPhone: normaliza celular 11 dígitos sem DDI adicionando 55', (
   assert.equal(res, '5521997411009');
 });
 
+test('resolveNumberId: indisponibilidade de USync não vira número inexistente', async () => {
+  const client = { onWhatsApp: async () => { throw new Error('timeout'); } };
+  await assert.rejects(WhatsappManager.resolveNumberId(client, '11987654321'), /temporariamente/);
+});
+
+test('resolveNumberId: falha numa variante e ausência na outra mantém resultado inconclusivo', async () => {
+  const client = { onWhatsApp: async (phone: string) => {
+    if (phone.length === 13) throw new Error('timeout');
+    return [];
+  } };
+  await assert.rejects(WhatsappManager.resolveNumberId(client, '11987654321'), /temporariamente/);
+});
+
 test('normalizeBrPhone: preserva celular 13 dígitos já com 55', () => {
   const res = WhatsappManager.normalizeBrPhone('5521997411009');
   assert.equal(res, '5521997411009');

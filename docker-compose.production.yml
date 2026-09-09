@@ -56,7 +56,8 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:-cabe1689-18f6-409b-9f95-0bd29a214cc6}
+      CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:?Configure o mesmo segredo forte na Cakto e no .env}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-caiocampos1009@gmail.com,vitoriacampos241003@gmail.com,vieiralacerda192@gmail.com,vmariacamll@gmail.com,dyonsonandrade@gmail.com}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-CMPX Bot Disparo <noreply@botdisparo.cmpx.tec.br>}

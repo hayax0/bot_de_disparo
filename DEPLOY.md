@@ -29,20 +29,22 @@ Preencha as variáveis com senhas fortes:
 - `CORS_ORIGIN`: URL pública do frontend (ex: `https://app.seusite.com`)
 - `NEXT_PUBLIC_API_URL`: URL pública da API (ex: `https://api.seusite.com/api`)
 
-### 3. Subir a aplicação com Docker Compose
+### 3. Construir as imagens e iniciar os serviços de dados
 ```bash
-docker compose -f docker-compose.production.yml up -d --build
+docker compose -f docker-compose.production.yml build backend frontend
+docker compose -f docker-compose.production.yml up -d postgres redis
 ```
 
 ### 4. Executar as migrações do banco de dados (Prisma)
 ```bash
-docker compose -f docker-compose.production.yml exec backend npm run migrate:deploy
+docker compose -f docker-compose.production.yml run --rm --no-deps backend npm run migrate:deploy
+docker compose -f docker-compose.production.yml up -d --no-build backend frontend
 ```
 
 ---
 
 ## 🔒 Persistência e Segurança
-- **Sessão do WhatsApp (`.wwebjs_auth`):** Mapeada em volume local (`./backend/.wwebjs_auth`), garantindo que o número permaneça conectado mesmo se os containers forem reiniciados ou atualizados.
+- **Sessão do WhatsApp (Baileys):** Mapeada em volume local (`./backend/.baileys_auth`). Preserve esta pasta ao atualizar ou fazer backup.
 - **Banco de Dados & Redis:** Executam em rede interna privada (`internal_network`), não expondo portas diretamente para a internet pública.
 
 ---
@@ -52,9 +54,14 @@ Para atualizar o sistema sem perder sessões ou dados:
 ```bash
 cd /opt/saas-bot
 git pull origin main
-docker compose -f docker-compose.production.yml up -d --build
-docker compose -f docker-compose.production.yml exec backend npm run migrate:deploy
+docker compose -f docker-compose.production.yml build backend frontend
+docker compose -f docker-compose.production.yml run --rm --no-deps backend npm run migrate:deploy
+docker compose -f docker-compose.production.yml up -d --no-build backend frontend
 ```
+
+Execute cada etapa apenas se a anterior terminar com sucesso. A migration roda na imagem nova, antes de substituir a aplicação em execução. O Prisma CLI é uma dependência de produção para permitir esse comando.
+
+Para a atualização de segurança de setembro de 2026, consulte [CORRECOES-1-A-11.md](CORRECOES-1-A-11.md), especialmente a configuração do webhook e do envio de códigos de confirmação.
 
 ---
 

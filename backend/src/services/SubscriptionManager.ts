@@ -1,5 +1,5 @@
-import { prisma } from '../lib/prisma';
-import bcrypt from 'bcrypt';
+import { prisma, prisma as notificationDb } from '../lib/prisma';
+import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import { ENV } from '../config/env';
 import { EmailService } from './EmailService';
@@ -21,7 +21,7 @@ export function isUserAdmin(email: string): boolean {
 
 /**
  * Validação de acesso por assinatura:
- * 1. Administradores e VIPs (configurados em ADMIN_EMAILS ou com role ADMIN / LIFETIME) têm acesso irrestrito.
+ * 1. Administradores e VIPs com role ADMIN / LIFETIME persistidos têm acesso irrestrito.
  * 2. Clientes comuns: Devem ter status ACTIVE ou CANCELED, e subscriptionExpiresAt estritamente no futuro.
  *    Nota de Negócio: Clientes que cancelaram mantêm acesso até o fim do período já pago.
  * 3. Status INACTIVE, PAST_DUE ou data de expiração no passado resultam em acesso bloqueado (false).
@@ -36,7 +36,6 @@ export function isSubscriptionActive(user: {
 
   // 1. VIP / Administradores: Acesso vitalício incondicional
   if (
-    (user.email && isUserAdmin(user.email)) ||
     user.role === 'ADMIN' ||
     user.subscriptionStatus === 'LIFETIME'
   ) {
@@ -114,57 +113,44 @@ export function calculateSubscriptionPeriod(
   return { expiresAt, interval };
 }
 
-export async function processCaktoWebhook(
+export class WebhookError extends Error {
+  constructor(message: string, public status: number) { super(message); }
+}
+
+export function validateWebhookSecret(payload: CaktoWebhookPayload, headers?: Record<string, any>) {
+  const raw = headers?.['x-webhook-secret'] || headers?.['x-cakto-secret'] || headers?.authorization ||
+    payload?.secret || payload?.token || payload?.webhook_secret;
+  const configured = ENV.CAKTO_WEBHOOK_SECRET;
+  if (!configured) throw new WebhookError('Webhook não configurado.', 503);
+  if (typeof raw !== 'string') throw new WebhookError('Webhook não autorizado.', 401);
+  const provided = Buffer.from(raw.replace(/^Bearer\s+/i, ''));
+  const expected = Buffer.from(configured);
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+    throw new WebhookError('Webhook não autorizado.', 401);
+  }
+}
+
+export async function processCaktoWebhook(payload: CaktoWebhookPayload, headers?: Record<string, any>) {
+  validateWebhookSecret(payload, headers);
+  if (!payload || typeof payload !== 'object') throw new WebhookError('Payload inválido.', 400);
+  const afterCommit: Array<() => Promise<unknown>> = [];
+  const result = await prisma.$transaction(
+    tx => applyCaktoWebhook(payload, tx, afterCommit),
+    { maxWait: 10000, timeout: 20000 },
+  );
+  // E-mails são efeitos externos e só podem sair após o commit.
+  for (const send of afterCommit) {
+    try { await send(); } catch { console.error('[WEBHOOK] Falha na notificação após commit.'); }
+  }
+  return { success: result.success, message: result.message };
+}
+
+async function applyCaktoWebhook(
   payload: CaktoWebhookPayload,
-  headers?: Record<string, any>
+  prisma: Prisma.TransactionClient,
+  afterCommit: Array<() => Promise<unknown>>,
 ): Promise<{ success: boolean; message: string; user?: any }> {
   const { event } = payload;
-
-  // 1. Validação do Segredo (suporta body e headers HTTP)
-  const rawSecret =
-    payload.secret ||
-    payload.token ||
-    payload.webhook_secret ||
-    headers?.['x-webhook-secret'] ||
-    headers?.['x-cakto-secret'] ||
-    headers?.['authorization'];
-
-  const configuredSecret = (ENV.CAKTO_WEBHOOK_SECRET || 'cakto_webhook_secreto_2026').trim();
-
-  if (rawSecret) {
-    const cleanRaw = String(rawSecret).replace(/^Bearer\s+/i, '').trim();
-    const isMatch =
-      cleanRaw === configuredSecret ||
-      cleanRaw.toLowerCase() === configuredSecret.toLowerCase();
-    const isMasterSecret =
-      cleanRaw.toLowerCase() === 'cabe1689-18f6-409b-9f95-0bd29a214cc6' ||
-      cleanRaw.toLowerCase() === 'cakto_webhook_secreto_2026';
-
-    if (!isMatch && !isMasterSecret) {
-      console.warn(`[WEBHOOK CAKTO WARN] Chave recebida: "${cleanRaw}", Configurada: "${configuredSecret}".`);
-
-      // Se tiver dados legítimos de compra/pagamento da Cakto, não bloqueia o processamento
-      const hasPaymentIndicator = Array.isArray(payload.data)
-        ? payload.data.some(
-            (d: any) =>
-              d.paidAt ||
-              d.pix ||
-              d.status === 'paid' ||
-              d.status === 'approved' ||
-              d.customer?.email
-          )
-        : Boolean(
-            (payload.data as any)?.paidAt ||
-              (payload.data as any)?.pix ||
-              (payload.data as any)?.customer?.email
-          );
-
-      if (!hasPaymentIndicator) {
-        throw new Error('Chave secreta do Webhook inválida.');
-      }
-      console.log('[WEBHOOK CAKTO] Pagamento legítimo da Cakto aprovado automaticamente.');
-    }
-  }
 
   // 2. Extração e normalização dos dados
   let items: any[] = [];
@@ -196,7 +182,8 @@ export async function processCaktoWebhook(
     undefined;
   const customerId = customer.id ? String(customer.id).trim() : undefined;
 
-  const isAdmin = isUserAdmin(email);
+  // Serializa eventos do mesmo cliente, inclusive quando ainda não existe User.
+  await prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`subscription:${email}`}))`;
   const now = new Date();
 
   // Duração dinâmica da assinatura
@@ -212,9 +199,12 @@ export async function processCaktoWebhook(
     primaryItem.id ||
     primaryItem.transaction_id ||
     primaryItem.order_id ||
-    (primaryItem.subscription?.id ? `${primaryItem.subscription.id}_${normalizedEvent}` : '') ||
     ''
   ).trim();
+
+  if (!eventId) throw new WebhookError('Evento sem identificador de evento ou transação.', 400);
+  if (!normalizedEvent) throw new WebhookError('Evento não informado.', 400);
+  const idempotencyKey = crypto.createHash('sha256').update(JSON.stringify(['cakto', eventId, normalizedEvent])).digest('hex');
 
   if (eventId) {
     const alreadyProcessed = await prisma.webhookLog.findFirst({
@@ -236,19 +226,20 @@ export async function processCaktoWebhook(
     data: {
       provider: 'cakto',
       eventId: eventId || null,
+      idempotencyKey,
       event: normalizedEvent,
       email,
-      payload: JSON.stringify(payload)
+      // Auditoria mínima: não persistir segredos, dados de pagamento ou payload bruto.
+      payload: JSON.stringify({ event: normalizedEvent, eventId, transactionId })
     }
-  }).catch((err) => console.error('Erro ao registrar WebhookLog:', err));
+  }); // Faz parte da mesma transação das alterações abaixo; falhas causam rollback.
 
   // 4. Tratamento de Eventos
 
   // CASO A: Pagamento aprovado / Compra confirmada
   if (
-    normalizedEvent.includes('approved') ||
-    normalizedEvent.includes('paid') ||
-    normalizedEvent === 'purchase_approved'
+    (normalizedEvent.includes('approved') || normalizedEvent.includes('paid')) &&
+    !normalizedEvent.includes('refund') && !normalizedEvent.includes('chargeback')
   ) {
     let targetUser: any = null;
 
@@ -258,11 +249,10 @@ export async function processCaktoWebhook(
     });
 
     if (existingUser) {
-      if (isAdmin || existingUser.role === 'ADMIN') {
+      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         const updated = await prisma.user.update({
           where: { id: existingUser.id },
           data: {
-            role: 'ADMIN',
             subscriptionStatus: 'LIFETIME',
             caktoCustomerId: customerId || existingUser.caktoCustomerId,
             caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
@@ -297,9 +287,9 @@ export async function processCaktoWebhook(
           email,
           name,
           password: hashedPassword,
-          role: isAdmin ? 'ADMIN' : 'USER',
-          subscriptionStatus: isAdmin ? 'LIFETIME' : 'ACTIVE',
-          subscriptionExpiresAt: isAdmin ? null : calculatedExpiresAt,
+          role: 'USER',
+          subscriptionStatus: 'ACTIVE',
+          subscriptionExpiresAt: calculatedExpiresAt,
           subscriptionStartedAt: now,
           caktoCustomerId: customerId || null,
           caktoSubscriptionId: subscriptionId ? String(subscriptionId) : null,
@@ -317,9 +307,10 @@ export async function processCaktoWebhook(
     }
 
     // 5. Envio do E-mail de Boas-Vindas via Resend (com isolamento de erro e idempotência)
-    if (!isAdmin && targetUser) {
+    if (targetUser) {
+      afterCommit.push(async () => {
       try {
-        const alreadyNotified = await prisma.subscriptionNotification.findUnique({
+        const alreadyNotified = await notificationDb.subscriptionNotification.findUnique({
           where: {
             userId_type_cycle: {
               userId: targetUser.id,
@@ -336,7 +327,7 @@ export async function processCaktoWebhook(
             expiresAt: calculatedExpiresAt
           });
 
-          await prisma.subscriptionNotification.create({
+          await notificationDb.subscriptionNotification.create({
             data: {
               userId: targetUser.id,
               type: 'WELCOME',
@@ -349,8 +340,9 @@ export async function processCaktoWebhook(
           }).catch((err) => console.warn('[SUBSCRIPTION NOTIFICATION WARN]:', err.message));
         }
       } catch (emailErr: any) {
-        console.error('[CAKTO WEBHOOK] Erro isolado no Welcome Email:', emailErr.message || emailErr);
+        console.error('[CAKTO WEBHOOK] Falha no e-mail de boas-vindas.');
       }
+      });
     }
 
     return { success: true, message: 'Assinatura ativada com sucesso', user: targetUser };
@@ -364,7 +356,7 @@ export async function processCaktoWebhook(
     const existingUser = await prisma.user.findUnique({ where: { email } });
 
     if (existingUser) {
-      if (isAdmin || existingUser.role === 'ADMIN') {
+      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: existingUser };
       }
 
@@ -393,11 +385,11 @@ export async function processCaktoWebhook(
       console.log(`[CAKTO WEBHOOK] Assinatura renovada para ${email}. Novo ciclo até: ${newExpiresAt.toISOString()}`);
 
       // E-mail de renovação opcional (com isolamento de erro)
-      EmailService.sendSubscriptionRenewedEmail({
+      afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({
         email,
         name: updated.name,
         expiresAt: newExpiresAt
-      }).catch(() => {});
+      }));
 
       return { success: true, message: 'Assinatura renovada com sucesso', user: updated };
     }
@@ -411,7 +403,7 @@ export async function processCaktoWebhook(
   ) {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      if (isAdmin || existingUser.role === 'ADMIN') {
+      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta admin não afetada por cancelamento' };
       }
 
@@ -426,11 +418,11 @@ export async function processCaktoWebhook(
 
       console.log(`[CAKTO WEBHOOK] Assinatura cancelada para ${email}. Acesso mantido até ${updated.subscriptionExpiresAt?.toISOString()}`);
 
-      EmailService.sendSubscriptionCanceledEmail({
+      afterCommit.push(() => EmailService.sendSubscriptionCanceledEmail({
         email,
         name: updated.name,
         expiresAt: updated.subscriptionExpiresAt
-      }).catch(() => {});
+      }));
 
       return { success: true, message: 'Cancelamento registrado (acesso válido até o vencimento)', user: updated };
     }
@@ -444,7 +436,7 @@ export async function processCaktoWebhook(
   ) {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      if (isAdmin || existingUser.role === 'ADMIN') {
+      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta admin não afetada' };
       }
 
@@ -459,10 +451,10 @@ export async function processCaktoWebhook(
 
       console.log(`[CAKTO WEBHOOK] Falha de cobrança para ${email}. Status: ${updated.subscriptionStatus}`);
 
-      EmailService.sendPaymentFailedEmail({
+      afterCommit.push(() => EmailService.sendPaymentFailedEmail({
         email,
         name: updated.name
-      }).catch(() => {});
+      }));
 
       return { success: true, message: 'Falha de pagamento registrada', user: updated };
     }
@@ -475,7 +467,7 @@ export async function processCaktoWebhook(
   ) {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      if (isAdmin || existingUser.role === 'ADMIN') {
+      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta admin não afetada' };
       }
 
