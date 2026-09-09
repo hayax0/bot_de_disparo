@@ -22,8 +22,8 @@ export function RoiCalculator() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs font-semibold">
-            <Calculator size={14} />
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/25 text-purple-300 text-xs font-semibold">
+            <Calculator size={14} className="text-purple-400" />
             <span>Simulação de Produtividade</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
@@ -35,7 +35,7 @@ export function RoiCalculator() {
         </div>
 
         {/* Card da Calculadora */}
-        <div className="max-w-4xl mx-auto lacquer-card rounded-2xl p-6 sm:p-10 border border-white/10 shadow-2xl">
+        <div className="max-w-4xl mx-auto tech-card rounded-2xl p-6 sm:p-10 border border-white/[0.08] shadow-2xl">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Lado Esquerdo: Controles / Sliders */}
             <div className="lg:col-span-6 space-y-6">
@@ -45,7 +45,7 @@ export function RoiCalculator() {
                   <label htmlFor="contacts-range" className="text-xs font-bold text-white uppercase tracking-wider">
                     Contatos planejados por dia
                   </label>
-                  <span className="px-3 py-1 bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold text-sm rounded-lg">
+                  <span className="px-3 py-1 bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono font-bold text-sm rounded-lg">
                     {contactsPerDay} contatos/dia
                   </span>
                 </div>
@@ -57,7 +57,7 @@ export function RoiCalculator() {
                   step={10}
                   value={contactsPerDay}
                   onChange={(e) => setContactsPerDay(Number(e.target.value))}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
                 />
                 <div className="flex justify-between text-[11px] text-slate-500 font-mono">
                   <span>20/dia (cadência leve)</span>
@@ -72,7 +72,7 @@ export function RoiCalculator() {
                   <label htmlFor="rate-range" className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
                     <span>Taxa estimada de resposta</span>
                   </label>
-                  <span className="px-2.5 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-xs rounded-lg">
+                  <span className="px-2.5 py-0.5 bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-mono font-bold text-xs rounded-lg">
                     {responseRate}%
                   </span>
                 </div>
@@ -84,7 +84,7 @@ export function RoiCalculator() {
                   step={1}
                   value={responseRate}
                   onChange={(e) => setResponseRate(Number(e.target.value))}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                 />
                 <div className="flex justify-between text-[11px] text-slate-500 font-mono">
                   <span>2% (conservador)</span>
@@ -95,7 +95,7 @@ export function RoiCalculator() {
 
               {/* Nota de Transparência */}
               <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-slate-400 leading-relaxed flex items-start gap-2">
-                <Info size={15} className="text-amber-400 shrink-0 mt-0.5" />
+                <Info size={15} className="text-purple-400 shrink-0 mt-0.5" />
                 <span>
                   <strong>Cálculo estimado:</strong> Considera 22 dias úteis de prospecção e uma média de 3 minutos por contato manual (buscar contato, digitar, trocar variáveis e registrar). Taxas reais de resposta variam conforme a qualidade da sua copy e nicho.
                 </span>
@@ -108,7 +108,7 @@ export function RoiCalculator() {
                 {/* Métrica 1: Volume Mensal */}
                 <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-1">
                   <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                    <Calendar size={14} className="text-amber-400" />
+                    <Calendar size={14} className="text-purple-400" />
                     <span>Contatos no mês</span>
                   </div>
                   <div className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
@@ -131,13 +131,13 @@ export function RoiCalculator() {
               </div>
 
               {/* Métrica de Destaque: Reuniões / Respostas Estimadas */}
-              <div className="p-5 rounded-xl bg-gradient-to-br from-[#131724] to-[#0A0D16] border border-amber-500/30 space-y-2">
+              <div className="p-5 rounded-xl bg-gradient-to-br from-[#16152E] via-[#101424] to-[#0A0D16] border border-purple-500/40 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
                     <MessageSquare size={14} />
                     Respostas / Oportunidades Estimadas
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono">
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/25 font-mono">
                     Base {responseRate}%
                   </span>
                 </div>

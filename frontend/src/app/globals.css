@@ -126,29 +126,35 @@
   z-index: 0;
 }
 
-/* Neo-Kinpaku & Mensageria Design System */
-.lacquer-surface {
-  background-color: #0D0F15;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+/* Violet Tech & Indigo Platform Design System */
+.tech-surface {
+  background-color: #0B0E17;
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-.lacquer-card {
-  background-color: #0D0F15;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+.tech-card {
+  background-color: #0E121E;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
   transition: border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.lacquer-card:hover {
-  border-color: rgba(245, 158, 11, 0.25);
+.tech-card:hover {
+  border-color: rgba(139, 92, 246, 0.35);
   transform: translateY(-2px);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 25px -5px rgba(245, 158, 11, 0.08);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.8), 0 0 25px -5px rgba(124, 58, 237, 0.15);
 }
 
-.kinpaku-badge {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  color: #FBBF24;
+.badge-purple {
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  color: #DDD6FE;
+}
+
+.badge-blue {
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #7DD3FC;
 }
 
 .wa-badge {
@@ -157,22 +163,39 @@
   color: #34D399;
 }
 
-.btn-kinpaku {
-  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
-  color: #07080B;
-  font-weight: 700;
-  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.25);
+.btn-tech-primary {
+  background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%);
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.35);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.btn-kinpaku:hover {
-  background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 100%);
-  box-shadow: 0 6px 28px rgba(245, 158, 11, 0.4);
+.btn-tech-primary:hover {
+  background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+  box-shadow: 0 6px 28px rgba(124, 58, 237, 0.55);
   transform: translateY(-1px);
 }
 
-.btn-kinpaku:active {
+.btn-tech-primary:active {
   transform: scale(0.98);
+}
+
+/* Suporte a Lenis Smooth Scroll */
+html.lenis, html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
 }
 
 /* Respeito estrito a Acessibilidade: prefers-reduced-motion */
@@ -184,4 +207,5 @@
     scroll-behavior: auto !important;
   }
 }
+
 

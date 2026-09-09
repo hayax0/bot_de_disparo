@@ -48,7 +48,7 @@ export function ComparisonSection() {
         </div>
 
         {/* Tabela / Grid Comparativo */}
-        <div className="max-w-4xl mx-auto lacquer-card rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
+        <div className="max-w-4xl mx-auto tech-card rounded-2xl border border-white/[0.08] overflow-hidden shadow-2xl">
           {/* Header da Tabela */}
           <div className="grid grid-cols-1 md:grid-cols-12 bg-black/50 border-b border-white/[0.08] text-xs font-bold uppercase tracking-wider">
             <div className="md:col-span-4 p-4 text-slate-400 hidden md:block">Aspecto Operacional</div>
@@ -56,8 +56,8 @@ export function ComparisonSection() {
               <XCircle size={15} />
               <span>Prospecção Manual</span>
             </div>
-            <div className="md:col-span-4 p-4 text-emerald-400 bg-emerald-500/[0.06] flex items-center gap-1.5">
-              <CheckCircle2 size={15} />
+            <div className="md:col-span-4 p-4 text-purple-300 bg-purple-500/[0.08] flex items-center gap-1.5">
+              <CheckCircle2 size={15} className="text-purple-400" />
               <span>Disparador de Mensagens</span>
             </div>
           </div>
@@ -81,8 +81,8 @@ export function ComparisonSection() {
                 </div>
 
                 {/* Coluna Plataforma */}
-                <div className="md:col-span-4 p-4 text-xs text-slate-200 bg-emerald-500/[0.03] flex items-start gap-2 font-medium">
-                  <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                <div className="md:col-span-4 p-4 text-xs text-slate-200 bg-purple-500/[0.03] flex items-start gap-2 font-medium">
+                  <CheckCircle2 size={14} className="text-purple-400 shrink-0 mt-0.5" />
                   <span>{row.platform}</span>
                 </div>
               </div>
@@ -96,7 +96,7 @@ export function ComparisonSection() {
             </span>
             <a
               href="#planos"
-              className="btn-kinpaku px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0"
+              className="btn-tech-primary px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0"
             >
               <span>Liberar Acesso</span>
               <ArrowRight size={14} />

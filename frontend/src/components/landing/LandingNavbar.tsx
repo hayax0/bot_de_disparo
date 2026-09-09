@@ -48,7 +48,7 @@ export function LandingNavbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
         {/* Logo & Nome */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden border border-white/10 shadow-md group-hover:border-amber-500/40 transition-colors">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden border border-white/10 shadow-md group-hover:border-purple-500/50 transition-colors">
             <Image
               src="/logo.png"
               alt="Logo Disparador de Mensagens"
@@ -59,7 +59,7 @@ export function LandingNavbar() {
             />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm sm:text-base font-bold text-white tracking-tight leading-none group-hover:text-amber-400 transition-colors">
+            <span className="text-sm sm:text-base font-bold text-white tracking-tight leading-none group-hover:text-purple-300 transition-colors">
               Disparador
             </span>
             <span className="text-[10px] text-slate-400 font-medium tracking-wide">
@@ -86,7 +86,7 @@ export function LandingNavbar() {
           {isLoggedIn ? (
             <Link
               href="/dashboard"
-              className="btn-kinpaku px-4 py-2 rounded-xl text-xs sm:text-sm flex items-center gap-2"
+              className="btn-tech-primary px-4 py-2 rounded-xl text-xs sm:text-sm flex items-center gap-2"
             >
               <span>Acessar Plataforma</span>
               <ArrowRight size={15} />
@@ -101,7 +101,7 @@ export function LandingNavbar() {
               </Link>
               <a
                 href="#planos"
-                className="btn-kinpaku px-4 py-2 rounded-xl text-xs sm:text-sm flex items-center gap-2"
+                className="btn-tech-primary px-4 py-2 rounded-xl text-xs sm:text-sm flex items-center gap-2"
               >
                 <span>Começar Agora</span>
                 <ArrowRight size={14} />
@@ -113,7 +113,7 @@ export function LandingNavbar() {
         {/* Botão Hambúrguer Mobile */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2 text-slate-300 hover:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          className="md:hidden p-2 text-slate-300 hover:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/50"
           aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"}
           aria-expanded={mobileMenuOpen}
         >
@@ -141,7 +141,7 @@ export function LandingNavbar() {
               <Link
                 href="/dashboard"
                 onClick={handleNavClick}
-                className="w-full btn-kinpaku py-2.5 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2"
+                className="w-full btn-tech-primary py-2.5 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2"
               >
                 <span>Acessar Plataforma</span>
                 <ArrowRight size={15} />
@@ -158,7 +158,7 @@ export function LandingNavbar() {
                 <a
                   href="#planos"
                   onClick={handleNavClick}
-                  className="w-full btn-kinpaku py-2.5 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2"
+                  className="w-full btn-tech-primary py-2.5 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2"
                 >
                   <span>Começar Agora</span>
                   <ArrowRight size={14} />

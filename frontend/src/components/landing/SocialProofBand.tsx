@@ -25,17 +25,23 @@ export function SocialProofBand() {
   ];
 
   return (
-    <section className="py-8 border-y border-white/[0.07] bg-[#0A0C13]">
+    <section className="py-8 border-y border-white/[0.06] bg-[#0A0C14]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {trustPillars.map((item, index) => {
             const Icon = item.icon;
+            const iconColors = [
+              "bg-purple-500/10 text-purple-400 border-purple-500/20",
+              "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+              "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+              "bg-sky-500/10 text-sky-400 border-sky-500/20",
+            ];
             return (
               <div
                 key={index}
-                className="flex items-start gap-3.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]"
+                className="flex items-start gap-3.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-purple-500/20 transition-colors"
               >
-                <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                <div className={`p-2 rounded-lg border shrink-0 ${iconColors[index % iconColors.length]}`}>
                   <Icon size={18} />
                 </div>
                 <div className="space-y-0.5">

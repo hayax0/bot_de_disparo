@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Zap } from "lucide-react";
 import { CAKTO_CHECKOUT_URL } from "@/lib/constants";
 
 export function CtaFooter() {
@@ -10,13 +10,13 @@ export function CtaFooter() {
     <footer className="bg-[#050608] border-t border-white/[0.08] relative">
       {/* Banner de CTA Final */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-14">
-        <div className="lacquer-card rounded-3xl p-8 sm:p-12 border border-amber-500/30 text-center relative overflow-hidden shadow-2xl">
-          {/* Brilho sutil de fundo */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-40 bg-amber-500/10 blur-3xl pointer-events-none" />
+        <div className="tech-card rounded-3xl p-8 sm:p-12 border border-purple-500/30 text-center relative overflow-hidden shadow-2xl shadow-purple-950/20">
+          {/* Brilho sutil de fundo em roxo */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-40 bg-purple-600/15 blur-3xl pointer-events-none" />
 
           <div className="max-w-2xl mx-auto space-y-5 relative z-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs font-semibold">
-              <Sparkles size={14} />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold">
+              <Zap size={14} />
               <span>Automação em Segundo Plano</span>
             </div>
 
@@ -33,7 +33,7 @@ export function CtaFooter() {
                 href={CAKTO_CHECKOUT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:w-auto btn-kinpaku px-8 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
+                className="w-full sm:w-auto btn-tech-primary px-8 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
               >
                 <span>Contratar Acesso Imediato</span>
                 <ArrowRight size={16} />
@@ -41,7 +41,7 @@ export function CtaFooter() {
 
               <Link
                 href="/login"
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors flex items-center justify-center"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-purple-500/30 transition-colors flex items-center justify-center"
               >
                 <span>Acessar Minha Conta</span>
               </Link>

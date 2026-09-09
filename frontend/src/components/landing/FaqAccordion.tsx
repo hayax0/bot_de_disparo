@@ -58,7 +58,7 @@ export function FaqAccordion() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs font-semibold">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold">
             <HelpCircle size={14} />
             <span>Tire Suas Dúvidas</span>
           </div>
@@ -77,11 +77,11 @@ export function FaqAccordion() {
             return (
               <div
                 key={index}
-                className="lacquer-card rounded-2xl border border-white/10 overflow-hidden transition-all"
+                className="tech-card rounded-2xl border border-white/10 overflow-hidden transition-all hover:border-purple-500/30"
               >
                 <button
                   onClick={() => toggle(index)}
-                  className="w-full p-5 text-left flex items-center justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-amber-500/30 rounded-2xl"
+                  className="w-full p-5 text-left flex items-center justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-purple-500/30 rounded-2xl"
                   aria-expanded={isOpen}
                 >
                   <span className="text-xs sm:text-sm font-bold text-white leading-snug">
@@ -89,7 +89,7 @@ export function FaqAccordion() {
                   </span>
                   <div
                     className={`p-1.5 rounded-lg bg-white/[0.04] text-slate-300 shrink-0 transition-transform duration-200 ${
-                      isOpen ? "rotate-180 text-amber-400 bg-amber-500/10" : ""
+                      isOpen ? "rotate-180 text-purple-400 bg-purple-500/10" : ""
                     }`}
                   >
                     <ChevronDown size={16} />

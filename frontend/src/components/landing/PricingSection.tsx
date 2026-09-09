@@ -1,32 +1,31 @@
-import { CheckCircle2, Zap, ShieldCheck, ArrowRight, Sparkles } from "lucide-react";
+import { CheckCircle2, Zap, ShieldCheck, ArrowRight } from "lucide-react";
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from "@/lib/constants";
 
 export function PricingSection() {
   return (
     <section id="planos" className="py-24 bg-[#07080B] relative overflow-hidden">
-      {/* Luz ambiente de fundo */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-amber-500/10 blur-[120px] pointer-events-none" />
+      {/* Luz ambiente de fundo roxa/azul */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-purple-600/10 blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs font-semibold">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold">
             <Zap size={14} />
-            <span>Assinatura Simples e Transparente</span>
+            <span>Assinatura Simples e Direta</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
             Acesso completo a todas as ferramentas
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Sem pegadinhas, sem cobrança por mensagem disparada e com liberação imediata.
+            Sem pegadinhas, sem cobrança por mensagem disparada e com ativação imediata.
           </p>
         </div>
 
         {/* Card de Preço Oficial */}
-        <div className="max-w-lg mx-auto lacquer-card rounded-3xl p-6 sm:p-9 border-2 border-amber-500/40 shadow-2xl relative">
+        <div className="max-w-lg mx-auto tech-card rounded-3xl p-6 sm:p-9 border border-purple-500/40 shadow-2xl relative shadow-purple-950/20">
           {/* Badge Superior Flutuante */}
-          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3.5 py-1 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-black text-xs font-bold tracking-wide uppercase shadow-md flex items-center gap-1.5">
-            <Sparkles size={12} />
+          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-[11px] font-bold tracking-wider uppercase shadow-md shadow-purple-900/40 flex items-center gap-1.5">
             <span>Acesso Total Ilimitado</span>
           </div>
 
@@ -72,14 +71,14 @@ export function PricingSection() {
               href={CAKTO_CHECKOUT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full btn-kinpaku py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20 text-center"
+              className="w-full btn-tech-primary py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 text-center"
             >
               <span>Contratar Acesso Agora</span>
               <ArrowRight size={16} />
             </a>
 
             <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 text-center">
-              <ShieldCheck size={14} className="text-slate-400" />
+              <ShieldCheck size={14} className="text-purple-400" />
               <span>Pagamento 100% seguro processado via Cakto</span>
             </div>
           </div>

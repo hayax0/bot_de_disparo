@@ -106,14 +106,16 @@ export function InteractiveRadar() {
                 onClick={() => setActiveStep(step.id)}
                 className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-3 ${
                   isSelected
-                    ? "bg-[#121624] border-amber-500/50 shadow-lg shadow-amber-500/10"
-                    : "bg-[#0D0F15] border-white/[0.06] hover:border-white/20"
+                    ? "bg-[#171B2B] border-purple-500/60 shadow-lg shadow-purple-500/15"
+                    : "bg-[#0D101A] border-white/[0.06] hover:border-purple-500/30"
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <div
                     className={`p-2 rounded-lg ${
-                      isSelected ? "bg-amber-500 text-black font-bold" : "bg-white/[0.05] text-slate-300"
+                      isSelected
+                        ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold"
+                        : "bg-white/[0.05] text-slate-300"
                     }`}
                   >
                     <Icon size={16} />
@@ -123,7 +125,7 @@ export function InteractiveRadar() {
                 <div>
                   <span
                     className={`text-xs font-bold block truncate ${
-                      isSelected ? "text-amber-300" : "text-slate-300"
+                      isSelected ? "text-purple-300" : "text-slate-300"
                     }`}
                   >
                     {step.title.split(". ")[1]}
@@ -136,11 +138,11 @@ export function InteractiveRadar() {
         </div>
 
         {/* Card de Detalhe da Etapa Selecionada */}
-        <div className="lacquer-card rounded-2xl p-6 sm:p-8 border border-white/10 relative overflow-hidden">
+        <div className="tech-card rounded-2xl p-6 sm:p-8 border border-white/[0.08] relative overflow-hidden">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
             <div className="lg:col-span-8 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-bold font-mono">
+                <span className="px-2.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-bold font-mono">
                   ETAPA 0{current.id}
                 </span>
                 <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
@@ -159,8 +161,8 @@ export function InteractiveRadar() {
               </div>
             </div>
 
-            <div className="lg:col-span-4 flex flex-col items-center justify-center p-6 bg-black/40 rounded-xl border border-white/[0.05] text-center space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-inner">
+            <div className="lg:col-span-4 flex flex-col items-center justify-center p-6 bg-black/50 rounded-xl border border-white/[0.05] text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 shadow-inner">
                 <StepIcon size={26} />
               </div>
               <div className="space-y-1">
@@ -180,7 +182,7 @@ export function InteractiveRadar() {
                 <button
                   disabled={activeStep === PIPELINE_STEPS.length}
                   onClick={() => setActiveStep((prev) => Math.min(PIPELINE_STEPS.length, prev + 1))}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-kinpaku disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-tech-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                 >
                   <span>Próximo</span>
                   <ArrowRight size={13} />

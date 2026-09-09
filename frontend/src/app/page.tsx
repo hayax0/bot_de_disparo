@@ -4,6 +4,7 @@ import { useGsapScroll } from "@/components/landing/hooks/useGsapScroll";
 import { LandingNavbar } from "@/components/landing/LandingNavbar";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { SocialProofBand } from "@/components/landing/SocialProofBand";
+import { TextScrollReveal } from "@/components/landing/TextScrollReveal";
 import { InteractiveRadar } from "@/components/landing/InteractiveRadar";
 import { BentoFeatures } from "@/components/landing/BentoFeatures";
 import { RoiCalculator } from "@/components/landing/RoiCalculator";
@@ -16,17 +17,20 @@ export default function LandingPage() {
   const { containerRef } = useGsapScroll();
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-[#07080B] text-slate-100 selection:bg-amber-500/30 selection:text-amber-200">
+    <div ref={containerRef} className="min-h-screen bg-[#07080B] text-slate-100 selection:bg-purple-500/30 selection:text-purple-200">
       {/* Barra de Navegação Superior */}
       <LandingNavbar />
 
       {/* Hero Section com Simulador Interativo */}
       <HeroSection />
 
-      {/* Faixa de Pilares de Confiança Técnica */}
+      {/* Faixa de Pilares de Confiabilidade Técnica */}
       <div className="gsap-reveal">
         <SocialProofBand />
       </div>
+
+      {/* Efeito Scroll Reveal: O texto manifesto vai acendendo conforme o usuário rola a página */}
+      <TextScrollReveal />
 
       {/* Esteira Visual Passo a Passo (Como Funciona) */}
       <div className="gsap-reveal">
