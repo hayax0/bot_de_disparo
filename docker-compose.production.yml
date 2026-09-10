@@ -17,22 +17,43 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
 
-  # Redis para Fila de Disparos BullMQ
+  # Redis para Fila de Disparos BullMQ (com requirepass protegido)
   redis:
     image: redis:7-alpine
     container_name: saas_bot_redis
     restart: always
-    command: ["redis-server", "--appendonly", "yes"]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - "${REDIS_PASSWORD:?Defina REDIS_PASSWORD}"
     volumes:
       - redis_data:/data
     networks:
       - internal_network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # Backend Node.js API + BullMQ Worker
   backend:
@@ -56,21 +77,30 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Defina REDIS_PASSWORD}
       CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:?Configure o mesmo segredo forte na Cakto e no .env}
-      ADMIN_EMAILS: ${ADMIN_EMAILS:-caiocampos1009@gmail.com,vitoriacampos241003@gmail.com,vieiralacerda192@gmail.com,vmariacamll@gmail.com,dyonsonandrade@gmail.com}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-CMPX Bot Disparo <noreply@botdisparo.cmpx.tec.br>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-cmpxsuporte@gmail.com}
       PLATFORM_URL: ${PLATFORM_URL:-https://botdisparo.cmpx.tec.br}
-      CRON_SECRET: ${CRON_SECRET:-cmpx_cron_secret_2026}
+      CRON_SECRET: ${CRON_SECRET:?Defina CRON_SECRET forte no .env}
     volumes:
       - ./backend/.baileys_auth:/app/.baileys_auth
       - ./backend/uploads:/app/uploads
     ports:
-      - "${BACKEND_PORT:-3001}:3001"
+      - "127.0.0.1:${BACKEND_PORT:-3001}:3001"
     networks:
       - internal_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # Frontend Next.js
   frontend:
@@ -91,9 +121,17 @@ services:
       INTERNAL_API_URL: http://backend:3001
       SENTRY_DSN: ${SENTRY_DSN:-}
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     networks:
       - internal_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
 
 networks:
   internal_network:

@@ -459,3 +459,18 @@ export async function backfillDispatchHistory() {
 
 console.log('[BULLMQ WORKER] Worker de campanhas iniciado (concurrency=2, maxStalledCount=1).');
 
+// Heartbeat periódico do Worker gravado no Redis (expira em 60s)
+if (process.env.NODE_ENV !== 'test') {
+  const heartbeatConn = createConnection(false);
+  const sendHeartbeat = async () => {
+    try {
+      await heartbeatConn.set('worker:heartbeat', Date.now().toString(), 'EX', 60);
+    } catch {
+      // Falha transitória ignorada
+    }
+  };
+  sendHeartbeat();
+  setInterval(sendHeartbeat, 20000).unref();
+}
+
+
