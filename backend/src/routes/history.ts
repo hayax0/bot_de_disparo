@@ -11,7 +11,8 @@ router.use(authenticate);
 router.get('/', validateQuery(paginationQuerySchema), async (req: Request, res: Response): Promise<any> => {
   const workspaceId = req.user!.workspaceId;
 
-  const { page, limit, search } = req.query as unknown as { page: number; limit: number; search: string };
+  const query = ((req as any).validatedQuery || req.query) as unknown as { page: number; limit: number; search: string };
+  const { page, limit, search } = query;
   const skip = (page - 1) * limit;
 
   // Filtro estritamente isolado pelo workspaceId do usuário autenticado

@@ -24,7 +24,17 @@ export function validateQuery<T>(schema: ZodSchema<T>) {
       const message = firstIssue ? firstIssue.message : 'Parâmetros de consulta inválidos.';
       return res.status(400).json({ error: message });
     }
-    req.query = result.data as any;
+    try {
+      Object.defineProperty(req, 'query', {
+        value: result.data,
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+    } catch {
+      (req as any).query = result.data;
+    }
+    (req as any).validatedQuery = result.data;
     next();
   };
 }
