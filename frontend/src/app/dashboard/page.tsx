@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useSyncExternalStore, useRef } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -177,17 +177,23 @@ function formatPhone(phone: string): string {
   return phone;
 }
 
-const subscribeClock = (callback: () => void) => {
-  const interval = setInterval(callback, 30000);
-  return () => clearInterval(interval);
-};
-const getClockSnapshot = () => Date.now();
-const getClockServerSnapshot = () => 0;
-
 export default function Dashboard() {
   const { token, user, isHydrated, hydrate, logout } = useAuth();
   const router = useRouter();
-  const clientTime = useSyncExternalStore(subscribeClock, getClockSnapshot, getClockServerSnapshot);
+  const [clientTime, setClientTime] = useState<number | null>(null);
+
+  useEffect(() => {
+    const initialUpdate = setTimeout(() => {
+      setClientTime(Date.now());
+    }, 0);
+    const interval = setInterval(() => {
+      setClientTime(Date.now());
+    }, 30000);
+    return () => {
+      clearTimeout(initialUpdate);
+      clearInterval(interval);
+    };
+  }, []);
   
   const [waStatus, setWaStatus] = useState<{ status: string; qrCode?: string | null } | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
