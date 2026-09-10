@@ -30,9 +30,12 @@ export class PasswordResetService {
       });
 
       if (!user) {
+        console.warn(`[PASSWORD RESET] Solicitação para e-mail não encontrado no banco: "${cleanEmail}". Resposta neutra enviada.`);
         // Retorna sucesso genérico para não expor quais e-mails estão cadastrados
         return { message: 'Se o e-mail estiver cadastrado, as instruções foram enviadas.' };
       }
+
+      console.log(`[PASSWORD RESET] Usuário encontrado: "${user.email}" (ID: ${user.id}). Gerando token de recuperação...`);
 
       // Gera 32 bytes criptográficos aleatórios em formato hexadecimal
       const plainToken = crypto.randomBytes(32).toString('hex');
@@ -69,6 +72,12 @@ export class PasswordResetService {
         email: user.email,
         name: user.name,
         resetUrl
+      }).then((sendResult) => {
+        if (!sendResult.success) {
+          console.error('[PASSWORD RESET EMAIL ERROR] Falha no Resend ao despachar:', sendResult.error);
+        } else {
+          console.log(`[PASSWORD RESET EMAIL SUCCESS] E-mail despachado para ${user.email} (Resend ID: ${sendResult.id})`);
+        }
       }).catch((err) => {
         console.error('[PASSWORD RESET EMAIL ERROR] Falha ao enviar e-mail de recuperação:', err.message || err);
       });
