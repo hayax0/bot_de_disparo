@@ -1,29 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { WhatsappManager } from '../services/WhatsappManager';
-import jwt from 'jsonwebtoken';
-import { ENV } from '../config/env';
-import { requireActiveSubscription } from '../middlewares/authSubscription';
+import { authenticate, requireActiveSubscription } from '../middlewares/auth';
+import { validateBody, whatsappPairSchema } from '../lib/validation';
 
 const router = Router();
-
-// Middleware to authenticate and extract workspaceId
-const authenticate = (req: Request, res: Response, next: Function): any => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
-  try {
-    const decoded = jwt.verify(token, ENV.JWT_SECRET) as any;
-    (req as any).user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-};
 
 router.use(authenticate);
 
 router.post('/connect', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
-  const workspaceId = (req as any).user.workspaceId;
+  const workspaceId = req.user!.workspaceId;
   try {
     await WhatsappManager.getClient(workspaceId);
     res.json({ message: 'Initializing connection...' });
@@ -33,7 +18,7 @@ router.post('/connect', requireActiveSubscription, async (req: Request, res: Res
 });
 
 router.get('/status', async (req: Request, res: Response): Promise<any> => {
-  const workspaceId = (req as any).user.workspaceId;
+  const workspaceId = req.user!.workspaceId;
   try {
     const status = await WhatsappManager.getStatus(workspaceId);
     res.json(status);
@@ -42,23 +27,25 @@ router.get('/status', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
-router.post('/pairing-code', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
-  const workspaceId = (req as any).user.workspaceId;
-  const { phone } = req.body;
-  if (!phone || typeof phone !== 'string') {
-    return res.status(400).json({ error: 'Número de telefone é obrigatório' });
+router.post(
+  '/pairing-code',
+  requireActiveSubscription,
+  validateBody(whatsappPairSchema),
+  async (req: Request, res: Response): Promise<any> => {
+    const workspaceId = req.user!.workspaceId;
+    const { phone } = req.body;
+    try {
+      const code = await WhatsappManager.requestPairingCode(workspaceId, phone);
+      res.json({ code });
+    } catch (error: any) {
+      console.error('Erro ao gerar código de pareamento:', error);
+      res.status(500).json({ error: error?.message || 'Falha ao solicitar código de pareamento' });
+    }
   }
-  try {
-    const code = await WhatsappManager.requestPairingCode(workspaceId, phone);
-    res.json({ code });
-  } catch (error: any) {
-    console.error('Erro ao gerar código de pareamento:', error);
-    res.status(500).json({ error: error?.message || 'Falha ao solicitar código de pareamento' });
-  }
-});
+);
 
 router.post('/disconnect', async (req: Request, res: Response): Promise<any> => {
-  const workspaceId = (req as any).user.workspaceId;
+  const workspaceId = req.user!.workspaceId;
   try {
     await WhatsappManager.disconnect(workspaceId);
     res.json({ message: 'Disconnected' });

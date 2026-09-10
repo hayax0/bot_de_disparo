@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { processCaktoWebhook, WebhookError } from '../services/SubscriptionManager';
+import { caktoWebhookLimiter } from '../middlewares/rateLimiter';
 
 const router = Router();
 
-// Endpoint público do Webhook da Cakto
-router.post('/cakto', async (req: Request, res: Response): Promise<any> => {
+// Endpoint público do Webhook da Cakto com rate limiting generoso (120 req/min)
+router.post('/cakto', caktoWebhookLimiter, async (req: Request, res: Response): Promise<any> => {
   try {
     const payload = req.body;
 

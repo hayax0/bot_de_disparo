@@ -2,6 +2,8 @@
 import { Sentry } from './lib/sentry';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import crypto from 'crypto';
 import { ENV } from './config/env';
 import { prisma } from './lib/prisma';
 import { connection as redisConnection } from './services/queue';
@@ -37,6 +39,23 @@ import { WhatsappManager } from './services/WhatsappManager';
 
 const app = express();
 
+// Trust proxy configurado para 1 (único Nginx confiável à frente da aplicação)
+app.set('trust proxy', 1);
+
+// Headers de segurança com Helmet
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// Injeção de requestId único por requisição
+app.use((req, res, next) => {
+  const requestId = req.headers['x-request-id'] ? String(req.headers['x-request-id']) : crypto.randomUUID();
+  (req as any).id = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  next();
+});
+
 // Configuração estrita de CORS baseada em ENV
 const allowedOrigins = ENV.CORS_ORIGIN.split(',').map(o => o.trim());
 app.use(cors({
@@ -61,9 +80,6 @@ app.use('/api/campaigns', campaignsRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/cron', cronRoutes);
-
-// Error handler do Sentry (depois das rotas, antes de qualquer handler customizado)
-Sentry.setupExpressErrorHandler(app);
 
 // Health check endpoint para monitoramento de infraestrutura
 app.get('/api/health', async (req, res) => {
@@ -90,6 +106,35 @@ app.get('/api/health', async (req, res) => {
       database: dbStatus,
       redis: redisStatus,
     }
+  });
+});
+
+// Error handler do Sentry (depois das rotas, antes de qualquer handler customizado)
+Sentry.setupExpressErrorHandler(app);
+
+// Handler global de erros sanitizado
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const requestId = (req as any).id || crypto.randomUUID();
+  const status = typeof err.status === 'number'
+    ? err.status
+    : (typeof err.statusCode === 'number' ? err.statusCode : 500);
+
+  // Preserva erros esperados da aplicação (400, 401, 403, 404, 409, 422, 429)
+  if (status >= 400 && status < 500) {
+    return res.status(status).json({
+      error: err.message || 'Requisição inválida.',
+      ...(err.code ? { code: err.code } : {}),
+      requestId
+    });
+  }
+
+  // Erros não esperados (500): log completo no servidor e Sentry, resposta sanitizada ao cliente
+  console.error(`[INTERNAL SERVER ERROR] [${requestId}]`, err);
+  Sentry.captureException(err, { extra: { requestId, path: req.path, method: req.method } });
+
+  return res.status(500).json({
+    error: 'Ocorreu um erro interno. Tente novamente mais tarde.',
+    requestId
   });
 });
 

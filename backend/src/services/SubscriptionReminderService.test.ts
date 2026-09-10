@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isUserAdmin } from './SubscriptionManager';
+import { ENV } from '../config/env';
+
+ENV.ADMIN_EMAILS = [
+  'caiocampos1009@gmail.com',
+  'vieiralacerda192@gmail.com',
+  'vitoriacampos241003@gmail.com',
+  'vmariacamll@gmail.com'
+];
 
 test('SubscriptionReminder: administradores e VIPs são estritamente excluídos de avisos', () => {
   const adminEmails = [

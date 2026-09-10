@@ -10,6 +10,8 @@ import router from './auth';
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 
+ENV.ADMIN_EMAILS = ['caiocampos1009@gmail.com', 'admin@example.test'];
+
 async function serve(t: any) {
   const app = express();
   app.use(express.json());

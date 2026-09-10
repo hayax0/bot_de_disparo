@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isUserAdmin, isSubscriptionActive, calculateSubscriptionPeriod } from './SubscriptionManager';
+import { ENV } from '../config/env';
+
+ENV.ADMIN_EMAILS = [
+  'caiocampos1009@gmail.com',
+  'vitoriacampos241003@gmail.com',
+  'vieiralacerda192@gmail.com',
+  'vmariacamll@gmail.com',
+  'dyonsonandrade@gmail.com'
+];
 
 test('isUserAdmin: reconhece emails de administradores/VIPs configurados', () => {
   assert.equal(isUserAdmin('caiocampos1009@gmail.com'), true);

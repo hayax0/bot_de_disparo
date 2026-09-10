@@ -1,11 +1,24 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { ENV } from '../config/env';
 import { SubscriptionReminderService } from '../services/SubscriptionReminderService';
+import { cronLimiter } from '../middlewares/rateLimiter';
 
 const router = Router();
 
+// Aplica limitador de taxa estrito para rotas de Cron (10 req/min)
+router.use(cronLimiter);
+
+function safeTimingCompare(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 /**
- * Middleware de proteção do Cron
+ * Middleware de proteção do Cron com comparação resistente a timing attacks
  * Aceita header: Authorization: Bearer <CRON_SECRET> ou query ?secret=<CRON_SECRET>
  */
 const requireCronAuth = (req: Request, res: Response, next: Function): any => {
@@ -16,7 +29,7 @@ const requireCronAuth = (req: Request, res: Response, next: Function): any => {
   const providedSecret = token || querySecret;
   const configuredSecret = ENV.CRON_SECRET;
 
-  if (!providedSecret || providedSecret !== configuredSecret) {
+  if (!configuredSecret || !providedSecret || !safeTimingCompare(providedSecret, configuredSecret)) {
     console.warn(`[CRON AUTH WARN] Tentativa de acesso não autorizada à rota de cron de IP: ${req.ip}`);
     return res.status(401).json({ error: 'Não autorizado: CRON_SECRET inválido ou ausente.' });
   }

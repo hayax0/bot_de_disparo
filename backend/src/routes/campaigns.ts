@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -7,9 +6,10 @@ import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { messageQueue } from '../services/queue';
 import { temWebsiteValido } from '../services/ProposalEngine';
-import { requireActiveSubscription } from '../middlewares/authSubscription';
+import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
+import { validateBody, createCampaignSchema } from '../lib/validation';
 
 const router = Router();
 
@@ -23,33 +23,25 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.json';
+    const safeExt = ext === '.csv' ? '.csv' : '.json';
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, `leads-${uniqueSuffix}.json`);
+    cb(null, `leads-${uniqueSuffix}${safeExt}`);
   }
 });
 
 const upload = multer({ 
   storage,
-  limits: { fileSize: 30 * 1024 * 1024 }, // Limite de 30MB
+  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB
   fileFilter: (req, file, cb) => {
-    // Aceita qualquer formato de arquivo de texto/dados para fazer a validação inteligente no handler
-    cb(null, true);
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.json' || ext === '.csv') {
+      cb(null, true);
+    } else {
+      cb(new Error('Formato de arquivo inválido. Apenas arquivos .json e .csv são aceitos.'));
+    }
   }
 });
-
-const authenticate = (req: Request, res: Response, next: Function): any => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Não autorizado. Faça login para continuar.' });
-
-  try {
-    const decoded = jwt.verify(token, ENV.JWT_SECRET) as any;
-    (req as any).user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
-  }
-};
 
 router.use(authenticate);
 
@@ -92,31 +84,12 @@ router.get('/last-copy', async (req: Request, res: Response): Promise<any> => {
 });
 
 // Criar nova campanha
-router.post('/', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), async (req: Request, res: Response): Promise<any> => {
   const { name, messageComSite, messageSemSite, delayMin, delayMax } = req.body;
-  const workspaceId = (req as any).user.workspaceId;
-
-  if (!name || typeof name !== 'string' || name.trim() === '') {
-    return res.status(400).json({ error: 'O nome da campanha é obrigatório.' });
-  }
+  const workspaceId = req.user!.workspaceId;
 
   const comSite = typeof messageComSite === 'string' ? messageComSite.trim() : '';
   const semSite = typeof messageSemSite === 'string' ? messageSemSite.trim() : '';
-
-  if (!comSite && !semSite) {
-    return res.status(400).json({ error: 'Informe ao menos uma mensagem para a campanha (com site, sem site ou geral).' });
-  }
-
-  const minD = Number(delayMin);
-  const maxD = Number(delayMax);
-
-  if (isNaN(minD) || isNaN(maxD) || minD < 10 || maxD < 10) {
-    return res.status(400).json({ error: 'Os delays mínimo e máximo devem ser números inteiros maiores ou iguais a 10 segundos.' });
-  }
-
-  if (maxD < minD) {
-    return res.status(400).json({ error: 'O tempo máximo de delay deve ser igual ou maior que o tempo mínimo.' });
-  }
 
   try {
     const campaign = await prisma.campaign.create({
@@ -124,8 +97,8 @@ router.post('/', requireActiveSubscription, async (req: Request, res: Response):
         name: name.trim(),
         messageComSite: comSite || null,
         messageSemSite: semSite || null,
-        delayMin: minD,
-        delayMax: maxD,
+        delayMin,
+        delayMax,
         workspaceId
       }
     });
@@ -153,7 +126,7 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'O arquivo excede o limite máximo permitido de 30MB.' });
+        return res.status(400).json({ error: 'O arquivo excede o limite máximo permitido de 5MB.' });
       }
       return res.status(400).json({ error: `Erro no upload: ${err.message}` });
     } else if (err) {
@@ -163,7 +136,7 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
   });
 }, async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const workspaceId = (req as any).user.workspaceId;
+  const workspaceId = req.user!.workspaceId;
 
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado.' });
@@ -317,6 +290,10 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
       return res.status(400).json({ error: 'O arquivo enviado não contém nenhum registro legível.' });
     }
 
+    if (leads.length > 2000) {
+      return res.status(400).json({ error: 'O arquivo contém mais de 2.000 registros. O limite máximo permitido por importação é de 2.000 leads.' });
+    }
+
     let imported = 0;
     let skipped = 0;
 
@@ -455,6 +432,13 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
       if (!title) {
         title = `Contato ${num.slice(-4)}`;
       }
+      title = String(title).substring(0, 255);
+
+      const rawWebsite = extractWebsite(lead);
+      const website = rawWebsite ? String(rawWebsite).substring(0, 500) : null;
+
+      const rawNeighborhood = extractNeighborhood(lead);
+      const neighborhood = rawNeighborhood ? String(rawNeighborhood).substring(0, 255) : null;
 
       try {
         await prisma.lead.create({
@@ -462,8 +446,8 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
             campaignId: id,
             title,
             phone: num,
-            website: extractWebsite(lead),
-            neighborhood: extractNeighborhood(lead)
+            website,
+            neighborhood
           }
         });
         imported++;
@@ -668,7 +652,7 @@ router.get('/:id/queue-health', async (req: Request, res: Response): Promise<any
 
     // Contagem específica desta campanha nos jobs pendentes
     const pendingJobs = await messageQueue.getJobs(['waiting', 'delayed', 'active']);
-    const campaignJobs = pendingJobs.filter(j => j.data?.campaignId === id);
+    const campaignJobs = pendingJobs.filter((j: any) => j.data?.campaignId === id);
 
     // Leads QUEUED no banco que NÃO têm job correspondente na fila = órfãos
     const queuedLeads = await prisma.lead.count({

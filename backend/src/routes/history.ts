@@ -1,47 +1,29 @@
 import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
-import { ENV } from '../config/env';
+import { authenticate } from '../middlewares/auth';
+import { validateQuery, paginationQuerySchema } from '../lib/validation';
 
 const router = Router();
-
-const authenticate = (req: Request, res: Response, next: Function): any => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Não autorizado. Faça login para continuar.' });
-
-  try {
-    const decoded = jwt.verify(token, ENV.JWT_SECRET) as any;
-    (req as any).user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
-  }
-};
 
 router.use(authenticate);
 
 // Listar histórico consolidado e permanente de envios do Workspace
-router.get('/', async (req: Request, res: Response): Promise<any> => {
-  const workspaceId = (req as any).user.workspaceId;
+router.get('/', validateQuery(paginationQuerySchema), async (req: Request, res: Response): Promise<any> => {
+  const workspaceId = req.user!.workspaceId;
 
-  if (!workspaceId) {
-    return res.status(401).json({ error: 'Workspace não identificado.' });
-  }
-
-  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
-  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const { page, limit, search } = req.query as unknown as { page: number; limit: number; search: string };
   const skip = (page - 1) * limit;
 
   // Filtro estritamente isolado pelo workspaceId do usuário autenticado
   const where: any = { workspaceId };
 
-  if (search) {
-    const cleanDigits = search.replace(/\D/g, '');
+  if (search && search.trim() !== '') {
+    const term = search.trim();
+    const cleanDigits = term.replace(/\D/g, '');
     where.OR = [
-      { companyTitle: { contains: search, mode: 'insensitive' } },
-      { neighborhood: { contains: search, mode: 'insensitive' } },
-      { lastCampaignName: { contains: search, mode: 'insensitive' } },
+      { companyTitle: { contains: term, mode: 'insensitive' } },
+      { neighborhood: { contains: term, mode: 'insensitive' } },
+      { lastCampaignName: { contains: term, mode: 'insensitive' } },
       ...(cleanDigits ? [{ phone: { contains: cleanDigits } }] : [])
     ];
   }

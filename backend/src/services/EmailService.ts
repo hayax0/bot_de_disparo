@@ -553,5 +553,48 @@ export class EmailService {
       return { success: false, error: err.message };
     }
   }
+
+  /**
+   * Envia link seguro de recuperação de senha com validade temporária de 15 minutos e uso único
+   */
+  static async sendPasswordResetEmail(params: {
+    email: string;
+    name?: string | null;
+    resetUrl: string;
+  }): Promise<EmailSendResult> {
+    const { email, name, resetUrl } = params;
+    const client = getResendClient();
+    if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
+
+    const cleanName = name ? String(name).trim() : 'Cliente';
+
+    const htmlContent = `
+      <h2>Recuperação de Senha</h2>
+      <p>Olá, <strong>${cleanName}</strong>,</p>
+      <p>Recebemos uma solicitação para redefinir a senha de acesso à sua conta no <strong>Disparador</strong>.</p>
+      <div class="highlight-box">
+        <p style="margin: 0; color: #f59e0b;"><strong>Atenção:</strong> Este link é de uso único e expira em <strong>15 minutos</strong>.</p>
+      </div>
+      <p>Clique no botão abaixo para definir sua nova senha:</p>
+      <div class="btn-container">
+        <a href="${resetUrl}" class="btn" target="_blank">REDEFINIR MINHA SENHA</a>
+      </div>
+      <p style="font-size: 13px; color: #94a3b8; margin-top: 24px;">Se você não solicitou a alteração de senha, nenhuma ação é necessária. Sua senha atual permanecerá segura.</p>
+    `;
+
+    try {
+      const response = await client.emails.send({
+        from: ENV.RESEND_FROM_EMAIL,
+        replyTo: ENV.RESEND_REPLY_TO,
+        to: [email],
+        subject: 'Recuperação de Senha • Disparador',
+        html: getBaseEmailTemplate(htmlContent, 'Link seguro para redefinição da sua senha no Disparador.'),
+      });
+      return { success: !response.error, id: response.data?.id, error: response.error?.message };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
 }
+
 
