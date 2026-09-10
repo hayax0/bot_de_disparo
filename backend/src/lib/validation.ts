@@ -96,10 +96,41 @@ export const createCampaignSchema = z.object({
   delayMax: z.coerce.number()
     .int('Delay máximo deve ser um número inteiro.')
     .min(10, 'O delay máximo deve ser maior ou igual a 10 segundos.')
-    .default(180)
+    .default(180),
+  scheduleStartMinute: z.coerce.number()
+    .int('Minuto inicial deve ser um número inteiro.')
+    .min(0, 'Minuto inicial deve ser entre 0 e 1439.')
+    .max(1439, 'Minuto inicial deve ser entre 0 e 1439.')
+    .default(480),
+  scheduleEndMinute: z.coerce.number()
+    .int('Minuto final deve ser um número inteiro.')
+    .min(0, 'Minuto final deve ser entre 0 e 1439.')
+    .max(1439, 'Minuto final deve ser entre 0 e 1439.')
+    .default(1200),
+  scheduleDays: z.string()
+    .regex(/^([0-6],)*[0-6]$/, 'Dias de envio devem ser números de 0 a 6 separados por vírgula (ex: 1,2,3,4,5,6).')
+    .default('1,2,3,4,5,6'),
+  scheduleTimezone: z.string()
+    .refine(tz => {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, { message: 'Fuso horário (timezone) IANA inválido.' })
+    .default('America/Sao_Paulo'),
+  recontactAfterDays: z.coerce.number()
+    .int('Dias de recontato deve ser um número inteiro.')
+    .min(0, 'Dias de recontato deve ser positivo ou 0 para desabilitar.')
+    .max(365, 'Dias de recontato não pode exceder 365 dias.')
+    .default(30)
 }).refine(data => data.delayMax >= data.delayMin, {
   message: 'O tempo máximo de delay deve ser igual ou maior que o tempo mínimo.',
   path: ['delayMax']
+}).refine(data => data.scheduleEndMinute > data.scheduleStartMinute, {
+  message: 'O horário de término da janela deve ser posterior ao horário de início.',
+  path: ['scheduleEndMinute']
 }).refine(data => {
   const com = data.messageComSite?.trim();
   const sem = data.messageSemSite?.trim();

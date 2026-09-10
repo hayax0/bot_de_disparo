@@ -14,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
+import { ContactPolicyService, extractMessageText } from './ContactPolicyService';
 
 // Armazenamento em memória compatível com a interface CacheStore do Baileys 6.7.24
 export class MemoryCacheStore implements CacheStore {
@@ -405,6 +406,21 @@ export class WhatsappManager {
 
           const senderPhone = senderJid.replace(/\D/g, '');
           if (!senderPhone) continue;
+
+          // Verificação de Opt-Out LGPD (parar, cancelar, me remova, etc.)
+          const rawText = extractMessageText(msg.message);
+          if (rawText) {
+            const optOutCheck = ContactPolicyService.isOptOutMessage(rawText);
+            if (optOutCheck.isOptOut) {
+              console.log(`[OPT-OUT LGPD] Mensagem de descadastro recebida de ${WhatsappManager.maskPhone(senderPhone)}: "${rawText.slice(0, 50)}"`);
+              await ContactPolicyService.processOptOut({
+                phone: senderPhone,
+                workspaceId,
+                evidenceText: rawText
+              });
+              continue;
+            }
+          }
 
           const mostRecentLead = await prisma.lead.findFirst({
             where: {

@@ -58,6 +58,42 @@ model Workspace {
   campaigns        Campaign[]
   dispatchHistory  DispatchHistory[]
   whatsapp         WhatsappSession?
+  blacklist        Blacklist[]
+  auditLogs        AuditLog[]
+}
+
+model Blacklist {
+  id          String    @id @default(uuid())
+  scope       String    // GLOBAL ou WORKSPACE
+  workspaceId String?
+  phone       String
+  reason      String    // OPT_OUT, MANUAL, COMPLAINT, INVALID
+  source      String    // INCOMING_MESSAGE, USER_ACTION, ADMIN_ACTION
+  metadata    String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([phone])
+  @@index([workspaceId, phone])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  workspaceId String?
+  userId      String?
+  action      String   // BLACKLIST_ADD, BLACKLIST_REMOVE, ANONYMIZE_LEAD, SETTINGS_UPDATE, GLOBAL_BLOCK
+  targetType  String   // LEAD, BLACKLIST, CAMPAIGN, WORKSPACE
+  targetId    String?
+  details     String?  @db.Text
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([action])
 }
 
 model DispatchHistory {
@@ -95,15 +131,20 @@ model WhatsappSession {
 }
 
 model Campaign {
-  id             String   @id @default(uuid())
-  workspaceId    String
-  name           String
-  status         String   @default("PAUSED")
-  messageComSite String?
-  messageSemSite String?
-  delayMin       Int      @default(90) // seconds
-  delayMax       Int      @default(180) // seconds
-  createdAt      DateTime @default(now())
+  id                  String   @id @default(uuid())
+  workspaceId         String
+  name                String
+  status              String   @default("PAUSED")
+  messageComSite      String?
+  messageSemSite      String?
+  delayMin            Int      @default(90) // seconds
+  delayMax            Int      @default(180) // seconds
+  scheduleStartMinute Int      @default(480) // 08:00 (minutos desde 00:00)
+  scheduleEndMinute   Int      @default(1200) // 20:00 (minutos desde 00:00)
+  scheduleDays        String   @default("1,2,3,4,5,6") // Dias da semana: 0=Dom, 1=Seg..6=Sab
+  scheduleTimezone    String   @default("America/Sao_Paulo")
+  recontactAfterDays  Int      @default(30)
+  createdAt           DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads     Lead[]
@@ -125,6 +166,7 @@ model Lead {
   readAt         DateTime?
   wppMessageId   String?
   sendStartedAt  DateTime? // Barreira durável: envio iniciado não pode ser repetido automaticamente.
+  optedOutAt     DateTime? // Data de opt-out (LGPD)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

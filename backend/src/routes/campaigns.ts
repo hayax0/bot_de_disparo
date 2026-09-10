@@ -85,7 +85,18 @@ router.get('/last-copy', async (req: Request, res: Response): Promise<any> => {
 
 // Criar nova campanha
 router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), async (req: Request, res: Response): Promise<any> => {
-  const { name, messageComSite, messageSemSite, delayMin, delayMax } = req.body;
+  const {
+    name,
+    messageComSite,
+    messageSemSite,
+    delayMin,
+    delayMax,
+    scheduleStartMinute,
+    scheduleEndMinute,
+    scheduleDays,
+    scheduleTimezone,
+    recontactAfterDays
+  } = req.body;
   const workspaceId = req.user!.workspaceId;
 
   const comSite = typeof messageComSite === 'string' ? messageComSite.trim() : '';
@@ -99,6 +110,11 @@ router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), 
         messageSemSite: semSite || null,
         delayMin,
         delayMax,
+        scheduleStartMinute: scheduleStartMinute ?? 480,
+        scheduleEndMinute: scheduleEndMinute ?? 1200,
+        scheduleDays: scheduleDays ?? '1,2,3,4,5,6',
+        scheduleTimezone: scheduleTimezone ?? 'America/Sao_Paulo',
+        recontactAfterDays: recontactAfterDays ?? 30,
         workspaceId
       }
     });
@@ -603,14 +619,18 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<any> => {
       DELIVERED: 0,
       READ: 0,
       REPLIED: 0,
-      ERROR: 0
+      ERROR: 0,
+      IGNORED: 0,
+      OPTED_OUT: 0,
     };
     for (const g of grouped) counts[g.status] = g._count.status;
 
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const sent = (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0) + (counts.REPLIED || 0);
     const remaining = (counts.PENDING || 0) + (counts.QUEUED || 0) + (counts.SENDING || 0);
-    const progress = total > 0 ? Math.round(((sent + (counts.ERROR || 0)) / total) * 100) : 0;
+    // OPTED_OUT e IGNORED são estados terminais válidos (não são erros técnicos)
+    const terminalCompleted = sent + (counts.ERROR || 0) + (counts.IGNORED || 0) + (counts.OPTED_OUT || 0);
+    const progress = total > 0 ? Math.round((terminalCompleted / total) * 100) : 0;
 
     // Estimativa de tempo restante: delays médios + pausas de lote (8 envios → pausa de ~10-15min)
     const avgDelayS = (campaign.delayMin + campaign.delayMax) / 2;
@@ -629,6 +649,8 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<any> => {
       read: counts.READ,
       replied: counts.REPLIED,
       error: counts.ERROR,
+      ignored: counts.IGNORED,
+      optedOut: counts.OPTED_OUT,
       progress,
       estimatedSecondsRemaining
     });

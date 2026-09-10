@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { WhatsappManager } from './WhatsappManager';
 import { gerarProposta } from './ProposalEngine';
 import { isSubscriptionActive } from './SubscriptionManager';
+import { ContactPolicyService } from './ContactPolicyService';
 
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
@@ -42,10 +43,11 @@ function isUnrecoverableError(errMsg: string): boolean {
   return UNRECOVERABLE_PATTERNS.some(p => errMsg.includes(p));
 }
 
-// Job processor com isolamento, idempotência e auditoria
+// Job processor com isolamento, idempotência e auditoria — 9 Passos Estritos
 export const campaignWorker = new Worker('message-queue', async (job: Job, token?: string) => {
   const { leadId, campaignId, workspaceId } = job.data;
 
+  // 1. Recarregar campanha e lead
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -61,25 +63,27 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     return;
   }
 
-  if (lead.campaignId !== campaignId || campaign.workspaceId !== workspaceId) throw new Error('Job com workspace ou campanha incompatível.');
-  if (['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR', 'IGNORED'].includes(lead.status)) {
-    await checkCampaignCompletion(campaignId);
-    return;
+  if (lead.campaignId !== campaignId || campaign.workspaceId !== workspaceId) {
+    throw new Error('Job com workspace ou campanha incompatível.');
   }
-  if (lead.sendStartedAt || lead.status === 'SENDING') {
-    await prisma.lead.updateMany({
-      where: { id: leadId, status: { in: ['SENDING', 'QUEUED', 'PENDING'] } },
-      data: { status: 'ERROR', errorMessage: 'Envio anterior sem confirmação final. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
-    });
-    await checkCampaignCompletion(campaignId);
-    return;
-  }
+
+  // 2. Confirmar que campanha continua RUNNING
   if (campaign.status === 'STARTING') {
     await job.moveToDelayed(Date.now() + 5000, token);
     throw new DelayedError();
   }
 
-  // BLINDAGEM DE ACESSO: Valida se o usuário possui assinatura ativa antes de qualquer envio
+  if (campaign.status !== 'RUNNING') {
+    if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { status: 'PENDING' }
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // 3. Confirmar assinatura ativa
   const user = campaign.workspace?.user;
   if (!user || !isSubscriptionActive(user)) {
     console.warn(`[WORKER] Job ${job.id} bloqueado: Usuário ${user?.email || 'desconhecido'} com assinatura inativa ou expirada. Pausando campanha ${campaignId}.`);
@@ -99,23 +103,71 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     return;
   }
 
-  // Campanha pausada/excluída: devolve o lead para PENDING para ser retomado depois
-  if (campaign.status !== 'RUNNING') {
-    if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
-      await prisma.lead.update({
-        where: { id: leadId },
-        data: { status: 'PENDING' }
-      }).catch(() => {});
-    }
-    return;
-  }
-
-  // Idempotência: Se o lead já foi enviado ou entregue, não reenvia
-  if (['SENT', 'DELIVERED', 'READ', 'REPLIED'].includes(lead.status)) {
+  // 4. Consultar blacklist global e do workspace (Opt-Out / Bloqueios)
+  const isBlocked = await ContactPolicyService.isBlacklisted(lead.phone, workspaceId);
+  if (isBlocked) {
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        status: 'OPTED_OUT',
+        optedOutAt: new Date(),
+        errorMessage: 'Número presente na lista de bloqueio/opt-out (LGPD).'
+      }
+    });
     await checkCampaignCompletion(campaignId);
     return;
   }
 
+  // 5. Consultar recontato recente (cooldown da política de contato)
+  const recentContact = await ContactPolicyService.isRecentContact({
+    phone: lead.phone,
+    workspaceId,
+    recontactAfterDays: campaign.recontactAfterDays ?? 30
+  });
+
+  if (recentContact.isRecent) {
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        status: 'IGNORED',
+        errorMessage: `Contato recente detectado (enviado em ${recentContact.lastSentAt?.toLocaleDateString('pt-BR')}). Intervalo de ${campaign.recontactAfterDays} dias respeitado.`
+      }
+    });
+    await checkCampaignCompletion(campaignId);
+    return;
+  }
+
+  // 6. Verificar janela comercial (horário permitido e dias da semana na timezone)
+  const windowCheck = ContactPolicyService.checkBusinessWindow({
+    scheduleStartMinute: campaign.scheduleStartMinute ?? 480,
+    scheduleEndMinute: campaign.scheduleEndMinute ?? 1200,
+    scheduleDays: campaign.scheduleDays || '1,2,3,4,5,6',
+    scheduleTimezone: campaign.scheduleTimezone || 'America/Sao_Paulo'
+  });
+
+  if (!windowCheck.isInWindow) {
+    const delayUntil = windowCheck.nextOpenTimestamp || (Date.now() + 15 * 60 * 1000);
+    console.log(`[WORKER JANELA COMERCIAL] Job ${job.id} fora do horário comercial (${windowCheck.reason}). Adiado até ${new Date(delayUntil).toISOString()}`);
+    await job.moveToDelayed(delayUntil, token);
+    throw new DelayedError();
+  }
+
+  // 7. Revalidar estado do lead (idempotência e prevenção de duplicidade)
+  if (['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR', 'IGNORED', 'OPTED_OUT'].includes(lead.status)) {
+    await checkCampaignCompletion(campaignId);
+    return;
+  }
+
+  if (lead.sendStartedAt || lead.status === 'SENDING') {
+    await prisma.lead.updateMany({
+      where: { id: leadId, status: { in: ['SENDING', 'QUEUED', 'PENDING'] } },
+      data: { status: 'ERROR', errorMessage: 'Envio anterior sem confirmação final. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
+    });
+    await checkCampaignCompletion(campaignId);
+    return;
+  }
+
+  // Geração da mensagem personalizada
   const senderInfo = {
     meuNome: campaign.workspace?.user?.name || campaign.workspace?.name || '',
     minhaEmpresa: campaign.workspace?.name || ''

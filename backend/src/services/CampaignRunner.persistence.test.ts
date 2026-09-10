@@ -21,8 +21,19 @@ require.cache[bullPath] = bullCache;
 
 function fixture(t: any) {
   const lead: any = { id: 'l', campaignId: 'c', title: 'Empresa', phone: '5511999999999', status: 'QUEUED', sendStartedAt: null };
-  const campaign: any = { id: 'c', workspaceId: 'w', name: 'Campanha', status: 'RUNNING', messageSemSite: 'Olá {nome}',
-    workspace: { user: { role: 'ADMIN' } } };
+  const campaign: any = {
+    id: 'c',
+    workspaceId: 'w',
+    name: 'Campanha',
+    status: 'RUNNING',
+    messageSemSite: 'Olá {nome}',
+    scheduleStartMinute: 0,
+    scheduleEndMinute: 1440,
+    scheduleDays: '0,1,2,3,4,5,6',
+    scheduleTimezone: 'America/Sao_Paulo',
+    recontactAfterDays: 0,
+    workspace: { user: { role: 'ADMIN' } }
+  };
   let dbDown = false;
   const matches = (where: any) => {
     if (where.sendStartedAt === null && lead.sendStartedAt !== null) return false;
@@ -48,6 +59,8 @@ function fixture(t: any) {
   mockMethod(t, prisma.campaign, 'findMany', async () => [campaign]);
   mockMethod(t, prisma.campaign, 'updateMany', async () => ({ count: 0 }));
   mockMethod(t, prisma.campaign, 'update', async () => campaign);
+  mockMethod(t, prisma.blacklist, 'findFirst', async () => null);
+  mockMethod(t, prisma.dispatchHistory, 'findFirst', async () => null);
   mockMethod(t, prisma.dispatchHistory, 'upsert', async () => {
     if (dbDown) throw new Error('database unavailable');
     return {};
