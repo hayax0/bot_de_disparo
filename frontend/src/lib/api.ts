@@ -23,17 +23,23 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
-// Interceptor para capturar 401 (token expirado) e redirecionar
+// Interceptor para capturar 401 (token expirado) e redirecionar ou 403 (verificação necessária)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
-      const currentPath = window.location.pathname;
-      if (currentPath !== '/login') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.href = '/login';
+    if (typeof window !== 'undefined') {
+      if (error.response?.data?.code === 'EMAIL_VERIFICATION_REQUIRED') {
+        window.dispatchEvent(new CustomEvent('auth:verification_required', {
+          detail: { message: error.response.data.error || 'E-mail não verificado. Conclua a regularização da sua conta.' }
+        }));
+      } else if (error.response?.status === 401) {
+        const currentPath = window.location.pathname;
+        if (currentPath !== '/login') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

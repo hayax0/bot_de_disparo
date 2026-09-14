@@ -259,6 +259,16 @@ export default function Dashboard() {
   // Estado e verificação ativa de assinatura (Paywall Oficial)
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [verifyPaymentFeedback, setVerifyPaymentFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [verificationRequiredMessage, setVerificationRequiredMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleVerificationRequired = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string }>;
+      setVerificationRequiredMessage(customEvent.detail?.message || 'E-mail não verificado. Conclua a regularização da sua conta.');
+    };
+    window.addEventListener('auth:verification_required', handleVerificationRequired);
+    return () => window.removeEventListener('auth:verification_required', handleVerificationRequired);
+  }, []);
 
   const isSubscriptionActive = useMemo(() => {
     if (!user) return false;
@@ -890,6 +900,30 @@ export default function Dashboard() {
       {/* Conteúdo Principal */}
       <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
+        {/* Banner de Regularização de Conta Necessária */}
+        {verificationRequiredMessage && (
+          <div className="glass-panel rounded-2xl p-4 border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <AlertCircle size={20} />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-bold text-white">Regularização de Conta Necessária</h3>
+                <p className="text-[11px] text-amber-300/90">{verificationRequiredMessage}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                logout();
+                router.push('/register');
+              }}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition-all shrink-0 cursor-pointer"
+            >
+              Regularizar no Cadastre-se →
+            </button>
+          </div>
+        )}
+
         {/* Banner de Assinatura Inativa / Vencida */}
         {user && user.role !== 'ADMIN' && user.subscriptionStatus !== 'ACTIVE' && (
           <div className="glass-panel rounded-2xl p-4 border border-amber-500/30 bg-amber-500/[0.06] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">

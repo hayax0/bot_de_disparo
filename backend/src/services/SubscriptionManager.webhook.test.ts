@@ -97,7 +97,7 @@ test('Webhook concorrente: lock por cliente evita aplicar duas vezes o mesmo eve
     const tx = {
       $executeRaw: async (sql: TemplateStringsArray, key: string) => {
         assert.match(sql.join(''), /pg_advisory_xact_lock/);
-        assert.equal(key, 'subscription:buyer@example.test');
+        assert.equal(key, 'account:buyer@example.test');
         const previousGate = gate;
         gate = new Promise<void>(resolve => { release = resolve; });
         await previousGate;

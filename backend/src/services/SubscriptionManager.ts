@@ -182,8 +182,8 @@ async function applyCaktoWebhook(
     undefined;
   const customerId = customer.id ? String(customer.id).trim() : undefined;
 
-  // Serializa eventos do mesmo cliente, inclusive quando ainda não existe User.
-  await prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`subscription:${email}`}))`;
+  // Serializa eventos do mesmo cliente, unificado com o fluxo de cadastro e recuperação.
+  await prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`account:${email}`}))`;
   const now = new Date();
 
   // Duração dinâmica da assinatura
@@ -249,6 +249,11 @@ async function applyCaktoWebhook(
     });
 
     if (existingUser) {
+      // Se a conta não possuir emailVerifiedAt comprovado e não for temporária, há risco de pre-registration hijacking.
+      // Invalidamos a senha definida por terceiro e forçamos nova senha via ativação com código enviado ao e-mail.
+      const isUnverified = !existingUser.emailVerifiedAt && !existingUser.password?.startsWith('$WEBHOOK_TEMP$');
+      const tempPassword = isUnverified ? `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}` : undefined;
+
       if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         const updated = await prisma.user.update({
           where: { id: existingUser.id },
@@ -257,7 +262,8 @@ async function applyCaktoWebhook(
             caktoCustomerId: customerId || existingUser.caktoCustomerId,
             caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
             caktoOrderId: transactionId || existingUser.caktoOrderId,
-            subscriptionInterval
+            subscriptionInterval,
+            ...(tempPassword ? { password: tempPassword, authVersion: { increment: 1 } } : {})
           }
         });
         return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: updated };
@@ -273,7 +279,8 @@ async function applyCaktoWebhook(
           caktoCustomerId: customerId || existingUser.caktoCustomerId,
           caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
           caktoOrderId: transactionId || existingUser.caktoOrderId,
-          subscriptionInterval
+          subscriptionInterval,
+          ...(tempPassword ? { password: tempPassword, authVersion: { increment: 1 } } : {})
         }
       });
 

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Mail, Lock, ArrowRight, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
   const setAuth = useAuth(state => state.setAuth);
@@ -23,6 +25,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setErrorMessage(null);
+    setErrorCode(null);
     try {
       const res = await api.post('/auth/login', { email, password });
       setAuth(res.data.token, res.data.user);
@@ -31,6 +34,7 @@ export default function LoginPage() {
       let msg = 'Falha na autenticação. Verifique seus dados.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
+        if (err.response.data.code) setErrorCode(err.response.data.code);
       }
       setErrorMessage(msg);
     } finally {
@@ -79,9 +83,19 @@ export default function LoginPage() {
         </div>
 
         {errorMessage && (
-          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-2.5 text-xs text-red-400 font-medium animate-in fade-in">
-            <AlertCircle size={16} className="text-red-400 shrink-0" />
-            <span>{errorMessage}</span>
+          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl flex flex-col gap-2 text-xs text-red-400 font-medium animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle size={16} className="text-red-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            {errorCode === 'EMAIL_VERIFICATION_REQUIRED' && (
+              <Link 
+                href="/register" 
+                className="text-xs font-semibold text-purple-300 hover:text-purple-200 underline mt-1 pl-6"
+              >
+                Clique aqui para regularizar sua conta no Cadastre-se →
+              </Link>
+            )}
           </div>
         )}
 

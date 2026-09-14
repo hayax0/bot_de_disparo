@@ -22,7 +22,7 @@ async function serveCampaigns(t: any) {
 }
 
 test('POST /campaigns: validação Zod bloqueia campanha sem nome com 400', async (t) => {
-  const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', workspaces: [{ id: 'w-1' }] };
+  const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] };
   mockMethod(t, prisma.user, 'findUnique', async () => fakeUser);
 
   const token = jwt.sign({ userId: 'u-1', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
@@ -43,7 +43,7 @@ test('POST /campaigns: validação Zod bloqueia campanha sem nome com 400', asyn
 });
 
 test('POST /campaigns: validação Zod bloqueia campanha se delayMax for menor que delayMin', async (t) => {
-  const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', workspaces: [{ id: 'w-1' }] };
+  const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] };
   mockMethod(t, prisma.user, 'findUnique', async () => fakeUser);
 
   const token = jwt.sign({ userId: 'u-1', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
@@ -64,7 +64,7 @@ test('POST /campaigns: validação Zod bloqueia campanha se delayMax for menor q
 });
 
 test('POST /campaigns/:id/leads/import: rejeita arquivo com mais de 2.000 registros', async (t) => {
-  const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', workspaces: [{ id: 'w-1' }] };
+  const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] };
   mockMethod(t, prisma.user, 'findUnique', async () => fakeUser);
   mockMethod(t, prisma.campaign, 'findFirst', async () => ({ id: 'c-1', workspaceId: 'w-1' }));
 

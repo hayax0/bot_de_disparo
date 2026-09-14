@@ -53,17 +53,23 @@ router.post(
     const cleanEmail = email;
 
     try {
-      const existingUser = await prisma.user.findUnique({
-        where: { email: cleanEmail },
-        include: { workspaces: true }
-      });
+      // Exigência universal: todo cadastro exige o código de 6 dígitos enviado ao e-mail
+      const claim = await validateRegistrationCode(cleanEmail, verificationCode);
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const isAdmin = isUserAdmin(cleanEmail);
 
-      if (existingUser) {
-        // Caso a conta tenha sido pré-criada pelo webhook da Cakto com senha provisória:
-        if (existingUser.password.startsWith('$WEBHOOK_TEMP$')) {
-          const claim = await validateRegistrationCode(cleanEmail, verificationCode);
-          const hashedPassword = await bcrypt.hash(password, 10);
-          const updated = await prisma.$transaction(async tx => {
+      const result = await prisma.$transaction(async tx => {
+        // Bloqueio compartilhado por e-mail contra concorrência com o webhook da Cakto
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`account:${cleanEmail}`}))`;
+
+        const existingUser = await tx.user.findUnique({
+          where: { email: cleanEmail },
+          include: { workspaces: true }
+        });
+
+        if (existingUser) {
+          // Caso a conta tenha sido pré-criada pelo webhook ($WEBHOOK_TEMP$) ou seja uma conta legada não verificada:
+          if (existingUser.password.startsWith('$WEBHOOK_TEMP$') || !existingUser.emailVerifiedAt) {
             await consumeRegistrationCode(tx, cleanEmail, claim);
             const changed = await tx.user.updateMany({
               where: { id: existingUser.id, password: existingUser.password },
@@ -73,46 +79,25 @@ router.post(
                 termsAcceptedAt: new Date(),
                 termsVersion: '1.0',
                 authVersion: { increment: 1 },
-                ...(isUserAdmin(cleanEmail) ? { role: 'ADMIN', subscriptionStatus: 'LIFETIME' } : {}),
+                emailVerifiedAt: new Date(),
+                ...(isAdmin ? { role: 'ADMIN', subscriptionStatus: 'LIFETIME' } : {}),
               },
             });
             if (changed.count !== 1) throw new RegistrationError('Esta conta já foi ativada. Faça login.', 409);
-            return tx.user.findUniqueOrThrow({
+            const updated = await tx.user.findUniqueOrThrow({
               where: { id: existingUser.id },
               include: { workspaces: true }
             });
-          });
+            return { user: updated, isNew: false };
+          }
 
-          const workspaceId = updated.workspaces[0]?.id;
-          const token = jwt.sign(
-            { userId: updated.id, authVersion: updated.authVersion, workspaceId, role: updated.role },
-            ENV.JWT_SECRET,
-            { expiresIn: '7d', algorithm: 'HS256' }
-          );
-
-          return res.status(200).json({
-            token,
-            user: {
-              id: updated.id,
-              email: updated.email,
-              name: updated.name,
-              role: updated.role,
-              subscriptionStatus: updated.subscriptionStatus,
-              subscriptionExpiresAt: updated.subscriptionExpiresAt,
-              workspaceId
-            }
-          });
+          // Se a conta já possui e-mail verificado e senha definitiva:
+          throw new RegistrationError('Já existe uma conta com este e-mail.', 400);
         }
 
-        return res.status(400).json({ error: 'Já existe uma conta com este e-mail.' });
-      }
-
-      const isAdmin = isUserAdmin(cleanEmail);
-      const claim = isAdmin ? await validateRegistrationCode(cleanEmail, verificationCode) : null;
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const user = await prisma.$transaction(async tx => {
-        if (claim) await consumeRegistrationCode(tx, cleanEmail, claim);
-        return tx.user.create({
+        // Novo usuário
+        await consumeRegistrationCode(tx, cleanEmail, claim);
+        const newUser = await tx.user.create({
           data: {
             email: cleanEmail,
             password: hashedPassword,
@@ -122,6 +107,7 @@ router.post(
             termsAcceptedAt: new Date(),
             termsVersion: '1.0',
             authVersion: 0,
+            emailVerifiedAt: new Date(),
             workspaces: {
               create: {
                 name: `${name ? String(name).trim() : 'Minha Empresa'}`,
@@ -132,8 +118,10 @@ router.post(
             workspaces: true
           }
         });
+        return { user: newUser, isNew: true };
       });
 
+      const user = result.user;
       const workspaceId = user.workspaces[0]?.id;
       const token = jwt.sign(
         { userId: user.id, authVersion: user.authVersion, workspaceId, role: user.role },
@@ -142,7 +130,7 @@ router.post(
       );
 
       // Dispara o e-mail de convite de assinatura para novos cadastros (usuários comuns INACTIVE)
-      if (!isAdmin && user.subscriptionStatus === 'INACTIVE') {
+      if (result.isNew && !isAdmin && user.subscriptionStatus === 'INACTIVE') {
         EmailService.sendRegistrationInvitationEmail({
           email: user.email,
           name: user.name,
@@ -164,8 +152,8 @@ router.post(
         });
       }
 
-      res.status(201).json({ 
-        token, 
+      return res.status(result.isNew ? 201 : 200).json({
+        token,
         user: {
           id: user.id,
           email: user.email,
@@ -173,13 +161,14 @@ router.post(
           role: user.role,
           subscriptionStatus: user.subscriptionStatus,
           subscriptionExpiresAt: user.subscriptionExpiresAt,
+          emailVerifiedAt: user.emailVerifiedAt,
           workspaceId
-        } 
+        }
       });
     } catch (error) {
       if (error instanceof RegistrationError) return res.status(error.status).json({ error: error.message, code: error.code });
       console.error('Register error:', error);
-      res.status(500).json({ error: 'Erro interno ao criar conta.' });
+      return res.status(500).json({ error: 'Erro interno ao criar conta.' });
     }
   }
 );
@@ -199,14 +188,25 @@ router.post(
         include: { workspaces: true }
       });
 
-      if (user && user.password.startsWith('$WEBHOOK_TEMP$')) {
+      if (!user) {
+        return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+      }
+
+      if (user.password.startsWith('$WEBHOOK_TEMP$')) {
         return res.status(401).json({
           error: 'Sua assinatura foi confirmada! Acesse a aba "Cadastre-se" com este mesmo e-mail para definir sua senha de acesso.'
         });
       }
 
-      if (!user || !await bcrypt.compare(password, user.password)) {
+      if (!await bcrypt.compare(password, user.password)) {
         return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+      }
+
+      if (!user.emailVerifiedAt) {
+        return res.status(403).json({
+          error: 'E-mail não verificado. Acesse a aba "Cadastre-se" com este e-mail para concluir a regularização da sua conta.',
+          code: 'EMAIL_VERIFICATION_REQUIRED'
+        });
       }
 
       const workspaceId = user.workspaces[0]?.id;
@@ -217,7 +217,7 @@ router.post(
         { expiresIn: '7d', algorithm: 'HS256' }
       );
 
-      res.json({ 
+      return res.json({ 
         token, 
         user: {
           id: user.id,
@@ -226,12 +226,13 @@ router.post(
           role: user.role,
           subscriptionStatus: user.subscriptionStatus,
           subscriptionExpiresAt: user.subscriptionExpiresAt,
+          emailVerifiedAt: user.emailVerifiedAt,
           workspaceId
         } 
       });
     } catch (error) {
       console.error('Login error:', error);
-      res.status(500).json({ error: 'Erro interno ao realizar login.' });
+      return res.status(500).json({ error: 'Erro interno ao realizar login.' });
     }
   }
 );

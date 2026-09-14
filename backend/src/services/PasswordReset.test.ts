@@ -68,6 +68,7 @@ test('PasswordResetService.resetPassword: altera senha, consome token e incremen
 
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
+      $executeRaw: async () => 1,
       passwordResetToken: {
         findUnique: async () => fakeRecord,
         update: async (args: any) => {
@@ -88,10 +89,9 @@ test('PasswordResetService.resetPassword: altera senha, consome token e incremen
 
   const res = await PasswordResetService.resetPassword(plainToken, 'novaSenhaForte123');
   assert.equal(res.success, true);
-  assert.equal(tokenConsumed, true, 'Token deve ter sido marcado como consumido');
-  assert.ok(userUpdated, 'Usuário deve ser atualizado');
-  assert.deepEqual(userUpdated.authVersion, { increment: 1 }, 'authVersion deve ser incrementado');
-
+  assert.equal(tokenConsumed, true, 'Token deve ser consumido');
+  assert.equal(userUpdated.authVersion.increment, 1, 'Deve incrementar authVersion');
+  assert.ok(userUpdated.emailVerifiedAt instanceof Date, 'Deve comprovar e-mail definindo emailVerifiedAt');
   const passMatch = await bcrypt.compare('novaSenhaForte123', userUpdated.password);
   assert.equal(passMatch, true, 'Senha deve ser criptografada com bcrypt');
 });
@@ -106,11 +106,12 @@ test('PasswordResetService.resetPassword: token expirado lança erro TOKEN_EXPIR
     tokenHash,
     expiresAt: new Date(Date.now() - 5000), // Expirado há 5 segundos
     consumedAt: null,
-    user: { id: 'u-123' }
+    user: { id: 'u-123', email: 'user@test.com' }
   };
 
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
+      $executeRaw: async () => 1,
       passwordResetToken: {
         findUnique: async () => expiredRecord,
       }
@@ -138,11 +139,12 @@ test('PasswordResetService.resetPassword: token já consumido lança erro TOKEN_
     tokenHash,
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     consumedAt: new Date(Date.now() - 60000), // Já consumido há 1 min
-    user: { id: 'u-123' }
+    user: { id: 'u-123', email: 'user@test.com' }
   };
 
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
+      $executeRaw: async () => 1,
       passwordResetToken: {
         findUnique: async () => consumedRecord,
       }

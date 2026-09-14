@@ -53,6 +53,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
         role: true,
         authVersion: true,
         subscriptionStatus: true,
+        emailVerifiedAt: true,
         workspaces: {
           select: { id: true },
           take: 1
@@ -74,6 +75,14 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       if (user.authVersion > 0) {
         return res.status(401).json({ error: 'Sessão expirada devido à alteração de credenciais. Faça login novamente.' });
       }
+    }
+
+    // Rejeição estrita de contas não verificadas (sem exceções de role ou admin)
+    if (!user.emailVerifiedAt) {
+      return res.status(403).json({
+        error: 'E-mail não verificado. Confirme seu e-mail para continuar.',
+        code: 'EMAIL_VERIFICATION_REQUIRED'
+      });
     }
 
     const workspaceId = user.workspaces[0]?.id;

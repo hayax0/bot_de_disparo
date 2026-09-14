@@ -22,7 +22,7 @@ async function serveContactsApp(t: any) {
 }
 
 test('POST /contacts/blacklist: rejeita criação de bloqueio GLOBAL por usuário não-admin', async (t) => {
-  const regularUser = { id: 'u-user', email: 'user@test.com', role: 'USER', authVersion: 0, subscriptionStatus: 'ACTIVE', workspaces: [{ id: 'w-1' }] };
+  const regularUser = { id: 'u-user', email: 'user@test.com', role: 'USER', authVersion: 0, subscriptionStatus: 'ACTIVE', emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] };
   mockMethod(t, prisma.user, 'findUnique', async () => regularUser);
 
   const token = jwt.sign({ userId: 'u-user', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
@@ -46,7 +46,7 @@ test('POST /contacts/blacklist: rejeita criação de bloqueio GLOBAL por usuári
 });
 
 test('POST /contacts/blacklist: permite criação de bloqueio WORKSPACE por usuário autenticado', async (t) => {
-  const regularUser = { id: 'u-user', email: 'user@test.com', role: 'USER', authVersion: 0, subscriptionStatus: 'ACTIVE', workspaces: [{ id: 'w-1' }] };
+  const regularUser = { id: 'u-user', email: 'user@test.com', role: 'USER', authVersion: 0, subscriptionStatus: 'ACTIVE', emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] };
   mockMethod(t, prisma.user, 'findUnique', async () => regularUser);
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     return fn({

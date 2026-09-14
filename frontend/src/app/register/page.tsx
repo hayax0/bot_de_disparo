@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -17,17 +17,31 @@ export default function RegisterPage() {
   const [verificationRequired, setVerificationRequired] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [codeMessage, setCodeMessage] = useState('');
+  const [cooldown, setCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const setAuth = useAuth(state => state.setAuth);
   const router = useRouter();
 
+  // Contador de feedback de 60s (a restrição real é mantida no backend)
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
   const requestCode = async () => {
+    if (!email || !email.includes('@')) {
+      setErrorMessage('Informe um e-mail válido para receber o código.');
+      return;
+    }
     setLoading(true);
     setErrorMessage(null);
     try {
-      const res = await api.post('/auth/register/code', { email });
-      setCodeMessage(res.data.message);
+      const res = await api.post('/auth/register/code', { email: email.trim().toLowerCase() });
+      setCodeMessage(res.data.message || 'Código enviado. Confira sua caixa de entrada e spam.');
+      setCooldown(60);
+      setVerificationRequired(true);
     } catch (err) {
       setErrorMessage(axios.isAxiosError(err) ? err.response?.data?.error || 'Falha ao enviar código.' : 'Falha ao enviar código.');
     } finally { setLoading(false); }
@@ -40,15 +54,24 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!verificationCode || verificationCode.trim().length !== 6) {
+      setVerificationRequired(true);
+      if (cooldown <= 0) {
+        await requestCode();
+      }
+      setErrorMessage('Digite o código de 6 dígitos enviado para o seu e-mail para concluir o cadastro.');
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(null);
     try {
       const res = await api.post('/auth/register', { 
-        email, 
+        email: email.trim().toLowerCase(), 
         password, 
         name,
         termsAccepted: true,
-        verificationCode,
+        verificationCode: verificationCode.trim(),
       });
       setAuth(res.data.token, res.data.user);
       router.push('/dashboard');
@@ -56,7 +79,10 @@ export default function RegisterPage() {
       let msg = 'Falha ao criar conta. Verifique os dados informados.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
-        if (err.response.data.code === 'EMAIL_VERIFICATION_REQUIRED') setVerificationRequired(true);
+        if (err.response.data.code === 'EMAIL_VERIFICATION_REQUIRED') {
+          setVerificationRequired(true);
+          if (cooldown <= 0) requestCode();
+        }
       }
       setErrorMessage(msg);
     } finally {
@@ -144,16 +170,23 @@ export default function RegisterPage() {
           </div>
 
           {verificationRequired && (
-            <div className="space-y-2" aria-live="polite">
-              <p className="text-xs text-slate-300">Para proteger sua conta, confirme que este e-mail pertence a você.</p>
-              <button type="button" disabled={loading} onClick={requestCode} className="text-sm text-purple-300 underline disabled:opacity-50">
-                Enviar código por e-mail
-              </button>
-              {codeMessage && <p className="text-xs text-slate-300">{codeMessage}</p>}
-              <label htmlFor="verification-code" className="block text-sm text-slate-300">Código de confirmação</label>
+            <div className="space-y-2 p-3 bg-purple-500/10 border border-purple-500/20 rounded-2xl animate-in fade-in" aria-live="polite">
+              <p className="text-xs text-purple-200">Para proteger sua conta, confirme a posse do e-mail com o código de 6 dígitos.</p>
+              <div className="flex items-center justify-between gap-2">
+                <button 
+                  type="button" 
+                  disabled={loading || cooldown > 0} 
+                  onClick={requestCode} 
+                  className="text-xs font-semibold text-purple-300 hover:text-purple-200 underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                >
+                  {cooldown > 0 ? `Reenviar código em ${cooldown}s` : 'Enviar código por e-mail'}
+                </button>
+              </div>
+              {codeMessage && <p className="text-xs text-emerald-400 font-medium">{codeMessage}</p>}
+              <label htmlFor="verification-code" className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mt-2">Código de confirmação (6 dígitos)</label>
               <input id="verification-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
                 value={verificationCode} onChange={e => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm" placeholder="6 dígitos" />
+                className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm font-mono tracking-widest text-center" placeholder="000000" />
             </div>
           )}
 

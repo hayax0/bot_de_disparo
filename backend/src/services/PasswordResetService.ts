@@ -105,6 +105,20 @@ export class PasswordResetService {
     const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
 
     const result = await prisma.$transaction(async (tx) => {
+      // 1. Localiza preliminarmente o registro para obter o email para o lock
+      const initialRecord = await tx.passwordResetToken.findUnique({
+        where: { tokenHash },
+        include: { user: true }
+      });
+
+      if (!initialRecord) {
+        throw new PasswordResetError('Link de recuperação inválido ou expirado.', 400, 'INVALID_TOKEN');
+      }
+
+      // 2. Adquire o lock unificado account:${email} na transação contra concorrência com o webhook
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`account:${initialRecord.user.email}`}))`;
+
+      // 3. Releitura e validação dos dados sob o lock usando tx
       const resetRecord = await tx.passwordResetToken.findUnique({
         where: { tokenHash },
         include: { user: true }
@@ -131,12 +145,13 @@ export class PasswordResetService {
       // Criptografa a nova senha com bcrypt (custo 10)
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      // Atualiza a senha e incrementa authVersion para invalidar sessões JWT anteriores
+      // Atualiza a senha, comprova posse do e-mail (emailVerifiedAt) e incrementa authVersion
       await tx.user.update({
         where: { id: resetRecord.userId },
         data: {
           password: hashedPassword,
-          authVersion: { increment: 1 }
+          authVersion: { increment: 1 },
+          emailVerifiedAt: new Date()
         }
       });
 

@@ -41,6 +41,7 @@ test('authenticate: token válido carrega usuário e workspace do banco', async 
     role: 'USER',
     authVersion: 1,
     subscriptionStatus: 'ACTIVE',
+    emailVerifiedAt: new Date(),
     workspaces: [{ id: 'ws-123' }]
   };
 
@@ -74,6 +75,7 @@ test('authenticate: authVersion desatualizado (troca de senha) invalida sessão 
     role: 'USER',
     authVersion: 2,
     subscriptionStatus: 'ACTIVE',
+    emailVerifiedAt: new Date(),
     workspaces: [{ id: 'ws-123' }]
   };
 
@@ -104,6 +106,7 @@ test('authenticate: retrocompatibilidade para contas existentes com authVersion:
     role: 'USER',
     authVersion: 0,
     subscriptionStatus: 'ACTIVE',
+    emailVerifiedAt: new Date(),
     workspaces: [{ id: 'ws-old' }]
   };
 
@@ -125,6 +128,36 @@ test('authenticate: retrocompatibilidade para contas existentes com authVersion:
   assert.equal(nextCalled, true);
   assert.equal(req.user.userId, 'u-old');
   assert.equal(req.user.authVersion, 0);
+});
+
+test('authenticate: conta sem emailVerifiedAt é rejeitada com 403', async (t) => {
+  const fakeUser = {
+    id: 'u-unver',
+    email: 'unverified@empresa.com',
+    role: 'USER',
+    authVersion: 0,
+    subscriptionStatus: 'ACTIVE',
+    emailVerifiedAt: null,
+    workspaces: [{ id: 'ws-1' }]
+  };
+
+  mockMethod(t, prisma.user, 'findUnique', async () => fakeUser);
+
+  const token = jwt.sign(
+    { userId: 'u-unver', authVersion: 0 },
+    ENV.JWT_SECRET,
+    { algorithm: 'HS256', expiresIn: '1h' }
+  );
+
+  const req: any = { headers: { authorization: `Bearer ${token}` } };
+  const res = createMockRes();
+  let nextCalled = false;
+
+  await authenticate(req, res, () => { nextCalled = true; });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.data.code, 'EMAIL_VERIFICATION_REQUIRED');
 });
 
 test('requireRole: bloqueia se a role não for permitida', () => {
