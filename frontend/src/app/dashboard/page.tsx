@@ -44,7 +44,12 @@ import {
   MessageSquare,
   ChevronLeft,
   ChevronRight,
-  Lock
+  Lock,
+  Building2,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Edit2
 } from 'lucide-react';
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 
@@ -56,10 +61,16 @@ interface Campaign {
   messageSemSite?: string | null;
   delayMin: number;
   delayMax: number;
+  scheduleStartMinute?: number;
+  scheduleEndMinute?: number;
+  scheduleDays?: string;
+  scheduleTimezone?: string;
+  recontactAfterDays?: number;
   createdAt: string;
   _count?: {
     leads: number;
   };
+  stats?: CampaignStats;
 }
 
 interface Lead {
@@ -124,8 +135,16 @@ interface CampaignStats {
   read?: number;
   replied: number;
   error: number;
+  ignored?: number;
+  optedOut?: number;
   progress: number;
   estimatedSecondsRemaining: number | null;
+  scheduleStatus?: {
+    isInWindow: boolean;
+    nextOpenTimestamp?: number | null;
+    delayMs?: number | null;
+    reason?: string | null;
+  } | null;
 }
 
 interface QueueHealth {
@@ -154,6 +173,25 @@ function formatEta(seconds: number): string {
   const m = Math.round((seconds % 3600) / 60);
   if (h === 0) return `~${m}min`;
   return `~${h}h ${m}min`;
+}
+
+// Formata data e hora da próxima abertura no fuso de São Paulo
+function formatNextOpen(timestamp: number): string {
+  const target = new Date(timestamp);
+  const now = new Date();
+  
+  const targetDayStr = target.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const nowDayStr = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const tomorrowDayStr = tomorrow.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  const timeStr = target.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+
+  if (targetDayStr === nowDayStr) return `hoje às ${timeStr}`;
+  if (targetDayStr === tomorrowDayStr) return `amanhã às ${timeStr}`;
+  const dayName = target.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
+  return `na ${dayName} às ${timeStr}`;
 }
 
 // Formata telefone brasileiro para exibição amigável
@@ -232,6 +270,22 @@ export default function Dashboard() {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [leadFilterStatus, setLeadFilterStatus] = useState<string>('ALL');
   const [leadSearchTerm, setLeadSearchTerm] = useState('');
+  
+  // Polling resiliente e sincronização contínua
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const isFetchingCampaignsRef = useRef(false);
+
+  // Sincronização e proteção de race condition no modal de detalhes
+  const selectedCampaignIdRef = useRef<string | null>(null);
+  const [detailsLastSyncTime, setDetailsLastSyncTime] = useState<number | null>(null);
+  const [detailsSyncError, setDetailsSyncError] = useState<string | null>(null);
+
+  // Workspace / Empresa ({minhaEmpresa})
+  const [workspaceName, setWorkspaceName] = useState<string>('');
+  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+  const [editingWorkspaceName, setEditingWorkspaceName] = useState('');
+  const [savingWorkspace, setSavingWorkspace] = useState(false);
   
   // Modal de Confirmação de Exclusão
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
@@ -363,34 +417,81 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Carregar campanhas + métricas reais (barra de progresso / ETA)
-  const fetchCampaigns = useCallback(async () => {
+  // Carregar dados da empresa/workspace
+  const fetchWorkspace = useCallback(async () => {
     try {
-      const res = await api.get('/campaigns');
-      setCampaigns(res.data);
-
-      const ids: string[] = res.data.map((c: Campaign) => c.id);
-      if (ids.length > 0) {
-        const results = await Promise.allSettled(
-          ids.map(cid => api.get(`/campaigns/${cid}/stats`))
-        );
-        const map: Record<string, CampaignStats> = {};
-        results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') map[ids[idx]] = r.value.data;
-        });
-        setStatsMap(map);
+      const res = await api.get('/auth/workspace');
+      if (res.data?.workspace?.name) {
+        setWorkspaceName(res.data.workspace.name);
       }
+    } catch (err) {
+      console.warn('Falha ao carregar workspace:', err);
+    }
+  }, []);
+
+  const handleUpdateWorkspace = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = editingWorkspaceName.trim();
+    if (clean.length < 2 || clean.length > 100) {
+      addToast('error', 'O nome da empresa deve ter entre 2 e 100 caracteres.');
+      return;
+    }
+    setSavingWorkspace(true);
+    try {
+      const res = await api.patch('/auth/workspace', { name: clean });
+      const updated = res.data.workspace.name;
+      setWorkspaceName(updated);
+      if (user) {
+        useAuth.getState().setAuth(token, {
+          ...user,
+          workspace: { id: res.data.workspace.id, name: updated }
+        });
+      }
+      addToast('success', 'Nome da empresa salvo com sucesso! As próximas mensagens usarão esse nome na variável {minhaEmpresa}.');
+      setIsWorkspaceModalOpen(false);
     } catch (err: unknown) {
-      let msg = 'Erro ao carregar campanhas.';
+      let msg = 'Erro ao atualizar dados da empresa.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
       }
       addToast('error', msg);
     } finally {
+      setSavingWorkspace(false);
+    }
+  };
+
+  // Carregar campanhas + métricas reais calculadas em lote direto no backend
+  const fetchCampaigns = useCallback(async () => {
+    if (isFetchingCampaignsRef.current) return;
+    isFetchingCampaignsRef.current = true;
+    try {
+      const res = await api.get('/campaigns');
+      const camps: Campaign[] = res.data;
+      setCampaigns(camps);
+
+      // Backend já entrega as stats calculadas em lote para cada campanha
+      const map: Record<string, CampaignStats> = {};
+      camps.forEach(c => {
+        if (c.stats) {
+          map[c.id] = c.stats;
+        }
+      });
+      setStatsMap(prev => ({ ...prev, ...map }));
+      setLastSyncTime(Date.now());
+      setSyncError(null);
+    } catch (err: unknown) {
+      let msg = 'Erro ao sincronizar campanhas.';
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        msg = err.response.data.error;
+      }
+      setSyncError(msg);
+    } finally {
+      isFetchingCampaignsRef.current = false;
       setIsLoading(false);
     }
-  }, [addToast]);
+  }, []);
 
+  // Carga inicial completa
   useEffect(() => {
     if (!isHydrated) return;
     if (!token) {
@@ -400,47 +501,98 @@ export default function Dashboard() {
     let isMounted = true;
     const loadData = async () => {
       if (isMounted) {
-        await Promise.all([fetchStatus(), fetchCampaigns(), fetchHistory(1, ''), fetchLastCopy()]);
+        await Promise.all([
+          fetchStatus(),
+          fetchCampaigns(),
+          fetchHistory(1, ''),
+          fetchLastCopy(),
+          fetchWorkspace()
+        ]);
       }
     };
     loadData();
 
-    // Polling pausa quando a aba não está visível (economiza VPS e bateria)
-    const poll = () => {
-      if (document.visibilityState === 'visible') fetchStatus();
-    };
-    const interval = setInterval(poll, 5000);
-
     return () => {
       isMounted = false;
-      clearInterval(interval);
     };
-  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchLastCopy, router]);
+  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchLastCopy, fetchWorkspace, router]);
 
-  // Polling de stats + saúde da fila enquanto o modal de detalhes estiver aberto
+  // Polling adaptativo contínuo: 5s se houver campanha RUNNING ou STARTING, 20s em repouso
+  // Pausa com aba oculta e atualiza imediatamente ao voltar
   useEffect(() => {
-    if (!selectedCampaignId) return;
+    if (!isHydrated || !token) return;
+
+    const hasActiveCampaign = campaigns.some(
+      c => c.status === 'RUNNING' || c.status === 'STARTING'
+    );
+    const intervalMs = hasActiveCampaign ? 5000 : 20000;
+
+    const tick = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCampaigns();
+        fetchStatus();
+      }
+    };
+
+    const intervalId = setInterval(tick, intervalMs);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCampaigns();
+        fetchStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isHydrated, token, campaigns, fetchCampaigns, fetchStatus]);
+
+  // Polling de detalhes sincronizados (contadores + leads juntos) com proteção de race condition
+  useEffect(() => {
+    if (!selectedCampaignId) {
+      selectedCampaignIdRef.current = null;
+      return;
+    }
+    selectedCampaignIdRef.current = selectedCampaignId;
+    const currentId = selectedCampaignId;
 
     const pollDetails = async () => {
       if (document.visibilityState !== 'visible') return;
       try {
-        const [statsRes, healthRes] = await Promise.allSettled([
-          api.get(`/campaigns/${selectedCampaignId}/stats`),
-          api.get(`/campaigns/${selectedCampaignId}/queue-health`)
+        const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
+          api.get(`/campaigns/${currentId}/leads`),
+          api.get(`/campaigns/${currentId}/stats`),
+          api.get(`/campaigns/${currentId}/queue-health`)
         ]);
+
+        // Ignora respostas se o usuário já tiver mudado ou fechado o modal
+        if (selectedCampaignIdRef.current !== currentId) return;
+
+        if (leadsRes.status === 'fulfilled') {
+          setCampaignDetails(leadsRes.value.data);
+          setDetailsLastSyncTime(Date.now());
+          setDetailsSyncError(null);
+        } else {
+          setDetailsSyncError('Não foi possível atualizar a lista de leads.');
+        }
+
         if (statsRes.status === 'fulfilled') {
-          setStatsMap(prev => ({ ...prev, [selectedCampaignId]: statsRes.value.data }));
+          setStatsMap(prev => ({ ...prev, [currentId]: statsRes.value.data }));
         }
         if (healthRes.status === 'fulfilled') {
           setQueueHealth(healthRes.value.data);
         }
       } catch {
-        // silencioso
+        if (selectedCampaignIdRef.current === currentId) {
+          setDetailsSyncError('Falha ao atualizar dados em tempo real.');
+        }
       }
     };
 
-    pollDetails();
-    const interval = setInterval(pollDetails, 10000);
+    const interval = setInterval(pollDetails, 6000);
     return () => clearInterval(interval);
   }, [selectedCampaignId]);
 
@@ -524,15 +676,38 @@ export default function Dashboard() {
     }
   };
 
-  // Carregar detalhes dos leads da campanha
+  // Carregar detalhes dos leads da campanha com proteção contra race conditions
   const openCampaignDetails = async (campaignId: string) => {
+    selectedCampaignIdRef.current = campaignId;
     setQueueHealth(null);
     setSelectedCampaignId(campaignId);
     setIsLoadingDetails(true);
+    setDetailsSyncError(null);
     try {
-      const res = await api.get(`/campaigns/${campaignId}/leads`);
-      setCampaignDetails(res.data);
+      const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
+        api.get(`/campaigns/${campaignId}/leads`),
+        api.get(`/campaigns/${campaignId}/stats`),
+        api.get(`/campaigns/${campaignId}/queue-health`)
+      ]);
+
+      if (selectedCampaignIdRef.current !== campaignId) return;
+
+      if (leadsRes.status === 'fulfilled') {
+        setCampaignDetails(leadsRes.value.data);
+        const syncNow = new Date().getTime();
+        setDetailsLastSyncTime(syncNow);
+      } else {
+        throw new Error('Falha ao carregar leads');
+      }
+
+      if (statsRes.status === 'fulfilled') {
+        setStatsMap(prev => ({ ...prev, [campaignId]: statsRes.value.data }));
+      }
+      if (healthRes.status === 'fulfilled') {
+        setQueueHealth(healthRes.value.data);
+      }
     } catch (err: unknown) {
+      if (selectedCampaignIdRef.current !== campaignId) return;
       let msg = 'Erro ao carregar detalhes dos leads.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
@@ -541,7 +716,9 @@ export default function Dashboard() {
       setSelectedCampaignId(null);
       setQueueHealth(null);
     } finally {
-      setIsLoadingDetails(false);
+      if (selectedCampaignIdRef.current === campaignId) {
+        setIsLoadingDetails(false);
+      }
     }
   };
 
@@ -555,19 +732,25 @@ export default function Dashboard() {
     messageSemSite: '', 
     file: null as File | null, 
     delayMin: 90, 
-    delayMax: 180 
+    delayMax: 180,
+    scheduleStartMinute: 480, // 08:00
+    scheduleEndMinute: 1200,  // 20:00
+    scheduleDays: '1,2,3,4,5', // Seg a Sex
+    scheduleTimezone: 'America/Sao_Paulo',
+    recontactAfterDays: 0
   });
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Preencher cópia utilizada anteriormente ao abrir modal de Nova Campanha
-  const openNewCampaignModal = useCallback(() => {
+  const openNewCampaignModal = () => {
     setNewCampaign(prev => ({
       ...prev,
       messageComSite: prev.messageComSite || lastUsedCopy?.messageComSite || '',
       messageSemSite: prev.messageSemSite || lastUsedCopy?.messageSemSite || ''
     }));
     setIsModalOpen(true);
-  }, [lastUsedCopy]);
+  };
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -579,16 +762,32 @@ export default function Dashboard() {
       addToast('error', 'Por favor, escreva ao menos uma mensagem para a campanha (sem site, com site ou ambas).');
       return;
     }
+
+    // Validações de agendamento
+    if (!newCampaign.scheduleDays || newCampaign.scheduleDays.trim().length === 0) {
+      addToast('error', 'Selecione pelo menos um dia da semana para os disparos.');
+      return;
+    }
+    if (newCampaign.scheduleEndMinute <= newCampaign.scheduleStartMinute) {
+      addToast('error', 'O horário de término dos envios deve ser posterior ao horário de início.');
+      return;
+    }
+
     setIsSubmitting(true);
     let createdCampaignId: string | null = null;
     try {
-      // 1. Criar campanha
+      // 1. Criar campanha com agendamento
       const res = await api.post('/campaigns', {
         name: newCampaign.name,
         messageComSite: newCampaign.messageComSite.trim() || null,
         messageSemSite: newCampaign.messageSemSite.trim() || null,
         delayMin: newCampaign.delayMin,
-        delayMax: newCampaign.delayMax
+        delayMax: newCampaign.delayMax,
+        scheduleStartMinute: newCampaign.scheduleStartMinute,
+        scheduleEndMinute: newCampaign.scheduleEndMinute,
+        scheduleDays: newCampaign.scheduleDays,
+        scheduleTimezone: newCampaign.scheduleTimezone,
+        recontactAfterDays: newCampaign.recontactAfterDays
       });
       createdCampaignId = res.data.id;
 
@@ -612,8 +811,14 @@ export default function Dashboard() {
         messageSemSite: '', 
         file: null, 
         delayMin: 90, 
-        delayMax: 180 
+        delayMax: 180,
+        scheduleStartMinute: 480,
+        scheduleEndMinute: 1200,
+        scheduleDays: '1,2,3,4,5',
+        scheduleTimezone: 'America/Sao_Paulo',
+        recontactAfterDays: 0
       });
+      setIsScheduleOpen(false);
       fetchCampaigns();
       fetchHistory(1, historySearch);
       fetchLastCopy();
@@ -789,7 +994,7 @@ export default function Dashboard() {
       `}>
         <div>
           {/* Logo */}
-          <div className="flex items-center gap-3 mb-8 px-2">
+          <div className="flex items-center gap-3 mb-6 px-2">
             <div className="w-9 h-9 rounded-2xl overflow-hidden shadow-lg shadow-purple-500/25 border border-purple-500/30">
               <Image src="/logo.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover" />
             </div>
@@ -797,6 +1002,32 @@ export default function Dashboard() {
               <span className="font-bold text-sm tracking-tight text-white block">Disparador</span>
               <span className="text-[10px] text-purple-400 font-mono">PROSPECTOR SAAS</span>
             </div>
+          </div>
+
+          {/* Card da Empresa / Workspace ({minhaEmpresa}) */}
+          <div className="mb-5 p-2.5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 overflow-hidden min-w-0">
+              <div className="w-7 h-7 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                <Building2 size={13} />
+              </div>
+              <div className="overflow-hidden min-w-0">
+                <span className="text-[9px] text-slate-500 uppercase tracking-wider font-mono block">EMPRESA ({`{minhaEmpresa}`})</span>
+                <p className="text-xs font-semibold text-slate-200 truncate" title={workspaceName || 'Minha Empresa'}>
+                  {workspaceName || 'Minha Empresa'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingWorkspaceName(workspaceName || '');
+                setIsWorkspaceModalOpen(true);
+              }}
+              className="p-1.5 text-slate-400 hover:text-purple-300 hover:bg-white/[0.06] rounded-xl transition-colors cursor-pointer shrink-0"
+              title="Editar nome da empresa"
+            >
+              <Edit2 size={13} />
+            </button>
           </div>
 
           {/* Navegação */}
@@ -952,7 +1183,21 @@ export default function Dashboard() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Visão Geral</h1>
-            <p className="text-xs text-slate-400 mt-1">Gerencie suas campanhas de prospecção com automação e segurança anti-bloqueio.</p>
+            <div className="flex items-center gap-2 flex-wrap mt-1">
+              <p className="text-xs text-slate-400">Gerencie suas campanhas de prospecção com automação e segurança anti-bloqueio.</p>
+              {lastSyncTime && (
+                <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5 bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/[0.08]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Atualizado às {new Date(lastSyncTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+              {syncError && (
+                <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20" title={syncError}>
+                  <AlertCircle size={11} />
+                  Aviso de conexão
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2.5">
             <button 
@@ -1311,15 +1556,22 @@ export default function Dashboard() {
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <h3 className="font-bold text-sm sm:text-base text-white">{camp.name}</h3>
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
-                        camp.status === 'RUNNING' 
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 animate-pulse' 
-                          : camp.status === 'COMPLETED'
-                          ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
-                          : 'bg-white/[0.05] text-slate-400 border border-white/[0.1]'
-                      }`}>
-                        {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
-                      </span>
+                      {camp.status === 'RUNNING' && statsMap[camp.id]?.scheduleStatus && !statsMap[camp.id]?.scheduleStatus?.isInWindow ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                          <Clock size={10} className="text-amber-400" />
+                          FORA DO HORÁRIO
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
+                          camp.status === 'RUNNING' 
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 animate-pulse' 
+                            : camp.status === 'COMPLETED'
+                            ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
+                            : 'bg-white/[0.05] text-slate-400 border border-white/[0.1]'
+                        }`}>
+                          {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
@@ -1331,10 +1583,36 @@ export default function Dashboard() {
                         <Clock size={13} className="text-slate-500" />
                         Delay: <b>{camp.delayMin}s - {camp.delayMax}s</b>
                       </span>
+                      {camp.scheduleStartMinute !== undefined && camp.scheduleEndMinute !== undefined && (
+                        <span className="flex items-center gap-1" title="Janela de envio permitida (horário de Brasília)">
+                          <Calendar size={13} className="text-purple-400" />
+                          <b>{String(Math.floor(camp.scheduleStartMinute / 60)).padStart(2, '0')}:{String(camp.scheduleStartMinute % 60).padStart(2, '0')}</b> às{' '}
+                          <b>{String(Math.floor(camp.scheduleEndMinute / 60)).padStart(2, '0')}:{String(camp.scheduleEndMinute % 60).padStart(2, '0')}</b>
+                        </span>
+                      )}
                       <span className="text-[11px] text-slate-500 font-mono">
                         {new Date(camp.createdAt).toLocaleDateString('pt-BR')}
                       </span>
                     </div>
+
+                    {/* Aviso de Janela Comercial Fechada (anti-bloqueio automático) */}
+                    {camp.status === 'RUNNING' && statsMap[camp.id]?.scheduleStatus && !statsMap[camp.id]?.scheduleStatus?.isInWindow && (
+                      <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs flex items-start gap-2">
+                        <Clock size={15} className="shrink-0 mt-0.5 text-amber-400" />
+                        <div className="space-y-0.5">
+                          <div className="font-semibold flex items-center gap-1.5 text-amber-200">
+                            <span>Aguardando Janela Comercial</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">Pausa Automática</span>
+                          </div>
+                          <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                            Envios suspensos fora do horário/dia configurado.
+                            {statsMap[camp.id]?.scheduleStatus?.nextOpenTimestamp && (
+                              <> Retomada automática prevista para <b>{formatNextOpen(statsMap[camp.id].scheduleStatus!.nextOpenTimestamp!)}</b>.</>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Barra de progresso real (derivada dos status dos leads no banco) */}
                     {statsMap[camp.id] && statsMap[camp.id].total > 0 && (statsMap[camp.id].progress > 0 || camp.status === 'RUNNING') && (
@@ -1352,7 +1630,9 @@ export default function Dashboard() {
                           </span>
                           <span className="text-slate-500">
                             {statsMap[camp.id].progress}%
-                            {camp.status === 'RUNNING' && statsMap[camp.id].estimatedSecondsRemaining !== null && (
+                            {camp.status === 'RUNNING' && 
+                             statsMap[camp.id].estimatedSecondsRemaining !== null && 
+                             (!statsMap[camp.id]?.scheduleStatus || statsMap[camp.id]?.scheduleStatus?.isInWindow) && (
                               <> · restam {formatEta(statsMap[camp.id].estimatedSecondsRemaining!)}</>
                             )}
                           </span>
@@ -1812,6 +2092,129 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Horários e Dias de Envio (Janela Comercial) */}
+              <div className="glass-card rounded-2xl border border-white/[0.08] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsScheduleOpen(!isScheduleOpen)}
+                  className="w-full p-3.5 sm:p-4 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Clock size={16} className="text-purple-400" />
+                    <div>
+                      <span className="text-xs font-bold text-white block">
+                        Horários e Dias de Envio (Janela Comercial)
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {String(Math.floor(newCampaign.scheduleStartMinute / 60)).padStart(2, '0')}:
+                        {String(newCampaign.scheduleStartMinute % 60).padStart(2, '0')} às{' '}
+                        {String(Math.floor(newCampaign.scheduleEndMinute / 60)).padStart(2, '0')}:
+                        {String(newCampaign.scheduleEndMinute % 60).padStart(2, '0')} · {
+                          newCampaign.scheduleDays.split(',').filter(Boolean).length === 7 ? 'Todos os dias' :
+                          newCampaign.scheduleDays === '1,2,3,4,5' ? 'Seg a Sex' :
+                          `${newCampaign.scheduleDays.split(',').filter(Boolean).length} dia(s) selecionado(s)`
+                        }
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                      Anti-Bloqueio
+                    </span>
+                    {isScheduleOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                  </div>
+                </button>
+
+                {isScheduleOpen && (
+                  <div className="p-4 pt-0 space-y-4 border-t border-white/[0.04] mt-1 text-xs">
+                    <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-200 text-[11px] flex items-center justify-between">
+                      <span>Fuso Horário Oficial: <b>América/São Paulo (Horário de Brasília)</b></span>
+                      <span className="font-mono text-[10px] text-purple-300">GMT-3</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                          Início dos Disparos
+                        </label>
+                        <input
+                          type="time"
+                          value={`${String(Math.floor(newCampaign.scheduleStartMinute / 60)).padStart(2, '0')}:${String(newCampaign.scheduleStartMinute % 60).padStart(2, '0')}`}
+                          onChange={e => {
+                            const [h, m] = e.target.value.split(':').map(Number);
+                            if (!isNaN(h) && !isNaN(m)) {
+                              setNewCampaign({ ...newCampaign, scheduleStartMinute: h * 60 + m });
+                            }
+                          }}
+                          className="block w-full px-3 py-2 glass-input rounded-xl text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                          Término dos Disparos
+                        </label>
+                        <input
+                          type="time"
+                          value={`${String(Math.floor(newCampaign.scheduleEndMinute / 60)).padStart(2, '0')}:${String(newCampaign.scheduleEndMinute % 60).padStart(2, '0')}`}
+                          onChange={e => {
+                            const [h, m] = e.target.value.split(':').map(Number);
+                            if (!isNaN(h) && !isNaN(m)) {
+                              setNewCampaign({ ...newCampaign, scheduleEndMinute: h * 60 + m });
+                            }
+                          }}
+                          className="block w-full px-3 py-2 glass-input rounded-xl text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Dias da Semana Permitidos
+                      </label>
+                      <div className="grid grid-cols-7 gap-1.5">
+                        {[
+                          { id: '1', label: 'Seg' },
+                          { id: '2', label: 'Ter' },
+                          { id: '3', label: 'Qua' },
+                          { id: '4', label: 'Qui' },
+                          { id: '5', label: 'Sex' },
+                          { id: '6', label: 'Sáb' },
+                          { id: '0', label: 'Dom' }
+                        ].map(day => {
+                          const currentDays = newCampaign.scheduleDays.split(',').filter(Boolean);
+                          const isSelected = currentDays.includes(day.id);
+                          return (
+                            <button
+                              key={day.id}
+                              type="button"
+                              onClick={() => {
+                                let updated: string[];
+                                if (isSelected) {
+                                  updated = currentDays.filter(d => d !== day.id);
+                                } else {
+                                  updated = [...currentDays, day.id];
+                                }
+                                setNewCampaign({ ...newCampaign, scheduleDays: updated.join(',') });
+                              }}
+                              className={`py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-purple-600 text-white shadow-sm'
+                                  : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
+                              }`}
+                            >
+                              {day.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {newCampaign.scheduleDays.trim().length === 0 && (
+                        <p className="text-[10px] text-red-400 mt-1">Selecione pelo menos um dia da semana.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Mensagem Principal / Sem Site */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -2168,7 +2571,21 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="p-4 border-t border-white/[0.08] flex justify-end">
+            <div className="p-4 border-t border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                {detailsLastSyncTime && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    Sincronizado às {new Date(detailsLastSyncTime).toLocaleTimeString('pt-BR')}
+                  </span>
+                )}
+                {detailsSyncError && (
+                  <span className="text-amber-400 flex items-center gap-1">
+                    <AlertTriangle size={12} />
+                    {detailsSyncError}
+                  </span>
+                )}
+              </div>
               <button
                 onClick={() => { setSelectedCampaignId(null); setQueueHealth(null); }}
                 className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
@@ -2522,6 +2939,72 @@ export default function Dashboard() {
             <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500">
               Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Editar Nome da Empresa ({minhaEmpresa}) */}
+      {isWorkspaceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
+                  <Building2 size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Nome da Empresa</h3>
+                  <p className="text-[11px] text-slate-400">Variável {`{minhaEmpresa}`} nos disparos</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsWorkspaceModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateWorkspace} className="p-5 space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Nome da sua Empresa ou Agência
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={100}
+                  value={editingWorkspaceName}
+                  onChange={e => setEditingWorkspaceName(e.target.value)}
+                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  placeholder="Ex: Agência Alta Conversão"
+                />
+                <p className="text-[10px] text-slate-500 mt-1.5">Mínimo de 2 e máximo de 100 caracteres.</p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-200 leading-relaxed">
+                💡 <b>Como funciona:</b> A alteração será usada nas <b>próximas mensagens geradas</b> pela plataforma (inclusive de campanhas já em andamento). Mensagens que já foram enviadas pelo WhatsApp permanecem com o conteúdo original.
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsWorkspaceModalOpen(false)}
+                  className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingWorkspace || !editingWorkspaceName.trim()}
+                  className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {savingWorkspace ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
+                  <span>{savingWorkspace ? 'Salvando...' : 'Salvar Alterações'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

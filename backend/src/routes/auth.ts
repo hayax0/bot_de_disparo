@@ -20,7 +20,8 @@ import {
   registerSchema,
   confirmCodeSchema,
   forgotPasswordSchema,
-  resetPasswordSchema
+  resetPasswordSchema,
+  updateWorkspaceSchema
 } from '../lib/validation';
 import { PasswordResetService, PasswordResetError } from '../services/PasswordResetService';
 
@@ -356,5 +357,65 @@ router.post('/verify-payment', authenticate, async (req: Request, res: Response)
     res.status(500).json({ error: 'Erro ao verificar pagamento no servidor.' });
   }
 });
+
+// 8. Obter dados da empresa/workspace ({minhaEmpresa})
+router.get(
+  '/workspace',
+  authenticate,
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const workspaceId = req.user!.workspaceId;
+      const workspace = await prisma.workspace.findFirst({
+        where: { id: workspaceId, userId: req.user!.userId },
+        select: { id: true, name: true, createdAt: true, updatedAt: true }
+      });
+
+      if (!workspace) {
+        return res.status(404).json({ error: 'Workspace não encontrado para este usuário.' });
+      }
+
+      return res.json({ workspace });
+    } catch (error) {
+      console.error('Erro ao obter workspace:', error);
+      return res.status(500).json({ error: 'Erro ao buscar dados da empresa.' });
+    }
+  }
+);
+
+// 9. Atualizar dados da empresa/workspace ({minhaEmpresa})
+router.patch(
+  '/workspace',
+  authenticate,
+  validateBody(updateWorkspaceSchema),
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const workspaceId = req.user!.workspaceId;
+      const { name } = req.body;
+
+      // Garantir que o workspace pertence ao usuário logado
+      const workspace = await prisma.workspace.findFirst({
+        where: { id: workspaceId, userId: req.user!.userId }
+      });
+
+      if (!workspace) {
+        return res.status(404).json({ error: 'Workspace não encontrado para este usuário.' });
+      }
+
+      const updated = await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { name: name.trim() },
+        select: { id: true, name: true, updatedAt: true }
+      });
+
+      return res.json({
+        workspace: updated,
+        message: 'Nome da empresa atualizado com sucesso. Novas mensagens usarão este nome na variável {minhaEmpresa}.'
+      });
+    } catch (error) {
+      console.error('Erro ao atualizar workspace:', error);
+      return res.status(500).json({ error: 'Erro ao atualizar dados da empresa.' });
+    }
+  }
+);
 
 export default router;

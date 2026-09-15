@@ -180,3 +180,11 @@ export const anonymizeContactSchema = z.object({
     .min(8, 'Número de telefone inválido.')
     .max(25, 'Número de telefone inválido.')
 });
+
+export const updateWorkspaceSchema = z.object({
+  name: z.string({ message: 'Nome da empresa/workspace é obrigatório.' })
+    .trim()
+    .min(2, 'O nome deve ter no mínimo 2 caracteres.')
+    .max(100, 'O nome deve ter no máximo 100 caracteres.')
+});
+

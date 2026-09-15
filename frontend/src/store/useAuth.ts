@@ -7,6 +7,11 @@ interface User {
   role?: string | null;
   subscriptionStatus?: string | null;
   subscriptionExpiresAt?: string | null;
+  workspaceId?: string | null;
+  workspace?: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 interface AuthState {
