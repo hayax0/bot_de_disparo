@@ -10,6 +10,7 @@ import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
+import { ContactPolicyService } from '../services/ContactPolicyService';
 
 const router = Router();
 
@@ -45,7 +46,62 @@ const upload = multer({
 
 router.use(authenticate);
 
-// Listar todas as campanhas do workspace
+function computeCampaignStats(
+  campaign: {
+    id: string;
+    status: string;
+    delayMin: number;
+    delayMax: number;
+    scheduleStartMinute?: number | null;
+    scheduleEndMinute?: number | null;
+    scheduleDays?: string | null;
+    scheduleTimezone?: string | null;
+  },
+  counts: Record<string, number>
+) {
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const sent = (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0) + (counts.REPLIED || 0);
+  const remaining = (counts.PENDING || 0) + (counts.QUEUED || 0) + (counts.SENDING || 0);
+  const terminalCompleted = sent + (counts.ERROR || 0) + (counts.IGNORED || 0) + (counts.OPTED_OUT || 0);
+  const progress = total > 0 ? Math.round((terminalCompleted / total) * 100) : 0;
+
+  const windowCheck = ContactPolicyService.checkBusinessWindow({
+    scheduleStartMinute: campaign.scheduleStartMinute ?? 480,
+    scheduleEndMinute: campaign.scheduleEndMinute ?? 1200,
+    scheduleDays: campaign.scheduleDays || '1,2,3,4,5,6',
+    scheduleTimezone: campaign.scheduleTimezone || 'America/Sao_Paulo'
+  });
+
+  const avgDelayS = (campaign.delayMin + campaign.delayMax) / 2;
+  const avgBatchPauseS = (600 + 900) / 2;
+  const estimatedSecondsRemaining = (campaign.status === 'RUNNING' && windowCheck.isInWindow)
+    ? Math.round(remaining * avgDelayS + Math.floor(remaining / 8) * avgBatchPauseS)
+    : null;
+
+  return {
+    total,
+    pending: counts.PENDING || 0,
+    queued: counts.QUEUED || 0,
+    sending: counts.SENDING || 0,
+    sent: counts.SENT || 0,
+    delivered: counts.DELIVERED || 0,
+    read: counts.READ || 0,
+    replied: counts.REPLIED || 0,
+    error: counts.ERROR || 0,
+    ignored: counts.IGNORED || 0,
+    optedOut: counts.OPTED_OUT || 0,
+    progress,
+    estimatedSecondsRemaining,
+    scheduleStatus: {
+      isInWindow: windowCheck.isInWindow,
+      nextOpenTimestamp: windowCheck.nextOpenTimestamp ?? null,
+      delayMs: windowCheck.delayMs ?? null,
+      reason: windowCheck.reason ?? null
+    }
+  };
+}
+
+// Listar todas as campanhas do workspace com métricas e horários em lote
 router.get('/', async (req: Request, res: Response): Promise<any> => {
   const workspaceId = (req as any).user.workspaceId;
   try {
@@ -58,7 +114,37 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(campaigns);
+
+    if (campaigns.length === 0) {
+      return res.json([]);
+    }
+
+    // Consulta em lote de métricas para todas as campanhas do workspace
+    const grouped = await prisma.lead.groupBy({
+      by: ['campaignId', 'status'],
+      where: { campaignId: { in: campaigns.map(c => c.id) } },
+      _count: { status: true }
+    });
+
+    const countsMap: Record<string, Record<string, number>> = {};
+    for (const c of campaigns) {
+      countsMap[c.id] = {
+        PENDING: 0, QUEUED: 0, SENDING: 0, SENT: 0, DELIVERED: 0,
+        READ: 0, REPLIED: 0, ERROR: 0, IGNORED: 0, OPTED_OUT: 0
+      };
+    }
+    for (const g of grouped) {
+      if (countsMap[g.campaignId]) {
+        countsMap[g.campaignId][g.status] = g._count.status;
+      }
+    }
+
+    const campaignsWithStats = campaigns.map(c => ({
+      ...c,
+      stats: computeCampaignStats(c, countsMap[c.id])
+    }));
+
+    res.json(campaignsWithStats);
   } catch (error) {
     console.error('Erro ao listar campanhas:', error);
     res.status(500).json({ error: 'Falha ao buscar campanhas.' });
@@ -625,35 +711,8 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<any> => {
     };
     for (const g of grouped) counts[g.status] = g._count.status;
 
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const sent = (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0) + (counts.REPLIED || 0);
-    const remaining = (counts.PENDING || 0) + (counts.QUEUED || 0) + (counts.SENDING || 0);
-    // OPTED_OUT e IGNORED são estados terminais válidos (não são erros técnicos)
-    const terminalCompleted = sent + (counts.ERROR || 0) + (counts.IGNORED || 0) + (counts.OPTED_OUT || 0);
-    const progress = total > 0 ? Math.round((terminalCompleted / total) * 100) : 0;
-
-    // Estimativa de tempo restante: delays médios + pausas de lote (8 envios → pausa de ~10-15min)
-    const avgDelayS = (campaign.delayMin + campaign.delayMax) / 2;
-    const avgBatchPauseS = (600 + 900) / 2; // média entre 10min e 15min
-    const estimatedSecondsRemaining = campaign.status === 'RUNNING'
-      ? Math.round(remaining * avgDelayS + Math.floor(remaining / 8) * avgBatchPauseS)
-      : null;
-
-    res.json({
-      total,
-      pending: counts.PENDING,
-      queued: counts.QUEUED,
-      sending: counts.SENDING,
-      sent: counts.SENT,
-      delivered: counts.DELIVERED,
-      read: counts.READ,
-      replied: counts.REPLIED,
-      error: counts.ERROR,
-      ignored: counts.IGNORED,
-      optedOut: counts.OPTED_OUT,
-      progress,
-      estimatedSecondsRemaining
-    });
+    const stats = computeCampaignStats(campaign, counts);
+    res.json(stats);
   } catch (error) {
     console.error('Erro ao buscar estatísticas da campanha:', error);
     res.status(500).json({ error: 'Erro ao buscar estatísticas.' });

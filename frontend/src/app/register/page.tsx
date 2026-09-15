@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
 
@@ -19,7 +19,9 @@ export default function RegisterPage() {
   const [codeMessage, setCodeMessage] = useState('');
   const [cooldown, setCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'code' | 'register' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const setAuth = useAuth(state => state.setAuth);
   const router = useRouter();
 
@@ -30,41 +32,55 @@ export default function RegisterPage() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
-  const requestCode = async () => {
+  const requestCode = async (): Promise<boolean> => {
     if (!email || !email.includes('@')) {
       setErrorMessage('Informe um e-mail válido para receber o código.');
-      return;
+      return false;
     }
     setLoading(true);
+    setLoadingAction('code');
     setErrorMessage(null);
     try {
       const res = await api.post('/auth/register/code', { email: email.trim().toLowerCase() });
-      setCodeMessage(res.data.message || 'Código enviado. Confira sua caixa de entrada e spam.');
+      setCodeMessage(res.data.message || 'Código enviado com sucesso! Confira sua caixa de entrada ou spam.');
       setCooldown(60);
       setVerificationRequired(true);
+      setTimeout(() => codeInputRef.current?.focus(), 150);
+      return true;
     } catch (err) {
-      setErrorMessage(axios.isAxiosError(err) ? err.response?.data?.error || 'Falha ao enviar código.' : 'Falha ao enviar código.');
-    } finally { setLoading(false); }
+      const msg = axios.isAxiosError(err) ? err.response?.data?.error || 'Falha ao enviar código.' : 'Falha ao enviar código.';
+      setErrorMessage(msg);
+      return false;
+    } finally {
+      setLoading(false);
+      setLoadingAction(null);
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
+
     if (!termsAccepted) {
       setErrorMessage('É obrigatório ler e aceitar os Termos de Uso e a Política de Privacidade.');
       return;
     }
 
+    // Se ainda não gerou o código de verificação
+    if (!verificationRequired) {
+      await requestCode();
+      return;
+    }
+
+    // Se já gerou mas ainda não digitou os 6 dígitos
     if (!verificationCode || verificationCode.trim().length !== 6) {
-      setVerificationRequired(true);
-      if (cooldown <= 0) {
-        await requestCode();
-      }
-      setErrorMessage('Digite o código de 6 dígitos enviado para o seu e-mail para concluir o cadastro.');
+      setErrorMessage('Por favor, digite o código de 6 dígitos enviado para seu e-mail.');
+      codeInputRef.current?.focus();
       return;
     }
 
     setLoading(true);
-    setErrorMessage(null);
+    setLoadingAction('register');
     try {
       const res = await api.post('/auth/register', { 
         email: email.trim().toLowerCase(), 
@@ -87,6 +103,7 @@ export default function RegisterPage() {
       setErrorMessage(msg);
     } finally {
       setLoading(false);
+      setLoadingAction(null);
     }
   };
 
@@ -170,23 +187,47 @@ export default function RegisterPage() {
           </div>
 
           {verificationRequired && (
-            <div className="space-y-2 p-3 bg-purple-500/10 border border-purple-500/20 rounded-2xl animate-in fade-in" aria-live="polite">
-              <p className="text-xs text-purple-200">Para proteger sua conta, confirme a posse do e-mail com o código de 6 dígitos.</p>
-              <div className="flex items-center justify-between gap-2">
+            <div className="space-y-2.5 p-3.5 bg-purple-500/10 border border-purple-500/25 rounded-2xl animate-in fade-in" aria-live="polite">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 size={16} className="text-purple-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-purple-200 leading-relaxed">
+                  Enviamos um código de 6 dígitos para seu e-mail. Digite-o abaixo para concluir o cadastro.
+                </p>
+              </div>
+
+              {codeMessage && (
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400 font-medium">
+                  {codeMessage}
+                </div>
+              )}
+
+              <div className="pt-1">
+                <label htmlFor="verification-code" className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Código de confirmação (6 dígitos)
+                </label>
+                <input 
+                  id="verification-code" 
+                  ref={codeInputRef}
+                  inputMode="numeric" 
+                  autoComplete="one-time-code" 
+                  maxLength={6}
+                  value={verificationCode} 
+                  onChange={e => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-base font-mono tracking-widest text-center font-bold text-purple-300 focus:border-purple-400" 
+                  placeholder="000000" 
+                />
+              </div>
+
+              <div className="flex items-center justify-end pt-1">
                 <button 
                   type="button" 
                   disabled={loading || cooldown > 0} 
                   onClick={requestCode} 
-                  className="text-xs font-semibold text-purple-300 hover:text-purple-200 underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                  className="text-xs font-semibold text-purple-400 hover:text-purple-300 underline disabled:opacity-50 disabled:no-underline cursor-pointer"
                 >
-                  {cooldown > 0 ? `Reenviar código em ${cooldown}s` : 'Enviar código por e-mail'}
+                  {cooldown > 0 ? `Reenviar código em ${cooldown}s` : 'Reenviar código por e-mail'}
                 </button>
               </div>
-              {codeMessage && <p className="text-xs text-emerald-400 font-medium">{codeMessage}</p>}
-              <label htmlFor="verification-code" className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mt-2">Código de confirmação (6 dígitos)</label>
-              <input id="verification-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-                value={verificationCode} onChange={e => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm font-mono tracking-widest text-center" placeholder="000000" />
             </div>
           )}
 
@@ -228,11 +269,16 @@ export default function RegisterPage() {
             {loading ? (
               <span className="flex items-center gap-2">
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Criando conta...
+                {loadingAction === 'code' ? 'Enviando código...' : 'Criando conta...'}
               </span>
+            ) : verificationRequired ? (
+              <>
+                <span>Confirmar Código e Criar Conta</span>
+                <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+              </>
             ) : (
               <>
-                <span>Criar Minha Conta</span>
+                <span>Enviar Código de Confirmação</span>
                 <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
               </>
             )}
