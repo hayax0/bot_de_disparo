@@ -276,10 +276,15 @@ export default function Dashboard() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const isFetchingCampaignsRef = useRef(false);
 
-  // Sincronização e proteção de race condition no modal de detalhes
+  // Sincronização, concorrência e proteção de race condition no modal de detalhes
   const selectedCampaignIdRef = useRef<string | null>(null);
+  const isPollingDetailsRef = useRef(false);
+  const detailsRequestIdRef = useRef(0);
   const [detailsLastSyncTime, setDetailsLastSyncTime] = useState<number | null>(null);
   const [detailsSyncError, setDetailsSyncError] = useState<string | null>(null);
+  const [detailsSyncWarning, setDetailsSyncWarning] = useState<string | null>(null);
+  const LEADS_PER_PAGE = 25;
+  const [leadPage, setLeadPage] = useState(1);
 
   // Workspace / Empresa ({minhaEmpresa})
   const [workspaceName, setWorkspaceName] = useState<string>('');
@@ -517,7 +522,7 @@ export default function Dashboard() {
     };
   }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchLastCopy, fetchWorkspace, router]);
 
-  // Polling adaptativo contínuo: 5s se houver campanha RUNNING ou STARTING, 20s em repouso
+  // Polling adaptativo contínuo de campanhas: 5s se houver campanha RUNNING ou STARTING, 20s em repouso
   // Pausa com aba oculta e atualiza imediatamente ao voltar
   useEffect(() => {
     if (!isHydrated || !token) return;
@@ -530,7 +535,6 @@ export default function Dashboard() {
     const tick = () => {
       if (document.visibilityState === 'visible') {
         fetchCampaigns();
-        fetchStatus();
       }
     };
 
@@ -539,6 +543,41 @@ export default function Dashboard() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchCampaigns();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isHydrated, token, campaigns, fetchCampaigns]);
+
+  // Polling contínuo e responsivo exclusivo do WhatsApp:
+  // 2.5s durante conexão, exibição de QR Code, pareamento por código ou inicialização
+  // 15s em repouso estável (conectado ou desconectado)
+  useEffect(() => {
+    if (!isHydrated || !token) return;
+
+    const isTransitional = 
+      connecting || 
+      isPairingLoading || 
+      pairingCode !== null || 
+      waStatus?.status === 'QRCODE' || 
+      waStatus?.status === 'INITIALIZING';
+
+    const intervalMs = isTransitional ? 2500 : 15000;
+
+    const tick = () => {
+      if (document.visibilityState === 'visible') {
+        fetchStatus();
+      }
+    };
+
+    const intervalId = setInterval(tick, intervalMs);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
         fetchStatus();
       }
     };
@@ -548,12 +587,13 @@ export default function Dashboard() {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isHydrated, token, campaigns, fetchCampaigns, fetchStatus]);
+  }, [isHydrated, token, connecting, isPairingLoading, pairingCode, waStatus?.status, fetchStatus]);
 
-  // Polling de detalhes sincronizados (contadores + leads juntos) com proteção de race condition
+  // Polling de detalhes sincronizados (contadores + leads juntos) com proteção de sobreposição e race conditions
   useEffect(() => {
     if (!selectedCampaignId) {
       selectedCampaignIdRef.current = null;
+      isPollingDetailsRef.current = false;
       return;
     }
     selectedCampaignIdRef.current = selectedCampaignId;
@@ -561,6 +601,11 @@ export default function Dashboard() {
 
     const pollDetails = async () => {
       if (document.visibilityState !== 'visible') return;
+      // Previne requisições simultâneas concorrentes caso a anterior ainda esteja em voo
+      if (isPollingDetailsRef.current) return;
+      isPollingDetailsRef.current = true;
+      const reqId = ++detailsRequestIdRef.current;
+
       try {
         const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
           api.get(`/campaigns/${currentId}/leads`),
@@ -568,8 +613,10 @@ export default function Dashboard() {
           api.get(`/campaigns/${currentId}/queue-health`)
         ]);
 
-        // Ignora respostas se o usuário já tiver mudado ou fechado o modal
-        if (selectedCampaignIdRef.current !== currentId) return;
+        // Descarta respostas se o usuário fechou o modal ou se um ciclo mais recente já foi disparado
+        if (selectedCampaignIdRef.current !== currentId || detailsRequestIdRef.current !== reqId) return;
+
+        let partialIssue = false;
 
         if (leadsRes.status === 'fulfilled') {
           setCampaignDetails(leadsRes.value.data);
@@ -581,19 +628,35 @@ export default function Dashboard() {
 
         if (statsRes.status === 'fulfilled') {
           setStatsMap(prev => ({ ...prev, [currentId]: statsRes.value.data }));
+        } else {
+          partialIssue = true;
         }
+
         if (healthRes.status === 'fulfilled') {
           setQueueHealth(healthRes.value.data);
+        } else {
+          partialIssue = true;
+        }
+
+        if (leadsRes.status === 'fulfilled' && partialIssue) {
+          setDetailsSyncWarning('Estatísticas ou saúde da fila temporariamente pendentes');
+        } else if (leadsRes.status === 'fulfilled') {
+          setDetailsSyncWarning(null);
         }
       } catch {
-        if (selectedCampaignIdRef.current === currentId) {
+        if (selectedCampaignIdRef.current === currentId && detailsRequestIdRef.current === reqId) {
           setDetailsSyncError('Falha ao atualizar dados em tempo real.');
         }
+      } finally {
+        isPollingDetailsRef.current = false;
       }
     };
 
     const interval = setInterval(pollDetails, 6000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      isPollingDetailsRef.current = false;
+    };
   }, [selectedCampaignId]);
 
   // Tecla ESC para fechar modais
@@ -676,13 +739,16 @@ export default function Dashboard() {
     }
   };
 
-  // Carregar detalhes dos leads da campanha com proteção contra race conditions
-  const openCampaignDetails = async (campaignId: string) => {
+  // Carregar detalhes dos leads da campanha com proteção contra race conditions e respostas fora de ordem
+  const openCampaignDetails = useCallback(async (campaignId: string) => {
     selectedCampaignIdRef.current = campaignId;
+    const reqId = ++detailsRequestIdRef.current;
     setQueueHealth(null);
     setSelectedCampaignId(campaignId);
     setIsLoadingDetails(true);
     setDetailsSyncError(null);
+    setDetailsSyncWarning(null);
+    setLeadPage(1);
     try {
       const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
         api.get(`/campaigns/${campaignId}/leads`),
@@ -690,24 +756,38 @@ export default function Dashboard() {
         api.get(`/campaigns/${campaignId}/queue-health`)
       ]);
 
-      if (selectedCampaignIdRef.current !== campaignId) return;
+      if (selectedCampaignIdRef.current !== campaignId || detailsRequestIdRef.current !== reqId) return;
+
+      let partialIssue = false;
 
       if (leadsRes.status === 'fulfilled') {
         setCampaignDetails(leadsRes.value.data);
         const syncNow = new Date().getTime();
         setDetailsLastSyncTime(syncNow);
+        setDetailsSyncError(null);
       } else {
         throw new Error('Falha ao carregar leads');
       }
 
       if (statsRes.status === 'fulfilled') {
         setStatsMap(prev => ({ ...prev, [campaignId]: statsRes.value.data }));
+      } else {
+        partialIssue = true;
       }
+
       if (healthRes.status === 'fulfilled') {
         setQueueHealth(healthRes.value.data);
+      } else {
+        partialIssue = true;
+      }
+
+      if (leadsRes.status === 'fulfilled' && partialIssue) {
+        setDetailsSyncWarning('Estatísticas ou saúde da fila temporariamente pendentes');
+      } else if (leadsRes.status === 'fulfilled') {
+        setDetailsSyncWarning(null);
       }
     } catch (err: unknown) {
-      if (selectedCampaignIdRef.current !== campaignId) return;
+      if (selectedCampaignIdRef.current !== campaignId || detailsRequestIdRef.current !== reqId) return;
       let msg = 'Erro ao carregar detalhes dos leads.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
@@ -716,11 +796,11 @@ export default function Dashboard() {
       setSelectedCampaignId(null);
       setQueueHealth(null);
     } finally {
-      if (selectedCampaignIdRef.current === campaignId) {
+      if (selectedCampaignIdRef.current === campaignId && detailsRequestIdRef.current === reqId) {
         setIsLoadingDetails(false);
       }
     }
-  };
+  }, [addToast]);
 
   const defaultComSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava analisando a estrutura de vocês e vi que vocês já possuem um site ativo ({website}). Mas me diz uma coisa: quanto tempo a sua equipe perde na semana respondendo mensagem de curioso no WhatsApp que só quer saber preço e não tem perfil pra fechar?\n\nA gente implementou uma camada de triagem automática que roda no próprio site de vocês, educa o cliente, filtra o orçamento e só joga pro seu WhatsApp quem tá pronto pra fechar contrato.\n\nFaria sentido eu te mandar um áudio de 45 segundos mostrando como aplicar isso na {nome}?";
   const defaultSemSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava dando uma olhada na presença de vocês em {bairro} e vi que vocês ainda não têm um site próprio no ar. Como o cliente de maior ticket sempre pesquisa a credibilidade da empresa no Google antes de fechar, eu montei uma demonstração prática de como ficaria a página da {nome} no ar com filtro de clientes automático.\n\nFaria sentido eu te mandar o link desse protótipo pra você dar uma olhada em 1 minuto?";
@@ -922,6 +1002,20 @@ export default function Dashboard() {
       return matchesStatus && matchesSearch;
     });
   }, [campaignDetails, leadFilterStatus, leadSearchTerm]);
+
+  // Paginação client-side dos leads no modal de detalhes
+  const totalLeadPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredLeads.length / LEADS_PER_PAGE));
+  }, [filteredLeads.length]);
+
+  const currentLeadPage = useMemo(() => {
+    return Math.min(leadPage, totalLeadPages);
+  }, [leadPage, totalLeadPages]);
+
+  const pagedLeads = useMemo(() => {
+    const start = (currentLeadPage - 1) * LEADS_PER_PAGE;
+    return filteredLeads.slice(start, start + LEADS_PER_PAGE);
+  }, [filteredLeads, currentLeadPage]);
 
   // Cálculos de métricas globais
   const totalLeadsGlobal = useMemo(() => {
@@ -2402,7 +2496,10 @@ export default function Dashboard() {
                       type="text" 
                       placeholder="Buscar lead ou telefone..."
                       value={leadSearchTerm}
-                      onChange={e => setLeadSearchTerm(e.target.value)}
+                      onChange={e => {
+                        setLeadSearchTerm(e.target.value);
+                        setLeadPage(1);
+                      }}
                       className="w-full pl-9 pr-3 py-2 text-xs glass-input rounded-xl"
                     />
                   </div>
@@ -2420,7 +2517,10 @@ export default function Dashboard() {
                     ].map(f => (
                       <button
                         key={f.key}
-                        onClick={() => setLeadFilterStatus(f.key)}
+                        onClick={() => {
+                          setLeadFilterStatus(f.key);
+                          setLeadPage(1);
+                        }}
                         className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer shrink-0 ${
                           leadFilterStatus === f.key 
                             ? 'bg-purple-600 text-white' 
@@ -2454,7 +2554,7 @@ export default function Dashboard() {
                             </td>
                           </tr>
                         ) : (
-                          filteredLeads.map(lead => (
+                          pagedLeads.map(lead => (
                             <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
                               <td className="p-3 font-semibold text-slate-200 max-w-[200px]">
                                 <div className="truncate">{lead.title}</div>
@@ -2566,6 +2666,40 @@ export default function Dashboard() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Paginação da Tabela de Leads */}
+                  {filteredLeads.length > LEADS_PER_PAGE && (
+                    <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                      <span className="text-slate-400">
+                        Mostrando <b className="text-slate-200">{(currentLeadPage - 1) * LEADS_PER_PAGE + 1}</b> a{' '}
+                        <b className="text-slate-200">{Math.min(currentLeadPage * LEADS_PER_PAGE, filteredLeads.length)}</b> de{' '}
+                        <b className="text-slate-200">{filteredLeads.length}</b> leads
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setLeadPage(p => Math.max(1, p - 1))}
+                          disabled={currentLeadPage <= 1}
+                          className="btn-secondary-dark px-2.5 py-1 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft size={13} />
+                          <span>Anterior</span>
+                        </button>
+                        <span className="px-2 font-mono text-slate-400">
+                          {currentLeadPage} / {totalLeadPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setLeadPage(p => Math.min(totalLeadPages, p + 1))}
+                          disabled={currentLeadPage >= totalLeadPages}
+                          className="btn-secondary-dark px-2.5 py-1 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span>Próxima</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -2575,13 +2709,20 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
                 {detailsLastSyncTime && (
                   <span className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    Sincronizado às {new Date(detailsLastSyncTime).toLocaleTimeString('pt-BR')}
+                    <span className={`w-1.5 h-1.5 rounded-full ${detailsSyncWarning ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                    {detailsSyncWarning ? (
+                      <span className="text-amber-300 flex items-center gap-1">
+                        <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                        Sincronizado parcialmente às {new Date(detailsLastSyncTime).toLocaleTimeString('pt-BR')} ({detailsSyncWarning})
+                      </span>
+                    ) : (
+                      <span>Sincronizado às {new Date(detailsLastSyncTime).toLocaleTimeString('pt-BR')}</span>
+                    )}
                   </span>
                 )}
                 {detailsSyncError && (
-                  <span className="text-amber-400 flex items-center gap-1">
-                    <AlertTriangle size={12} />
+                  <span className="text-red-400 flex items-center gap-1">
+                    <AlertCircle size={12} className="shrink-0" />
                     {detailsSyncError}
                   </span>
                 )}
