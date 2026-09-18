@@ -139,3 +139,43 @@ test('gerarProposta: substitui {meuNome} e {minhaEmpresa}', () => {
   );
   assert.equal(msg, 'João da AgênciaTop falando.');
 });
+
+// ── validarTemplateMensagem ──────────────────────────────────────────
+import { validarTemplateMensagem, gerarPreviaMensagem } from './ProposalEngine';
+
+test('validarTemplateMensagem: aceita variáveis válidas e spintax correto', () => {
+  const template = '{Olá|Oi} {nome}! Aqui é o {meuNome} da {minhaEmpresa}. Vi seu bairro {bairro} e site {website}.';
+  const res = validarTemplateMensagem(template);
+  assert.equal(res.valid, true);
+  assert.equal(res.invalidVariables.length, 0);
+  assert.equal(res.hasUnclosedBrackets, false);
+});
+
+test('validarTemplateMensagem: identifica variáveis inválidas desconhecidas', () => {
+  const template = 'Olá {nome}, seu email é {email} e sua cidade é {cidade}?';
+  const res = validarTemplateMensagem(template);
+  assert.equal(res.valid, false);
+  assert.ok(res.invalidVariables.includes('{email}'));
+  assert.ok(res.invalidVariables.includes('{cidade}'));
+  assert.ok(res.warnings.some(w => w.includes('{email}')));
+});
+
+test('validarTemplateMensagem: identifica chaves desbalanceadas', () => {
+  const template = 'Olá {nome! Tudo bem com a sua equipe?';
+  const res = validarTemplateMensagem(template);
+  assert.equal(res.valid, false);
+  assert.equal(res.hasUnclosedBrackets, true);
+});
+
+test('gerarPreviaMensagem: renderiza com site, sem site e agrega avisos', () => {
+  const preview = gerarPreviaMensagem({
+    messageComSite: '{Oi|Olá} {nome}! Seu site {website} está ótimo. {meuNome} da {minhaEmpresa}.',
+    messageSemSite: 'Oi {nome}! Vocês no {bairro} precisam de site.',
+    senderInfo: { meuNome: 'Carlos', minhaEmpresa: 'WebStudio' }
+  });
+
+  assert.equal(preview.valid, true);
+  assert.ok(preview.previews.comSite.rendered.includes('WebStudio'));
+  assert.ok(preview.previews.semSite.rendered.includes('Pinheiros') || preview.previews.semSite.rendered.includes('região'));
+});
+
