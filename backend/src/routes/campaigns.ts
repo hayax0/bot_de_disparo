@@ -5,12 +5,13 @@ import path from 'path';
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { messageQueue } from '../services/queue';
-import { temWebsiteValido } from '../services/ProposalEngine';
+import { temWebsiteValido, gerarPreviaMensagem, validarTemplateMensagem } from '../services/ProposalEngine';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { ContactPolicyService } from '../services/ContactPolicyService';
+import { LeadImportService } from '../services/LeadImportService';
 
 const router = Router();
 
@@ -223,7 +224,108 @@ router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), 
   }
 });
 
-// Importar leads de arquivo JSON ou CSV com limpeza e alta compatibilidade
+// Prévia da importação de leads com diagnóstico completo e categorias mutuamente exclusivas
+router.post('/preview-import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
+  upload.single('file')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'O arquivo excede o limite máximo permitido de 5MB.' });
+      }
+      return res.status(400).json({ error: `Erro no upload: ${err.message}` });
+    } else if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+}, async (req: Request, res: Response): Promise<any> => {
+  const workspaceId = req.user!.workspaceId;
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado para prévia.' });
+  }
+
+  const filePath = req.file.path;
+  const originalName = req.file.originalname;
+
+  try {
+    const rawContent = fs.readFileSync(filePath, 'utf8');
+    const rawLeads = LeadImportService.parseFileContent(rawContent, originalName);
+
+    if (rawLeads.length === 0) {
+      return res.status(400).json({ error: 'O arquivo enviado está vazio ou não contém nenhum registro legível.' });
+    }
+
+    if (rawLeads.length > LeadImportService.MAX_LEADS_LIMIT) {
+      return res.status(400).json({
+        error: `O arquivo contém mais de ${LeadImportService.MAX_LEADS_LIMIT} registros. O limite máximo permitido por importação é de ${LeadImportService.MAX_LEADS_LIMIT} leads.`
+      });
+    }
+
+    const recontactAfterDaysRaw = req.body?.recontactAfterDays !== undefined
+      ? parseInt(String(req.body.recontactAfterDays), 10)
+      : 30;
+    const recontactAfterDays = isNaN(recontactAfterDaysRaw) || recontactAfterDaysRaw < 0 ? 0 : recontactAfterDaysRaw;
+
+    const diagnostic = await LeadImportService.classifyLeads({
+      rawLeads,
+      workspaceId,
+      recontactAfterDays
+    });
+
+    res.json({
+      totalRows: diagnostic.totalRows,
+      validCount: diagnostic.validCount,
+      duplicateCount: diagnostic.duplicateCount,
+      invalidCount: diagnostic.invalidCount,
+      recontactBlockedCount: diagnostic.recontactBlockedCount,
+      alreadyContactedCount: diagnostic.alreadyContactedCount,
+      sampleLeads: diagnostic.sampleLeads,
+      issues: diagnostic.issues
+    });
+  } catch (error: any) {
+    console.error('Erro ao gerar prévia de importação:', error);
+    res.status(500).json({ error: error.message || 'Falha ao processar prévia do arquivo.' });
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err) {
+        console.error('Erro ao remover arquivo temporário de prévia:', err);
+      }
+    }
+  }
+});
+
+// Prévia da mensagem renderizada com dados do workspace e amostra de lead
+router.post('/preview-message', async (req: Request, res: Response): Promise<any> => {
+  const workspaceId = req.user!.workspaceId;
+  const { messageComSite, messageSemSite, sampleLead } = req.body || {};
+
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { user: true }
+    });
+
+    const senderInfo = {
+      meuNome: workspace?.user?.name || workspace?.name || 'Equipe de Atendimento',
+      minhaEmpresa: workspace?.name || 'Minha Empresa'
+    };
+
+    const preview = gerarPreviaMensagem({
+      messageComSite,
+      messageSemSite,
+      senderInfo,
+      sampleLead
+    });
+
+    res.json(preview);
+  } catch (error: any) {
+    console.error('Erro ao gerar prévia de mensagem:', error);
+    res.status(500).json({ error: error.message || 'Falha ao gerar prévia da mensagem.' });
+  }
+});
+
+// Importar leads de arquivo JSON ou CSV com limpeza e alta compatibilidade usando LeadImportService
 router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
@@ -245,360 +347,52 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
   }
 
   const filePath = req.file.path;
-  const originalName = req.file.originalname.toLowerCase();
+  const originalName = req.file.originalname;
 
   try {
-    const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
-    if (!campaign) {
-      return res.status(404).json({ error: 'Campanha não encontrada.' });
-    }
-
     const rawContent = fs.readFileSync(filePath, 'utf8');
-    const fileContent = rawContent.replace(/^\uFEFF/, '').trim(); // Remove BOM UTF-8 se presente
 
-    if (!fileContent) {
-      return res.status(400).json({ error: 'O arquivo enviado está vazio.' });
-    }
+    const result = await LeadImportService.importToCampaign({
+      campaignId: id,
+      workspaceId,
+      fileContent: rawContent,
+      originalName
+    });
 
-    let leads: any[] = [];
-
-    // 1. TENTAR PARSE COMO JSON PRIMEIRO
-    let isJson = false;
-    if (fileContent.startsWith('[') || fileContent.startsWith('{') || originalName.endsWith('.json')) {
-      try {
-        const parsed = JSON.parse(fileContent);
-        
-        const extractLeadsRecursive = (obj: any, maxDepth = 4): any[] => {
-          if (maxDepth < 0 || !obj) return [];
-          if (Array.isArray(obj)) {
-            if (obj.length > 0 && typeof obj[0] === 'object' && obj[0] !== null) {
-              return obj;
-            }
-            return [];
-          }
-          if (typeof obj === 'object') {
-            for (const key of ['items', 'results', 'data', 'leads', 'contacts', 'places', 'rows', 'dataset']) {
-              if (Array.isArray(obj[key]) && obj[key].length > 0 && typeof obj[key][0] === 'object') {
-                return obj[key];
-              }
-            }
-            for (const val of Object.values(obj)) {
-               const res = extractLeadsRecursive(val, maxDepth - 1);
-               if (res.length > 0) return res;
-            }
-          }
-          return [];
-        };
-
-        if (Array.isArray(parsed)) {
-          leads = parsed;
-          isJson = true;
-        } else if (parsed && typeof parsed === 'object') {
-          leads = extractLeadsRecursive(parsed);
-          if (!leads || leads.length === 0) {
-            leads = Object.values(parsed).filter(v => typeof v === 'object' && v !== null);
-          }
-          isJson = true;
-        }
-      } catch (jsonErr) {
-        if (originalName.endsWith('.json')) {
-          return res.status(400).json({ error: 'Arquivo JSON inválido ou corrompido. Verifique a formatação do arquivo.' });
-        }
+    res.json({
+      imported: result.imported,
+      skipped: result.skipped,
+      total: result.total,
+      duplicateCount: result.duplicateCount,
+      invalidCount: result.invalidCount,
+      recontactBlockedCount: result.recontactBlockedCount,
+      alreadySentCount: result.alreadySentCount,
+      diagnostic: {
+        totalRows: result.diagnostic.totalRows,
+        validCount: result.diagnostic.validCount,
+        duplicateCount: result.diagnostic.duplicateCount,
+        invalidCount: result.diagnostic.invalidCount,
+        recontactBlockedCount: result.diagnostic.recontactBlockedCount,
+        alreadyContactedCount: result.diagnostic.alreadyContactedCount,
+        sampleLeads: result.diagnostic.sampleLeads,
+        issues: result.diagnostic.issues
       }
-    }
-
-    // 2. SE NÃO FOR JSON, TENTAR PARSE COMO CSV / TSV / TEXTO DELIMITADO
-    if (!isJson && leads.length === 0) {
-      try {
-        const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
-        if (lines.length >= 1) {
-          const firstLine = lines[0];
-          const countComma = (firstLine.match(/,/g) || []).length;
-          const countSemi = (firstLine.match(/;/g) || []).length;
-          const countTab = (firstLine.match(/\t/g) || []).length;
-          const countPipe = (firstLine.match(/\|/g) || []).length;
-
-          let delimiter = ',';
-          if (countSemi > countComma && countSemi >= countTab) delimiter = ';';
-          else if (countTab > countComma && countTab >= countSemi) delimiter = '\t';
-          else if (countPipe > countComma && countPipe >= countSemi) delimiter = '|';
-
-          const parseCsvLine = (line: string, delim: string): string[] => {
-            const result: string[] = [];
-            let current = '';
-            let inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-              const char = line[i];
-              if (char === '"' || char === "'") {
-                inQuotes = !inQuotes;
-              } else if (char === delim && !inQuotes) {
-                result.push(current.trim().replace(/^["']|["']$/g, ''));
-                current = '';
-              } else {
-                current += char;
-              }
-            }
-            result.push(current.trim().replace(/^["']|["']$/g, ''));
-            return result;
-          };
-
-          const headerCols = parseCsvLine(lines[0], delimiter).map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, ''));
-          
-          for (let i = 1; i < lines.length; i++) {
-            const cols = parseCsvLine(lines[i], delimiter);
-            if (cols.length === 0 || (cols.length === 1 && cols[0] === '')) continue;
-            
-            const rowObj: any = {};
-            let hasPhoneColumn = false;
-            
-            headerCols.forEach((header, idx) => {
-              if (cols[idx] !== undefined) {
-                rowObj[header] = cols[idx];
-                if (header.includes('phone') || header.includes('tel') || header.includes('cel') || header.includes('whatsapp') || header.includes('wpp')) {
-                  hasPhoneColumn = true;
-                }
-              }
-            });
-            
-            if (!hasPhoneColumn) {
-              // Identificação heurística de telefone se o header não ajudar
-              let phoneColIdx = -1;
-              for(let k=0; k<cols.length; k++) {
-                const cleaned = cols[k].replace(/[^0-9]/g, '');
-                if (cleaned.length >= 10 && cleaned.length <= 14) {
-                  phoneColIdx = k;
-                  break;
-                }
-              }
-              if (phoneColIdx !== -1) {
-                rowObj['phone'] = cols[phoneColIdx];
-                if (phoneColIdx === 0 && cols.length > 1) rowObj['title'] = cols[1];
-                else if (phoneColIdx !== 0) rowObj['title'] = cols[0];
-              } else {
-                // Fallback legado
-                rowObj['phone'] = cols[0];
-                if (cols[1]) rowObj['title'] = cols[1];
-              }
-            }
-            leads.push(rowObj);
-          }
-        }
-      } catch (csvErr) {
-        console.warn('Falha no parser CSV:', csvErr);
-      }
-    }
-
-    if (leads.length === 0) {
-      return res.status(400).json({ error: 'O arquivo enviado não contém nenhum registro legível.' });
-    }
-
-    if (leads.length > 2000) {
-      return res.status(400).json({ error: 'O arquivo contém mais de 2.000 registros. O limite máximo permitido por importação é de 2.000 leads.' });
-    }
-
-    let imported = 0;
-    let skipped = 0;
-
-    const extractPhone = (lead: any): string | null => {
-      const priorityCandidates = [
-        lead.whatsapp,
-        lead.celular,
-        lead.mobile,
-        lead.mobilePhone,
-        lead.cellphone,
-        lead.phone,
-        lead.phoneUnformatted,
-        lead.phoneNumber,
-        lead.phone_number,
-        lead.telephone,
-        lead.telephoneUnformatted,
-        lead.telefone,
-        lead.numero,
-        lead.contact,
-        lead.contactNumber,
-        lead.tel
-      ];
-
-      const allPhones: string[] = [];
-      for (const val of priorityCandidates) {
-        if (val !== undefined && val !== null) {
-          const str = String(val).trim();
-          if (str !== '') allPhones.push(str);
-        }
-      }
-
-      if (Array.isArray(lead.phones)) {
-        for (const p of lead.phones) {
-          if (p) allPhones.push(String(p).trim());
-        }
-      }
-      if (Array.isArray(lead.phonesUncertain)) {
-        for (const p of lead.phonesUncertain) {
-          if (p) allPhones.push(String(p).trim());
-        }
-      }
-
-      if (allPhones.length === 0) return null;
-
-      // Dentre os telefones encontrados, prioriza aquele que for celular (11 dígitos com 9 no 3º dígito ou 13 dígitos 55+DDD+9)
-      for (const raw of allPhones) {
-        const digits = raw.replace(/\D/g, '').replace(/^0+/, '');
-        if (digits.length === 11 && digits[2] === '9') return raw;
-        if (digits.length === 13 && digits.startsWith('55') && digits[4] === '9') return raw;
-      }
-
-      // Se nenhum for celular explícito, retorna o primeiro encontrado
-      return allPhones[0];
-    };
-
-    const extractTitle = (lead: any): string | null => {
-      const candidates = [
-        lead.title,
-        lead.name,
-        lead.company,
-        lead.companyName,
-        lead.company_name,
-        lead.nome,
-        lead.empresa,
-        lead.tradeName,
-        lead.razaoSocial,
-        lead.nomeFantasia,
-        lead.titulo,
-        lead.placeName,
-        lead.businessName,
-        lead.storeName
-      ];
-
-      for (const val of candidates) {
-        if (val !== undefined && val !== null) {
-          const str = String(val).trim();
-          if (str !== '') return str;
-        }
-      }
-      return null;
-    };
-
-    const extractWebsite = (lead: any): string | null => {
-      // No Apify Google Maps, 'url' e 'placeUrl' são o link do próprio Google Maps.
-      // Apenas consideramos campos dedicados ao website da empresa:
-      const candidates = [lead.website, lead.site, lead.web, lead.domain];
-      for (const val of candidates) {
-        if (val !== undefined && val !== null) {
-          const str = String(val).trim();
-          if (str !== '' && temWebsiteValido(str)) return str;
-        }
-      }
-      return null;
-    };
-
-    const extractNeighborhood = (lead: any): string | null => {
-      const candidates = [
-        lead.neighborhood,
-        lead.bairro,
-        lead.city,
-        lead.cidade,
-        lead.municipio,
-        lead.address?.neighborhood,
-        lead.address?.city,
-        lead.streetAddress,
-        lead.address,
-        lead.fullAddress
-      ];
-      for (const val of candidates) {
-        if (val !== undefined && val !== null) {
-          const str = String(val).trim();
-          if (str !== '') return str;
-        }
-      }
-      return null;
-    };
-
-    const candidatePhonesSet = new Set<string>();
-
-    for (const lead of leads) {
-      const rawPhone = extractPhone(lead);
-      if (!rawPhone) {
-        skipped++;
-        continue;
-      }
-
-      const num = WhatsappManager.normalizeBrPhone(rawPhone);
-      if (num.length < 10) {
-        skipped++;
-        continue;
-      }
-
-      candidatePhonesSet.add(num);
-
-      let title = extractTitle(lead);
-      if (!title) {
-        title = `Contato ${num.slice(-4)}`;
-      }
-      title = String(title).substring(0, 255);
-
-      const rawWebsite = extractWebsite(lead);
-      const website = rawWebsite ? String(rawWebsite).substring(0, 500) : null;
-
-      const rawNeighborhood = extractNeighborhood(lead);
-      const neighborhood = rawNeighborhood ? String(rawNeighborhood).substring(0, 255) : null;
-
-      try {
-        await prisma.lead.create({
-          data: {
-            campaignId: id,
-            title,
-            phone: num,
-            website,
-            neighborhood
-          }
-        });
-        imported++;
-      } catch (err: any) {
-        // Se violar unicidade campaignId + phone, pula como duplicado
-        if (err.code === 'P2002') {
-          skipped++;
-        } else {
-          console.error(`Erro inesperado ao inserir lead (${num}):`, err);
-          skipped++;
-        }
-      }
-    }
-
-    if (imported === 0) {
-      const sample = leads.length > 0 ? JSON.stringify(leads[0]).substring(0, 200) : 'vazio';
-      return res.status(400).json({ 
-        error: `Nenhum lead importado. ${skipped} foram ignorados. Os campos do arquivo podem estar incorretos ou os contatos já existem nesta campanha. Exemplo lido: ${sample}...` 
-      });
-    }
-
-    // Consulta em lote no DispatchHistory para identificar contatos já realizados anteriormente (Zero N+1)
-    const candidatePhones = Array.from(candidatePhonesSet);
-    const alreadySentLeads = candidatePhones.length > 0
-      ? await prisma.dispatchHistory.findMany({
-          where: {
-            workspaceId,
-            phone: { in: candidatePhones }
-          },
-          select: {
-            companyTitle: true,
-            phone: true,
-            lastSentAt: true,
-            lastCampaignName: true,
-            sendCount: true
-          }
-        })
-      : [];
-
-    res.json({ 
-      imported, 
-      skipped, 
-      total: leads.length,
-      alreadySentCount: alreadySentLeads.length,
-      alreadySentLeads
     });
   } catch (error: any) {
     console.error('Erro ao processar importação de leads:', error);
-    res.status(500).json({ error: error.message || 'Falha ao processar arquivo de leads.' });
+    const msg = error.message || 'Falha ao processar arquivo de leads.';
+    if (
+      msg.includes('Nenhum lead') ||
+      msg.includes('vazio') ||
+      msg.includes('inválido') ||
+      msg.includes('limite')
+    ) {
+      return res.status(400).json({ error: msg });
+    }
+    if (msg.includes('Campanha não encontrada')) {
+      return res.status(404).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   } finally {
     if (filePath && fs.existsSync(filePath)) {
       try {
@@ -610,7 +404,7 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
   }
 });
 
-// Listar leads detalhados da campanha com informações do histórico permanente
+// Listar leads detalhados da campanha com paginação server-side, busca e KPIs consolidados
 router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
@@ -619,18 +413,46 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
 
-    const leads = await prisma.lead.findMany({ 
-      where: { campaignId: id },
-      orderBy: { createdAt: 'asc' }
-    });
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+    const status = req.query.status as string | undefined;
+    const search = req.query.search as string | undefined;
 
-    // Consulta em lote única ao DispatchHistory (Zero N+1)
-    const phones = Array.from(new Set(leads.map(l => WhatsappManager.normalizeBrPhone(l.phone))));
-    const historyRecords = phones.length > 0
+    const whereClause: any = { campaignId: id };
+    if (status && status !== 'ALL') {
+      whereClause.status = status;
+    }
+    if (search && search.trim() !== '') {
+      const term = search.trim();
+      whereClause.OR = [
+        { title: { contains: term, mode: 'insensitive' } },
+        { phone: { contains: term } }
+      ];
+    }
+
+    // Executa consultas concorrentes: contagem filtrada, página de leads e KPIs globais agrupados
+    const [totalFiltered, leads, kpiGrouped] = await Promise.all([
+      prisma.lead.count({ where: whereClause }),
+      prisma.lead.findMany({
+        where: whereClause,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit
+      }),
+      prisma.lead.groupBy({
+        by: ['status'],
+        where: { campaignId: id },
+        _count: { status: true }
+      })
+    ]);
+
+    // Otimização: Consulta ao DispatchHistory APENAS para os telefones da página atual (Zero N+1)
+    const pagePhones = Array.from(new Set(leads.map(l => WhatsappManager.normalizeBrPhone(l.phone))));
+    const historyRecords = pagePhones.length > 0
       ? await prisma.dispatchHistory.findMany({
           where: {
             workspaceId,
-            phone: { in: phones }
+            phone: { in: pagePhones }
           },
           select: {
             phone: true,
@@ -665,19 +487,41 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
       };
     });
 
+    // Consolidação de KPIs com QUEUED explícito
+    const countsMap: Record<string, number> = {};
+    let totalAll = 0;
+    for (const g of kpiGrouped) {
+      countsMap[g.status] = g._count.status;
+      totalAll += g._count.status;
+    }
+
     const counts = {
-      total: leads.length,
-      pending: leads.filter(l => l.status === 'PENDING' || l.status === 'QUEUED' || l.status === 'SENDING').length,
-      sent: leads.filter(l => l.status === 'SENT').length,
-      delivered: leads.filter(l => l.status === 'DELIVERED').length,
-      read: leads.filter(l => l.status === 'READ').length,
-      replied: leads.filter(l => l.status === 'REPLIED').length,
-      error: leads.filter(l => l.status === 'ERROR').length,
+      total: totalAll,
+      pending: countsMap['PENDING'] || 0,
+      queued: countsMap['QUEUED'] || 0,
+      sending: countsMap['SENDING'] || 0,
+      sent: countsMap['SENT'] || 0,
+      delivered: countsMap['DELIVERED'] || 0,
+      read: countsMap['READ'] || 0,
+      replied: countsMap['REPLIED'] || 0,
+      error: countsMap['ERROR'] || 0,
+      ignored: countsMap['IGNORED'] || 0,
+      optedOut: countsMap['OPTED_OUT'] || 0
     };
 
-    res.json({ campaign, leads: leadsWithHistory, counts });
+    res.json({
+      campaign,
+      leads: leadsWithHistory,
+      pagination: {
+        page,
+        limit,
+        total: totalFiltered,
+        totalPages: Math.ceil(totalFiltered / limit) || 1
+      },
+      counts
+    });
   } catch (error) {
-    console.error('Erro ao buscar leads:', error);
+    console.error('Erro ao buscar leads da campanha:', error);
     res.status(500).json({ error: 'Erro ao buscar leads da campanha.' });
   }
 });

@@ -101,3 +101,156 @@ export function gerarProposta(lead: any, campaign: any, senderInfo?: { meuNome?:
 
   return processarSpintax(mensagemPronta);
 }
+
+export const VARIAVEIS_SUPORTADAS = ['nome', 'website', 'bairro', 'meuNome', 'minhaEmpresa'] as const;
+
+export interface ValidacaoTemplateResult {
+  valid: boolean;
+  invalidVariables: string[];
+  hasUnclosedBrackets: boolean;
+  warnings: string[];
+}
+
+export function validarTemplateMensagem(texto: string | null | undefined): ValidacaoTemplateResult {
+  if (!texto || typeof texto !== 'string') {
+    return { valid: true, invalidVariables: [], hasUnclosedBrackets: false, warnings: [] };
+  }
+
+  const warnings: string[] = [];
+  const invalidVariables: string[] = [];
+
+  // 1. Checagem de chaves balanceadas
+  let openCount = 0;
+  let hasUnclosedBrackets = false;
+  for (let i = 0; i < texto.length; i++) {
+    if (texto[i] === '{') openCount++;
+    if (texto[i] === '}') {
+      openCount--;
+      if (openCount < 0) {
+        hasUnclosedBrackets = true;
+      }
+    }
+  }
+  if (openCount !== 0) {
+    hasUnclosedBrackets = true;
+    warnings.push('O texto possui chaves "{" ou "}" abertas sem fechamento correspondente.');
+  }
+
+  // 2. Extração de variáveis que não sejam spintax
+  // Expressão regular procura blocos {qualquer_coisa}
+  const regexBloco = /\{([^{}]+)\}/g;
+  let match: RegExpExecArray | null;
+  const variaveisPermitidasLower = new Set(VARIAVEIS_SUPORTADAS.map(v => v.toLowerCase()));
+
+  while ((match = regexBloco.exec(texto)) !== null) {
+    const conteudo = match[1].trim();
+    // Se possui pipe "|", é considerado bloco de Spintax {op1|op2}
+    if (conteudo.includes('|')) {
+      const opcoes = conteudo.split('|').map(o => o.trim());
+      if (opcoes.some(o => o === '')) {
+        warnings.push(`Spintax "{${conteudo}}" contém opção vazia. Verifique as barras "|".`);
+      }
+      continue;
+    }
+
+    // Caso não seja spintax, deve ser uma variável suportada
+    const nomeVar = conteudo.toLowerCase();
+    if (!variaveisPermitidasLower.has(nomeVar)) {
+      const varComChave = `{${match[1]}}`;
+      if (!invalidVariables.includes(varComChave)) {
+        invalidVariables.push(varComChave);
+        warnings.push(`Variável desconhecida "${varComChave}". As variáveis válidas são {nome}, {website}, {bairro}, {meuNome} e {minhaEmpresa}.`);
+      }
+    }
+  }
+
+  return {
+    valid: invalidVariables.length === 0 && !hasUnclosedBrackets,
+    invalidVariables,
+    hasUnclosedBrackets,
+    warnings
+  };
+}
+
+export interface PreviewMessageParams {
+  messageComSite?: string | null;
+  messageSemSite?: string | null;
+  senderInfo?: {
+    meuNome?: string;
+    minhaEmpresa?: string;
+  };
+  sampleLead?: {
+    title?: string;
+    website?: string | null;
+    neighborhood?: string | null;
+  };
+}
+
+export interface PreviewMessageResponse {
+  valid: boolean;
+  warnings: string[];
+  notice: string;
+  previews: {
+    comSite: {
+      rendered: string;
+      lead: { title: string; website: string; neighborhood: string };
+      warnings: string[];
+    };
+    semSite: {
+      rendered: string;
+      lead: { title: string; website: null; neighborhood: string };
+      warnings: string[];
+    };
+  };
+}
+
+export function gerarPreviaMensagem(params: PreviewMessageParams): PreviewMessageResponse {
+  const comSiteVal = validarTemplateMensagem(params.messageComSite);
+  const semSiteVal = validarTemplateMensagem(params.messageSemSite);
+
+  const allWarnings = Array.from(new Set([...comSiteVal.warnings, ...semSiteVal.warnings]));
+
+  const leadComSite = {
+    title: params.sampleLead?.title || 'Odonto Estética Silva',
+    website: params.sampleLead?.website || 'https://odontoesteticasilva.com.br',
+    neighborhood: params.sampleLead?.neighborhood || 'Vila Mariana'
+  };
+
+  const leadSemSite = {
+    title: params.sampleLead?.title || 'Padaria Pão & Cia',
+    website: null,
+    neighborhood: params.sampleLead?.neighborhood || 'Pinheiros'
+  };
+
+  const senderInfo = {
+    meuNome: params.senderInfo?.meuNome || 'Equipe de Atendimento',
+    minhaEmpresa: params.senderInfo?.minhaEmpresa || 'Minha Empresa'
+  };
+
+  const campaignMock = {
+    messageComSite: params.messageComSite || '',
+    messageSemSite: params.messageSemSite || ''
+  };
+
+  const renderedComSite = gerarProposta(leadComSite, campaignMock, senderInfo);
+  const renderedSemSite = gerarProposta(leadSemSite, campaignMock, senderInfo);
+
+  return {
+    valid: comSiteVal.valid && semSiteVal.valid,
+    warnings: allWarnings,
+    notice: 'A variação exibida é uma amostra: no momento do disparo, o Spintax sorteará uma opção para cada destinatário.',
+    previews: {
+      comSite: {
+        rendered: renderedComSite,
+        lead: leadComSite,
+        warnings: comSiteVal.warnings
+      },
+      semSite: {
+        rendered: renderedSemSite,
+        lead: leadSemSite,
+        warnings: semSiteVal.warnings
+      }
+    }
+  };
+}
+

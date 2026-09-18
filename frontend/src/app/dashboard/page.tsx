@@ -49,7 +49,9 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
-  Edit2
+  Edit2,
+  Sparkles,
+  FileCheck
 } from 'lucide-react';
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 
@@ -117,11 +119,21 @@ interface CampaignDetails {
   counts: {
     total: number;
     pending: number;
+    queued?: number;
+    sending?: number;
     sent: number;
     delivered?: number;
     read?: number;
     replied: number;
     error: number;
+    ignored?: number;
+    optedOut?: number;
+  };
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
   };
 }
 
@@ -270,8 +282,55 @@ export default function Dashboard() {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [leadFilterStatus, setLeadFilterStatus] = useState<string>('ALL');
   const [leadSearchTerm, setLeadSearchTerm] = useState('');
-  
-  // Polling resiliente e sincronização contínua
+  const [debouncedLeadSearchTerm, setDebouncedLeadSearchTerm] = useState('');
+
+  // Estados de Prévia de Importação de Leads
+  const [importPreview, setImportPreview] = useState<{
+    loading: boolean;
+    error: string | null;
+    diagnostic: {
+      totalRows: number;
+      validCount: number;
+      duplicateCount: number;
+      invalidCount: number;
+      recontactBlockedCount: number;
+      alreadyContactedCount: number;
+      sampleLeads: Array<{
+        rowNumber: number;
+        title: string;
+        phone: string;
+        website: string | null;
+        neighborhood: string | null;
+        status: string;
+        alreadyContacted: boolean;
+        reason?: string | null;
+      }>;
+      issues: Array<{
+        row: number;
+        title?: string;
+        phone?: string;
+        type: string;
+        reason: string;
+      }>;
+    } | null;
+  }>({ loading: false, error: null, diagnostic: null });
+
+  // Estados do Simulador de Mensagem (WhatsApp Web)
+  const [messagePreviewTab, setMessagePreviewTab] = useState<'semSite' | 'comSite'>('semSite');
+  const [messagePreviewLoading, setMessagePreviewLoading] = useState(false);
+  const [messagePreviewData, setMessagePreviewData] = useState<{
+    valid: boolean;
+    warnings: string[];
+    notice: string;
+    previews: {
+      comSite: { rendered: string; lead: { title?: string; neighborhood?: string; website?: string | null }; warnings: string[] };
+      semSite: { rendered: string; lead: { title?: string; neighborhood?: string; website?: string | null }; warnings: string[] };
+    };
+  } | null>(null);
+  const [spintaxSeed, setSpintaxSeed] = useState(0);
+
+  // Estado de Rascunho Restaurado
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const isFetchingCampaignsRef = useRef(false);
@@ -589,6 +648,47 @@ export default function Dashboard() {
     };
   }, [isHydrated, token, connecting, isPairingLoading, pairingCode, waStatus?.status, fetchStatus]);
 
+  // Debounce na busca de leads do modal de detalhes (350ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedLeadSearchTerm(leadSearchTerm);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [leadSearchTerm]);
+
+  // Função centralizada para carregar leads paginados do servidor
+  const fetchLeadsForCampaign = useCallback(async (campaignId: string, page = 1, status = 'ALL', search = '') => {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(LEADS_PER_PAGE));
+    if (status && status !== 'ALL') params.set('status', status);
+    if (search && search.trim() !== '') params.set('search', search.trim());
+    return api.get(`/campaigns/${campaignId}/leads?${params.toString()}`);
+  }, [LEADS_PER_PAGE]);
+
+  // Efeito para recarregar leads quando o usuário troca de página, status ou busca
+  useEffect(() => {
+    if (!selectedCampaignId) return;
+    let isCurrent = true;
+    const reqId = ++detailsRequestIdRef.current;
+
+    fetchLeadsForCampaign(selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm)
+      .then(res => {
+        if (!isCurrent || detailsRequestIdRef.current !== reqId) return;
+        setCampaignDetails(res.data);
+        setDetailsLastSyncTime(Date.now());
+        setDetailsSyncError(null);
+      })
+      .catch(() => {
+        if (!isCurrent || detailsRequestIdRef.current !== reqId) return;
+        setDetailsSyncError('Falha ao atualizar leads.');
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm, fetchLeadsForCampaign]);
+
   // Polling de detalhes sincronizados (contadores + leads juntos) com proteção de sobreposição e race conditions
   useEffect(() => {
     if (!selectedCampaignId) {
@@ -608,7 +708,7 @@ export default function Dashboard() {
 
       try {
         const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
-          api.get(`/campaigns/${currentId}/leads`),
+          fetchLeadsForCampaign(currentId, leadPage, leadFilterStatus, debouncedLeadSearchTerm),
           api.get(`/campaigns/${currentId}/stats`),
           api.get(`/campaigns/${currentId}/queue-health`)
         ]);
@@ -657,7 +757,7 @@ export default function Dashboard() {
       clearInterval(interval);
       isPollingDetailsRef.current = false;
     };
-  }, [selectedCampaignId]);
+  }, [selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm, fetchLeadsForCampaign]);
 
   // Tecla ESC para fechar modais
   useEffect(() => {
@@ -749,9 +849,11 @@ export default function Dashboard() {
     setDetailsSyncError(null);
     setDetailsSyncWarning(null);
     setLeadPage(1);
+    setLeadFilterStatus('ALL');
+    setLeadSearchTerm('');
     try {
       const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
-        api.get(`/campaigns/${campaignId}/leads`),
+        fetchLeadsForCampaign(campaignId, 1, 'ALL', ''),
         api.get(`/campaigns/${campaignId}/stats`),
         api.get(`/campaigns/${campaignId}/queue-health`)
       ]);
@@ -800,7 +902,7 @@ export default function Dashboard() {
         setIsLoadingDetails(false);
       }
     }
-  }, [addToast]);
+  }, [addToast, fetchLeadsForCampaign]);
 
   const defaultComSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava analisando a estrutura de vocês e vi que vocês já possuem um site ativo ({website}). Mas me diz uma coisa: quanto tempo a sua equipe perde na semana respondendo mensagem de curioso no WhatsApp que só quer saber preço e não tem perfil pra fechar?\n\nA gente implementou uma camada de triagem automática que roda no próprio site de vocês, educa o cliente, filtra o orçamento e só joga pro seu WhatsApp quem tá pronto pra fechar contrato.\n\nFaria sentido eu te mandar um áudio de 45 segundos mostrando como aplicar isso na {nome}?";
   const defaultSemSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava dando uma olhada na presença de vocês em {bairro} e vi que vocês ainda não têm um site próprio no ar. Como o cliente de maior ticket sempre pesquisa a credibilidade da empresa no Google antes de fechar, eu montei uma demonstração prática de como ficaria a página da {nome} no ar com filtro de clientes automático.\n\nFaria sentido eu te mandar o link desse protótipo pra você dar uma olhada em 1 minuto?";
@@ -817,25 +919,184 @@ export default function Dashboard() {
     scheduleEndMinute: 1200,  // 20:00
     scheduleDays: '1,2,3,4,5', // Seg a Sex
     scheduleTimezone: 'America/Sao_Paulo',
-    recontactAfterDays: 0
+    recontactAfterDays: 30
   });
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Preencher cópia utilizada anteriormente ao abrir modal de Nova Campanha
+  // Isolamento do rascunho por usuário e workspace com versionamento seguro
+  const draftStorageKey = useMemo(() => {
+    return `bot_disparo_draft_v1_${user?.id || 'anon'}_${user?.workspaceId || 'default'}`;
+  }, [user?.id, user?.workspaceId]);
+
+  const saveDraftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const draftDataRef = useRef(newCampaign);
+  useEffect(() => {
+    draftDataRef.current = newCampaign;
+  }, [newCampaign]);
+
+  const saveDraftNow = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const data = draftDataRef.current;
+      if (data.name.trim() || data.messageComSite.trim() || data.messageSemSite.trim()) {
+        const payload = {
+          version: 1,
+          savedAt: Date.now(),
+          data: {
+            name: data.name,
+            messageComSite: data.messageComSite,
+            messageSemSite: data.messageSemSite,
+            delayMin: data.delayMin,
+            delayMax: data.delayMax,
+            scheduleStartMinute: data.scheduleStartMinute,
+            scheduleEndMinute: data.scheduleEndMinute,
+            scheduleDays: data.scheduleDays,
+            scheduleTimezone: data.scheduleTimezone,
+            recontactAfterDays: data.recontactAfterDays
+          }
+        };
+        localStorage.setItem(draftStorageKey, JSON.stringify(payload));
+      }
+    } catch {
+      // Falha silenciosa caso localStorage esteja bloqueado
+    }
+  }, [draftStorageKey]);
+
+  const clearDraft = useCallback(() => {
+    if (saveDraftTimeoutRef.current) {
+      clearTimeout(saveDraftTimeoutRef.current);
+      saveDraftTimeoutRef.current = null;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(draftStorageKey);
+      } catch {}
+    }
+    setHasRestoredDraft(false);
+  }, [draftStorageKey]);
+
+  // Debounce de 600ms no rascunho enquanto o usuário digita
+  useEffect(() => {
+    if (!isModalOpen) return;
+    if (saveDraftTimeoutRef.current) clearTimeout(saveDraftTimeoutRef.current);
+    saveDraftTimeoutRef.current = setTimeout(() => {
+      saveDraftNow();
+    }, 600);
+    return () => {
+      if (saveDraftTimeoutRef.current) clearTimeout(saveDraftTimeoutRef.current);
+    };
+  }, [newCampaign, isModalOpen, saveDraftNow]);
+
+  // Salvamento garantido em beforeunload e visibilitychange (resistente a F5 e fechamento de aba)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isModalOpen) saveDraftNow();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isModalOpen) {
+        saveDraftNow();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isModalOpen, saveDraftNow]);
+
+  // Abrir modal de Nova Campanha recuperando rascunho se disponível
   const openNewCampaignModal = () => {
-    setNewCampaign(prev => ({
-      ...prev,
-      messageComSite: prev.messageComSite || lastUsedCopy?.messageComSite || '',
-      messageSemSite: prev.messageSemSite || lastUsedCopy?.messageSemSite || ''
-    }));
+    let loadedFromDraft = false;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(draftStorageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.version === 1 && parsed.data) {
+            setNewCampaign(prev => ({
+              ...prev,
+              ...parsed.data,
+              file: null
+            }));
+            setHasRestoredDraft(true);
+            loadedFromDraft = true;
+          }
+        }
+      } catch {}
+    }
+
+    if (!loadedFromDraft) {
+      setNewCampaign(prev => ({
+        ...prev,
+        messageComSite: prev.messageComSite || lastUsedCopy?.messageComSite || '',
+        messageSemSite: prev.messageSemSite || lastUsedCopy?.messageSemSite || ''
+      }));
+      setHasRestoredDraft(false);
+    }
+
     setIsModalOpen(true);
   };
+
+  // Disparo de Prévia da Importação de Leads com recontato sincronizado
+  const handleFileChange = async (file: File | null, recontactDays = newCampaign.recontactAfterDays) => {
+    setNewCampaign(prev => ({ ...prev, file }));
+    if (!file) {
+      setImportPreview({ loading: false, error: null, diagnostic: null });
+      return;
+    }
+
+    setImportPreview({ loading: true, error: null, diagnostic: null });
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('recontactAfterDays', String(recontactDays));
+
+    try {
+      const res = await api.post('/campaigns/preview-import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setImportPreview({ loading: false, error: null, diagnostic: res.data });
+    } catch (err: unknown) {
+      let msg = 'Erro ao processar prévia do arquivo de leads.';
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        msg = err.response.data.error;
+      }
+      setImportPreview({ loading: false, error: msg, diagnostic: null });
+    }
+  };
+
+  // Prévia da Mensagem (WhatsApp Simulator) com debounce e sorteio de Spintax
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const timer = setTimeout(async () => {
+      setMessagePreviewLoading(true);
+      try {
+        const sampleLead = importPreview.diagnostic?.sampleLeads?.[0] || undefined;
+        const res = await api.post('/campaigns/preview-message', {
+          messageComSite: newCampaign.messageComSite,
+          messageSemSite: newCampaign.messageSemSite,
+          sampleLead
+        });
+        setMessagePreviewData(res.data);
+      } catch {
+        // silencioso
+      } finally {
+        setMessagePreviewLoading(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [newCampaign.messageComSite, newCampaign.messageSemSite, isModalOpen, spintaxSeed, importPreview.diagnostic]);
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCampaign.file) {
       addToast('error', 'Por favor, anexe o arquivo de leads (.json ou .csv).');
+      return;
+    }
+    if (importPreview.diagnostic && importPreview.diagnostic.validCount === 0) {
+      addToast('error', 'Nenhum lead apto para disparo neste arquivo. Corrija os contatos antes de prosseguir.');
       return;
     }
     if (!newCampaign.messageSemSite.trim() && !newCampaign.messageComSite.trim()) {
@@ -884,6 +1145,9 @@ export default function Dashboard() {
       } else {
         addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
       }
+
+      // Limpeza do rascunho com sucesso
+      clearDraft();
       setIsModalOpen(false);
       setNewCampaign({ 
         name: '', 
@@ -896,8 +1160,9 @@ export default function Dashboard() {
         scheduleEndMinute: 1200,
         scheduleDays: '1,2,3,4,5',
         scheduleTimezone: 'America/Sao_Paulo',
-        recontactAfterDays: 0
+        recontactAfterDays: 30
       });
+      setImportPreview({ loading: false, error: null, diagnostic: null });
       setIsScheduleOpen(false);
       fetchCampaigns();
       fetchHistory(1, historySearch);
@@ -990,32 +1255,33 @@ export default function Dashboard() {
   };
 
   // Filtragem de leads na visualização da campanha
-  const filteredLeads = useMemo(() => {
-    if (!campaignDetails?.leads) return [];
-    return campaignDetails.leads.filter(lead => {
-      const matchesStatus = leadFilterStatus === 'ALL' || lead.status === leadFilterStatus;
-      const matchesSearch = leadSearchTerm === '' || 
-        lead.title.toLowerCase().includes(leadSearchTerm.toLowerCase()) ||
-        lead.phone.includes(leadSearchTerm) ||
-        (lead.website && lead.website.toLowerCase().includes(leadSearchTerm.toLowerCase())) ||
-        (lead.neighborhood && lead.neighborhood.toLowerCase().includes(leadSearchTerm.toLowerCase()));
-      return matchesStatus && matchesSearch;
-    });
-  }, [campaignDetails, leadFilterStatus, leadSearchTerm]);
-
-  // Paginação client-side dos leads no modal de detalhes
+  // Paginação dos leads no modal de detalhes (server-side com fallback client-side)
   const totalLeadPages = useMemo(() => {
-    return Math.max(1, Math.ceil(filteredLeads.length / LEADS_PER_PAGE));
-  }, [filteredLeads.length]);
+    if (campaignDetails?.pagination?.totalPages !== undefined) {
+      return Math.max(1, campaignDetails.pagination.totalPages);
+    }
+    return Math.max(1, Math.ceil((campaignDetails?.leads?.length || 0) / LEADS_PER_PAGE));
+  }, [campaignDetails, LEADS_PER_PAGE]);
 
   const currentLeadPage = useMemo(() => {
     return Math.min(leadPage, totalLeadPages);
   }, [leadPage, totalLeadPages]);
 
   const pagedLeads = useMemo(() => {
+    if (!campaignDetails?.leads) return [];
+    if (campaignDetails.pagination) {
+      return campaignDetails.leads;
+    }
     const start = (currentLeadPage - 1) * LEADS_PER_PAGE;
-    return filteredLeads.slice(start, start + LEADS_PER_PAGE);
-  }, [filteredLeads, currentLeadPage]);
+    return campaignDetails.leads.slice(start, start + LEADS_PER_PAGE);
+  }, [campaignDetails, currentLeadPage, LEADS_PER_PAGE]);
+
+  const totalFilteredLeadsCount = useMemo(() => {
+    if (campaignDetails?.pagination?.total !== undefined) {
+      return campaignDetails.pagination.total;
+    }
+    return campaignDetails?.leads?.length || 0;
+  }, [campaignDetails]);
 
   // Cálculos de métricas globais
   const totalLeadsGlobal = useMemo(() => {
@@ -2052,6 +2318,41 @@ export default function Dashboard() {
             </div>
 
             <form onSubmit={handleCreateCampaign} className="p-5 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
+              
+              {/* Banner de Rascunho Restaurado */}
+              {hasRestoredDraft && (
+                <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/25 flex items-center justify-between text-xs text-purple-200">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={15} className="text-purple-400 shrink-0" />
+                    <span>Rascunho recuperado automaticamente do seu último preenchimento.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearDraft();
+                      setNewCampaign({
+                        name: '',
+                        messageComSite: '',
+                        messageSemSite: '',
+                        file: null,
+                        delayMin: 90,
+                        delayMax: 180,
+                        scheduleStartMinute: 480,
+                        scheduleEndMinute: 1200,
+                        scheduleDays: '1,2,3,4,5',
+                        scheduleTimezone: 'America/Sao_Paulo',
+                        recontactAfterDays: 30
+                      });
+                      setImportPreview({ loading: false, error: null, diagnostic: null });
+                      addToast('info', 'Rascunho descartado com sucesso.');
+                    }}
+                    className="text-purple-400 hover:text-purple-200 underline text-xs font-semibold cursor-pointer shrink-0 ml-2"
+                  >
+                    Descartar rascunho
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Nome da Campanha</label>
                 <input 
@@ -2065,9 +2366,9 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Upload de Arquivo */}
-              <div className="glass-card p-4 rounded-2xl border border-white/[0.08]">
-                <div className="flex items-center justify-between mb-2">
+              {/* Upload de Arquivo com Prévia em Tempo Real */}
+              <div className="glass-card p-4 rounded-2xl border border-white/[0.08] space-y-3">
+                <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
                     Arquivo de Leads (.JSON ou .CSV)
                   </label>
@@ -2079,16 +2380,184 @@ export default function Dashboard() {
                     <HelpCircle size={13} /> Como gerar?
                   </button>
                 </div>
+                
                 <input 
                   type="file" 
                   accept=".json,.csv,text/csv,application/json"
                   required
-                  onChange={e => setNewCampaign({...newCampaign, file: e.target.files ? e.target.files[0] : null})}
+                  onChange={e => handleFileChange(e.target.files ? e.target.files[0] : null)}
                   className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 file:transition-colors cursor-pointer"
                 />
-                <p className="text-[10px] text-slate-500 mt-2 font-mono">
-                  Aceita arquivos .JSON do Apify Google Maps Scraper ou planilhas .CSV.
+                
+                <p className="text-[10px] text-slate-500 font-mono">
+                  Compatível com exportações do Apify Google Maps Scraper (.JSON) e planilhas .CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
                 </p>
+
+                {/* Carregando Prévia */}
+                {importPreview.loading && (
+                  <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center gap-2.5 text-xs text-purple-200">
+                    <RefreshCw size={14} className="animate-spin text-purple-400" />
+                    <span>Analisando arquivo, validando números de WhatsApp e verificando histórico de recontato...</span>
+                  </div>
+                )}
+
+                {/* Erro na Prévia */}
+                {importPreview.error && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2 text-xs text-red-300">
+                    <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
+                    <span>{importPreview.error}</span>
+                  </div>
+                )}
+
+                {/* Diagnóstico Completo da Prévia */}
+                {importPreview.diagnostic && (
+                  <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                        <FileCheck size={14} className="text-emerald-400" />
+                        Diagnóstico da Lista ({importPreview.diagnostic.totalRows} registros lidos)
+                      </span>
+                      {importPreview.diagnostic.validCount > 0 ? (
+                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                          {importPreview.diagnostic.validCount} aptos para envio
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                          Nenhum lead apto
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 4 Cards de Categorias Mutuamente Exclusivas */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                        <span className="text-[10px] text-emerald-300 font-semibold block">Aptos p/ Disparo</span>
+                        <p className="text-base font-bold text-emerald-400 mt-0.5">{importPreview.diagnostic.validCount}</p>
+                        {importPreview.diagnostic.alreadyContactedCount > 0 && (
+                          <span className="text-[9px] text-amber-300/90 block mt-0.5">
+                            ({importPreview.diagnostic.alreadyContactedCount} com histórico)
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                        <span className="text-[10px] text-amber-300 font-semibold block">Duplicados</span>
+                        <p className="text-base font-bold text-amber-400 mt-0.5">{importPreview.diagnostic.duplicateCount}</p>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Ignorados auto</span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                        <span className="text-[10px] text-rose-300 font-semibold block">Inválidos / S/ Tel</span>
+                        <p className="text-base font-bold text-rose-400 mt-0.5">{importPreview.diagnostic.invalidCount}</p>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                        <span className="text-[10px] text-purple-300 font-semibold block">Recontato Bloqueado</span>
+                        <p className="text-base font-bold text-purple-400 mt-0.5">{importPreview.diagnostic.recontactBlockedCount}</p>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Regra {newCampaign.recontactAfterDays}d</span>
+                      </div>
+                    </div>
+
+                    {/* Amostra dos Primeiros Contatos Classificados */}
+                    {importPreview.diagnostic.sampleLeads && importPreview.diagnostic.sampleLeads.length > 0 && (
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.04] space-y-1.5">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          Amostra de Leads Classificados (Primeiras Linhas)
+                        </span>
+                        <div className="space-y-1">
+                          {importPreview.diagnostic.sampleLeads.slice(0, 3).map((s, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-white/[0.02]">
+                              <div className="flex items-center gap-2 truncate max-w-[70%]">
+                                <span className="font-semibold text-slate-200 truncate">{s.title}</span>
+                                <span className="text-slate-400 font-mono text-[10px]">{s.phone}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {s.website ? (
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20">
+                                    Com Site
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.2 rounded bg-slate-500/10 text-slate-400 text-[9px]">
+                                    Sem Site
+                                  </span>
+                                )}
+                                {s.alreadyContacted && (
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20" title="Contato com envio anterior">
+                                    Já Contatado
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Inconsistências identificadas */}
+                    {importPreview.diagnostic.issues && importPreview.diagnostic.issues.length > 0 && (
+                      <details className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px]">
+                        <summary className="font-semibold text-slate-300 cursor-pointer hover:text-white transition-colors">
+                          ⚠️ Ver inconsistências do arquivo ({importPreview.diagnostic.issues.length})
+                        </summary>
+                        <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
+                          {importPreview.diagnostic.issues.map((iss, i) => (
+                            <div key={i} className="text-[10px] p-1.5 rounded bg-black/30 border border-white/[0.03] flex items-start gap-2">
+                              <span className="font-mono text-purple-300 shrink-0">Linha {iss.row}:</span>
+                              <span className="text-slate-300">{iss.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Política de Recontato Inteligente */}
+              <div className="glass-card p-4 rounded-2xl border border-white/[0.08] space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                    Política de Proteção contra Recontato
+                  </label>
+                  <span className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                    Anti-Spam
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Bloqueia automaticamente contatos que já receberam disparos recentes da sua empresa para evitar denúncias no WhatsApp.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-1">
+                  {[
+                    { days: 0, label: 'Livre (0 dias)', desc: 'Ignora histórico' },
+                    { days: 15, label: '15 dias', desc: 'Recontato quinzenal' },
+                    { days: 30, label: '30 dias', desc: 'Recomendado' },
+                    { days: 60, label: '60 dias', desc: 'Bimestral' },
+                    { days: 90, label: '90 dias', desc: 'Trimestral' }
+                  ].map(opt => {
+                    const isSelected = newCampaign.recontactAfterDays === opt.days;
+                    return (
+                      <button
+                        key={opt.days}
+                        type="button"
+                        onClick={() => {
+                          setNewCampaign(prev => ({ ...prev, recontactAfterDays: opt.days }));
+                          if (newCampaign.file) {
+                            handleFileChange(newCampaign.file, opt.days);
+                          }
+                        }}
+                        className={`p-2 rounded-xl text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-purple-600/30 border border-purple-500/50 text-white shadow-sm'
+                            : 'bg-white/[0.03] border border-white/[0.06] text-slate-300 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <span className="text-xs font-bold block">{opt.label}</span>
+                        <span className="text-[9px] text-slate-400 block">{opt.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Sugestões de Copys de Alta Conversão */}
@@ -2390,6 +2859,100 @@ export default function Dashboard() {
                 />
               </div>
 
+              {/* Simulador WhatsApp Web Dark */}
+              {(newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim()) && (
+                <div className="glass-card rounded-2xl border border-emerald-500/20 bg-[#0B141A]/90 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-emerald-300 text-xs font-bold">
+                        WA
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-200 block">Simulador WhatsApp Web</span>
+                        <span className="text-[10px] text-emerald-400 font-mono">Disparo Real Simulado</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSpintaxSeed(s => s + 1)}
+                        className="px-2 py-1 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-lg text-[10px] font-semibold text-slate-300 flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Gera uma nova variação para demonstrar a alternância dinâmica de palavras"
+                      >
+                        <RefreshCw size={10} className={messagePreviewLoading ? 'animate-spin' : ''} />
+                        <span>Sortear Spintax</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Alternador Com Site vs Sem Site */}
+                  <div className="flex gap-1 bg-black/40 p-1 rounded-xl border border-white/[0.06] text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setMessagePreviewTab('semSite')}
+                      className={`flex-1 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                        messagePreviewTab === 'semSite'
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Ver Sem Site (Principal)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMessagePreviewTab('comSite')}
+                      className={`flex-1 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                        messagePreviewTab === 'comSite'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Ver Com Site Próprio
+                    </button>
+                  </div>
+
+                  {/* Balão de Mensagem WhatsApp Dark */}
+                  <div className="p-3.5 rounded-2xl bg-[#111B21] border border-white/[0.04] space-y-2">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 pb-1 border-b border-white/[0.04]">
+                      <span>Para: <b>{messagePreviewTab === 'comSite' ? (messagePreviewData?.previews.comSite.lead.title || 'Empresa Exemplo') : (messagePreviewData?.previews.semSite.lead.title || 'Empresa Exemplo')}</b></span>
+                      <span>Remetente: <b>{user?.name || workspaceName || 'Minha Empresa'}</b></span>
+                    </div>
+
+                    <div className="flex justify-start">
+                      <div className="max-w-[90%] sm:max-w-[80%] rounded-2xl rounded-tl-sm bg-[#005c4b] text-slate-100 p-3 text-xs leading-relaxed shadow-md relative">
+                        <div className="whitespace-pre-wrap font-sans">
+                          {messagePreviewTab === 'comSite' 
+                            ? (messagePreviewData?.previews.comSite.rendered || (newCampaign.messageComSite.trim() || newCampaign.messageSemSite.trim() || 'Digite uma mensagem...'))
+                            : (messagePreviewData?.previews.semSite.rendered || (newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim() || 'Digite uma mensagem...'))
+                          }
+                        </div>
+                        <div className="flex items-center justify-end gap-1 text-[9px] text-emerald-200/70 mt-1">
+                          <span>14:35</span>
+                          <CheckCheck size={12} className="text-cyan-300" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Avisos de Validação (Variáveis desconhecidas ou Spintax quebrado) */}
+                  {messagePreviewData?.warnings && messagePreviewData.warnings.length > 0 && (
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1 text-[11px] text-amber-200">
+                      <span className="font-bold flex items-center gap-1 text-amber-300">
+                        <AlertTriangle size={13} className="shrink-0" /> Avisos na Mensagem:
+                      </span>
+                      {messagePreviewData.warnings.map((w, idx) => (
+                        <p key={idx} className="text-[10px] pl-4">{w}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-slate-400 italic">
+                    💡 A variação exibida é uma amostra: no momento do envio real, o Spintax sorteará uma opção diferente para cada contato da fila.
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2.5 pt-3 border-t border-white/[0.08]">
                 <button 
                   type="button" 
@@ -2400,10 +2963,15 @@ export default function Dashboard() {
                 </button>
                 <button 
                   type="submit" 
-                  disabled={isSubmitting}
-                  className="btn-primary-dark px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                  disabled={isSubmitting || (importPreview.diagnostic?.validCount === 0)}
+                  className="btn-primary-dark px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? 'Importando Leads...' : 'Criar e Importar Lista'}
+                  {isSubmitting 
+                    ? 'Criando e Importando Leads...' 
+                    : (importPreview.diagnostic?.validCount === 0) 
+                      ? 'Nenhum Lead Válido' 
+                      : 'Criar e Importar Lista'
+                  }
                 </button>
               </div>
             </form>
@@ -2450,10 +3018,14 @@ export default function Dashboard() {
               <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
                 
                 {/* KPIs da Campanha */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
                   <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Pendentes</span>
                     <p className="text-base font-bold text-amber-400 mt-0.5">{campaignDetails?.counts.pending || 0}</p>
+                  </div>
+                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Aguardando liberação pelo agendamento ou delay entre disparos">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Na Fila</span>
+                    <p className="text-base font-bold text-indigo-400 mt-0.5">{campaignDetails?.counts.queued || 0}</p>
                   </div>
                   <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Aceito pelo servidor do WhatsApp (1 tick)">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Enviados (1 ✓)</span>
@@ -2547,7 +3119,7 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/[0.04]">
-                        {filteredLeads.length === 0 ? (
+                        {pagedLeads.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="p-8 text-center text-slate-500">
                               Nenhum lead encontrado com os filtros atuais.
@@ -2668,12 +3240,12 @@ export default function Dashboard() {
                   </div>
 
                   {/* Paginação da Tabela de Leads */}
-                  {filteredLeads.length > LEADS_PER_PAGE && (
+                  {totalFilteredLeadsCount > LEADS_PER_PAGE && (
                     <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
                       <span className="text-slate-400">
                         Mostrando <b className="text-slate-200">{(currentLeadPage - 1) * LEADS_PER_PAGE + 1}</b> a{' '}
-                        <b className="text-slate-200">{Math.min(currentLeadPage * LEADS_PER_PAGE, filteredLeads.length)}</b> de{' '}
-                        <b className="text-slate-200">{filteredLeads.length}</b> leads
+                        <b className="text-slate-200">{Math.min(currentLeadPage * LEADS_PER_PAGE, totalFilteredLeadsCount)}</b> de{' '}
+                        <b className="text-slate-200">{totalFilteredLeadsCount}</b> leads
                       </span>
                       <div className="flex items-center gap-1.5">
                         <button
