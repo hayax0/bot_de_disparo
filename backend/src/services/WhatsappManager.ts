@@ -6,7 +6,8 @@ import makeWASocket, {
   Browsers,
   WASocket,
   proto,
-  CacheStore
+  CacheStore,
+  generateMessageIDV2
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode';
@@ -262,8 +263,8 @@ export class WhatsappManager {
 
     const msgRetryCounterCache = new MemoryCacheStore(5000);
 
-    // Se for novo pareamento (não registrado), expurga resíduos de sessões anteriores que poderiam causar Bad MAC
-    if (!state.creds?.registered) {
+    // Se for novo pareamento (não registrado e sem identidade salva), expurga resíduos de sessões anteriores que poderiam causar Bad MAC
+    if (!state.creds?.me && !state.creds?.registered) {
       try {
         const files = fs.readdirSync(authDir);
         for (const f of files) {
@@ -291,7 +292,7 @@ export class WhatsappManager {
       // Ignora grupos e status no nível de protocolo (evita descriptografia desnecessária e loops de retry que acionam sync no celular)
       shouldIgnoreJid: (jid: string) => jid?.includes('@g.us') || jid?.includes('status@broadcast'),
       maxMsgRetryCount: 2,
-      markOnlineOnConnect: false,
+      markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
@@ -711,7 +712,7 @@ export class WhatsappManager {
     const delay = Math.max(1500, Math.min(3500, message.length * 15));
     await new Promise(r => setTimeout(r, delay));
 
-    const outgoingId = crypto.randomBytes(16).toString('hex').toUpperCase();
+    const outgoingId = generateMessageIDV2(client.user?.id);
     // Persiste a intenção e o ID antes de qualquer efeito externo. ACKs precoces já encontram o lead.
     if (beforeSend) await beforeSend(outgoingId);
 
