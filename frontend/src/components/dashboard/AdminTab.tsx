@@ -15,7 +15,7 @@ import {
   Trash2,
   Smartphone,
   Layers,
-  Zap,
+  Sliders,
   X,
   UserCheck,
   AlertCircle
@@ -147,43 +147,8 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
     };
   }, [userRole]);
 
-  // Ação rápida: Ativar +30 dias
-  const handleQuickActivate30Days = async (targetUser: AdminUserItem) => {
-    setActionLoading(targetUser.id);
-    try {
-      await api.patch(`/admin/users/${targetUser.id}/status`, {
-        subscriptionStatus: 'ACTIVE',
-        extendDays: 30
-      });
-      addToast('success', `+30 dias de acesso liberados para ${targetUser.email}!`);
-      void fetchMetrics();
-      void fetchUsers(page, search, statusFilter);
-    } catch (err: unknown) {
-      addToast('error', getErrorMessage(err, 'Erro ao prorrogar assinatura.'));
-    } finally {
-      setActionLoading(null);
-    }
-  };
 
-  // Ação rápida: Tornar VIP Vitalício
-  const handleQuickMakeLifetime = async (targetUser: AdminUserItem) => {
-    if (!window.confirm(`Tem certeza que deseja conceder acesso VIP Vitalício (LIFETIME) para ${targetUser.email}?`)) {
-      return;
-    }
-    setActionLoading(targetUser.id);
-    try {
-      await api.patch(`/admin/users/${targetUser.id}/status`, {
-        subscriptionStatus: 'LIFETIME'
-      });
-      addToast('success', `Acesso VIP Vitalício concedido para ${targetUser.email}!`);
-      void fetchMetrics();
-      void fetchUsers(page, search, statusFilter);
-    } catch (err: unknown) {
-      addToast('error', getErrorMessage(err, 'Erro ao conceder acesso VIP.'));
-    } finally {
-      setActionLoading(null);
-    }
-  };
+
 
   // Ação rápida: Inativar / Pausar
   const handleQuickInactivate = async (targetUser: AdminUserItem) => {
@@ -236,7 +201,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
     setSelectedUser(targetUser);
     setEditStatus(targetUser.subscriptionStatus);
     setEditRole(targetUser.role);
-    setExtendDays(30);
+    setExtendDays(0);
     setIsEditModalOpen(true);
   };
 
@@ -572,57 +537,34 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                         {new Date(u.createdAt).toLocaleDateString('pt-BR')}
                       </td>
 
-                      {/* Ações Rápidas */}
+                      {/* Ações */}
                       <td className="p-3.5 pr-4 whitespace-nowrap text-center">
                         <div className="inline-flex items-center gap-1.5">
                           
-                          {/* Botão +30 Dias */}
+                          {/* Botão Gerenciar Conta */}
                           <button
                             type="button"
                             disabled={isActionLoading}
-                            onClick={() => void handleQuickActivate30Days(u)}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer disabled:opacity-50"
-                            title="Liberar ou prorrogar +30 dias de acesso ativo"
+                            onClick={() => openEditModal(u)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold text-slate-200 hover:text-white bg-white/[0.04] hover:bg-purple-600/20 border border-white/[0.08] hover:border-purple-500/40 transition-all cursor-pointer disabled:opacity-50"
+                            title="Gerenciar status, perfil e dias de assinatura"
                           >
-                            +30d
+                            <Sliders size={12} className="text-purple-400" />
+                            <span>Gerenciar</span>
                           </button>
 
-                          {/* Botão Tornar VIP */}
-                          {u.subscriptionStatus !== 'LIFETIME' && (
-                            <button
-                              type="button"
-                              disabled={isActionLoading}
-                              onClick={() => void handleQuickMakeLifetime(u)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/30 transition-all cursor-pointer disabled:opacity-50"
-                              title="Tornar VIP Vitalício"
-                            >
-                              <Crown size={14} />
-                            </button>
-                          )}
-
-                          {/* Botão Suspender/Inativar se estiver ativo */}
+                          {/* Botão Suspender (Apenas se ativo e não for o próprio admin) */}
                           {u.subscriptionStatus === 'ACTIVE' && !isCurrentAdmin && (
                             <button
                               type="button"
                               disabled={isActionLoading}
                               onClick={() => void handleQuickInactivate(u)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 transition-all cursor-pointer disabled:opacity-50"
-                              title="Suspender acesso"
+                              className="p-1.5 rounded-xl text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 transition-all cursor-pointer disabled:opacity-50"
+                              title="Suspender acesso da conta"
                             >
                               <Clock size={14} />
                             </button>
                           )}
-
-                          {/* Botão Editar Completo */}
-                          <button
-                            type="button"
-                            disabled={isActionLoading}
-                            onClick={() => openEditModal(u)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] border border-transparent hover:border-white/[0.1] transition-all cursor-pointer disabled:opacity-50"
-                            title="Editar detalhes da conta"
-                          >
-                            <Zap size={14} />
-                          </button>
 
                           {/* Botão Excluir (Não pode excluir a si mesmo) */}
                           {!isCurrentAdmin && (
@@ -630,8 +572,8 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                               type="button"
                               disabled={isActionLoading}
                               onClick={() => void handleDeleteUser(u)}
-                              className="p-1 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
-                              title="Excluir conta de teste"
+                              className="p-1.5 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+                              title="Excluir conta do sistema"
                             >
                               <Trash2 size={14} />
                             </button>
@@ -743,18 +685,18 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
               {editStatus === 'ACTIVE' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Adicionar dias de acesso:
+                    Adicionar dias de acesso (opcional):
                   </label>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      min={1}
+                      min={0}
                       max={365}
                       value={extendDays}
-                      onChange={(e) => setExtendDays(Number(e.target.value))}
+                      onChange={(e) => setExtendDays(Math.max(0, Number(e.target.value)))}
                       className="w-24 px-3 py-2 text-xs rounded-xl bg-black/40 border border-white/[0.1] text-white font-mono focus:border-purple-500 focus:outline-none"
                     />
-                    <span className="text-xs text-slate-400">dias a partir de hoje (ou do vencimento atual)</span>
+                    <span className="text-xs text-slate-400">dias extras (deixe 0 para não alterar a data)</span>
                   </div>
                 </div>
               )}
