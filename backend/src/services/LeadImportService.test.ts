@@ -118,7 +118,7 @@ test('LeadImportService: recontactAfterDays = 0 permite recontato sem bloqueio',
   }
 });
 
-test('LeadImportService: recontactAfterDays > 0 bloqueia contato recente', async () => {
+test('LeadImportService: ignora política antiga de recontato e preserva histórico', async () => {
   const wsId = 'ws-test-recontact-blocked';
   const phone = '5511999990002';
 
@@ -139,10 +139,10 @@ test('LeadImportService: recontactAfterDays > 0 bloqueia contato recente', async
       recontactAfterDays: 30 // Política de 30 dias
     });
 
-    assert.equal(diag.validCount, 0);
-    assert.equal(diag.recontactBlockedCount, 1);
-    assert.equal(diag.issues.length, 1);
-    assert.match(diag.issues[0].reason, /Bloqueado pela política de recontato de 30 dias/);
+    assert.equal(diag.validCount, 1);
+    assert.equal(diag.recontactBlockedCount, 0);
+    assert.equal(diag.issues.length, 0);
+    assert.equal(diag.alreadyContactedCount, 1);
   } finally {
     prisma.dispatchHistory.findMany = originalFindMany;
   }

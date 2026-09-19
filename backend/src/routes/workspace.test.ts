@@ -7,7 +7,6 @@ import jwt from 'jsonwebtoken';
 import router from './auth';
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
-import { ContactPolicyService } from '../services/ContactPolicyService';
 
 async function serve(t: any) {
   const app = express();
@@ -164,21 +163,4 @@ test('PATCH /auth/workspace: impede alteração de workspace que pertence a outr
   assert.equal(response.status, 404);
   const body = await response.json();
   assert.equal(body.error.includes('Workspace não encontrado'), true);
-});
-
-test('Janela Comercial: fora de horário calcula corretamente próximo dia e oculta tempo restante', () => {
-  // Domingo às 15:00 em America/Sao_Paulo (UTC-3)
-  const sunday = new Date('2026-09-13T18:00:00.000Z');
-  const windowCheck = ContactPolicyService.checkBusinessWindow({
-    now: sunday,
-    scheduleStartMinute: 480,  // 08:00
-    scheduleEndMinute: 1200,   // 20:00
-    scheduleDays: '1,2,3,4,5,6', // Seg a Sáb
-    scheduleTimezone: 'America/Sao_Paulo'
-  });
-
-  assert.equal(windowCheck.isInWindow, false);
-  assert.equal(windowCheck.reason?.includes('Dia da semana (0) fora dos permitidos'), true);
-  assert.equal(typeof windowCheck.nextOpenTimestamp, 'number');
-  assert.equal(windowCheck.nextOpenTimestamp! > sunday.getTime(), true);
 });

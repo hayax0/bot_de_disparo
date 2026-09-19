@@ -46,9 +46,6 @@ import {
   ChevronRight,
   Lock,
   Building2,
-  Calendar,
-  ChevronDown,
-  ChevronUp,
   Edit2,
   Sparkles,
   FileCheck
@@ -63,11 +60,6 @@ interface Campaign {
   messageSemSite?: string | null;
   delayMin: number;
   delayMax: number;
-  scheduleStartMinute?: number;
-  scheduleEndMinute?: number;
-  scheduleDays?: string;
-  scheduleTimezone?: string;
-  recontactAfterDays?: number;
   createdAt: string;
   _count?: {
     leads: number;
@@ -151,12 +143,7 @@ interface CampaignStats {
   optedOut?: number;
   progress: number;
   estimatedSecondsRemaining: number | null;
-  scheduleStatus?: {
-    isInWindow: boolean;
-    nextOpenTimestamp?: number | null;
-    delayMs?: number | null;
-    reason?: string | null;
-  } | null;
+
 }
 
 interface QueueHealth {
@@ -185,25 +172,6 @@ function formatEta(seconds: number): string {
   const m = Math.round((seconds % 3600) / 60);
   if (h === 0) return `~${m}min`;
   return `~${h}h ${m}min`;
-}
-
-// Formata data e hora da próxima abertura no fuso de São Paulo
-function formatNextOpen(timestamp: number): string {
-  const target = new Date(timestamp);
-  const now = new Date();
-  
-  const targetDayStr = target.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  const nowDayStr = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const tomorrowDayStr = tomorrow.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-
-  const timeStr = target.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
-
-  if (targetDayStr === nowDayStr) return `hoje às ${timeStr}`;
-  if (targetDayStr === tomorrowDayStr) return `amanhã às ${timeStr}`;
-  const dayName = target.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
-  return `na ${dayName} às ${timeStr}`;
 }
 
 // Formata telefone brasileiro para exibição amigável
@@ -293,7 +261,6 @@ export default function Dashboard() {
       validCount: number;
       duplicateCount: number;
       invalidCount: number;
-      recontactBlockedCount: number;
       alreadyContactedCount: number;
       sampleLeads: Array<{
         rowNumber: number;
@@ -934,13 +901,7 @@ export default function Dashboard() {
     file: null as File | null, 
     delayMin: 90, 
     delayMax: 180,
-    scheduleStartMinute: 480, // 08:00
-    scheduleEndMinute: 1200,  // 20:00
-    scheduleDays: '1,2,3,4,5', // Seg a Sex
-    scheduleTimezone: 'America/Sao_Paulo',
-    recontactAfterDays: 30
   });
-  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Isolamento do rascunho por usuário e workspace com versionamento seguro
@@ -968,11 +929,6 @@ export default function Dashboard() {
             messageSemSite: data.messageSemSite,
             delayMin: data.delayMin,
             delayMax: data.delayMax,
-            scheduleStartMinute: data.scheduleStartMinute,
-            scheduleEndMinute: data.scheduleEndMinute,
-            scheduleDays: data.scheduleDays,
-            scheduleTimezone: data.scheduleTimezone,
-            recontactAfterDays: data.recontactAfterDays
           }
         };
         localStorage.setItem(draftStorageKey, JSON.stringify(payload));
@@ -1036,7 +992,11 @@ export default function Dashboard() {
           if (parsed && parsed.version === 1 && parsed.data) {
             setNewCampaign(prev => ({
               ...prev,
-              ...parsed.data,
+              name: parsed.data.name ?? prev.name,
+              messageComSite: parsed.data.messageComSite ?? prev.messageComSite,
+              messageSemSite: parsed.data.messageSemSite ?? prev.messageSemSite,
+              delayMin: parsed.data.delayMin ?? prev.delayMin,
+              delayMax: parsed.data.delayMax ?? prev.delayMax,
               file: null
             }));
             setHasRestoredDraft(true);
@@ -1058,8 +1018,8 @@ export default function Dashboard() {
     setIsModalOpen(true);
   };
 
-  // Disparo de Prévia da Importação de Leads com recontato sincronizado
-  const handleFileChange = async (file: File | null, recontactDays = newCampaign.recontactAfterDays) => {
+  // Prévia da importação de leads
+  const handleFileChange = async (file: File | null) => {
     setNewCampaign(prev => ({ ...prev, file }));
     if (!file) {
       setImportPreview({ loading: false, error: null, diagnostic: null });
@@ -1069,7 +1029,6 @@ export default function Dashboard() {
     setImportPreview({ loading: true, error: null, diagnostic: null });
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('recontactAfterDays', String(recontactDays));
 
     try {
       const res = await api.post('/campaigns/preview-import', formData, {
@@ -1123,31 +1082,16 @@ export default function Dashboard() {
       return;
     }
 
-    // Validações de agendamento
-    if (!newCampaign.scheduleDays || newCampaign.scheduleDays.trim().length === 0) {
-      addToast('error', 'Selecione pelo menos um dia da semana para os disparos.');
-      return;
-    }
-    if (newCampaign.scheduleEndMinute <= newCampaign.scheduleStartMinute) {
-      addToast('error', 'O horário de término dos envios deve ser posterior ao horário de início.');
-      return;
-    }
-
     setIsSubmitting(true);
     let createdCampaignId: string | null = null;
     try {
-      // 1. Criar campanha com agendamento
+      // 1. Criar campanha
       const res = await api.post('/campaigns', {
         name: newCampaign.name,
         messageComSite: newCampaign.messageComSite.trim() || null,
         messageSemSite: newCampaign.messageSemSite.trim() || null,
         delayMin: newCampaign.delayMin,
         delayMax: newCampaign.delayMax,
-        scheduleStartMinute: newCampaign.scheduleStartMinute,
-        scheduleEndMinute: newCampaign.scheduleEndMinute,
-        scheduleDays: newCampaign.scheduleDays,
-        scheduleTimezone: newCampaign.scheduleTimezone,
-        recontactAfterDays: newCampaign.recontactAfterDays
       });
       createdCampaignId = res.data.id;
 
@@ -1175,14 +1119,8 @@ export default function Dashboard() {
         file: null, 
         delayMin: 90, 
         delayMax: 180,
-        scheduleStartMinute: 480,
-        scheduleEndMinute: 1200,
-        scheduleDays: '1,2,3,4,5',
-        scheduleTimezone: 'America/Sao_Paulo',
-        recontactAfterDays: 30
       });
       setImportPreview({ loading: false, error: null, diagnostic: null });
-      setIsScheduleOpen(false);
       fetchCampaigns();
       fetchHistory(1, historySearch);
       fetchLastCopy();
@@ -1935,12 +1873,6 @@ export default function Dashboard() {
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <h3 className="font-bold text-sm sm:text-base text-white">{camp.name}</h3>
-                      {camp.status === 'RUNNING' && statsMap[camp.id]?.scheduleStatus && !statsMap[camp.id]?.scheduleStatus?.isInWindow ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                          <Clock size={10} className="text-amber-400" />
-                          FORA DO HORÁRIO
-                        </span>
-                      ) : (
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
                           camp.status === 'RUNNING' 
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 animate-pulse' 
@@ -1950,7 +1882,6 @@ export default function Dashboard() {
                         }`}>
                           {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
                         </span>
-                      )}
                     </div>
 
                     <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
@@ -1962,36 +1893,10 @@ export default function Dashboard() {
                         <Clock size={13} className="text-slate-500" />
                         Delay: <b>{camp.delayMin}s - {camp.delayMax}s</b>
                       </span>
-                      {camp.scheduleStartMinute !== undefined && camp.scheduleEndMinute !== undefined && (
-                        <span className="flex items-center gap-1" title="Janela de envio permitida (horário de Brasília)">
-                          <Calendar size={13} className="text-purple-400" />
-                          <b>{String(Math.floor(camp.scheduleStartMinute / 60)).padStart(2, '0')}:{String(camp.scheduleStartMinute % 60).padStart(2, '0')}</b> às{' '}
-                          <b>{String(Math.floor(camp.scheduleEndMinute / 60)).padStart(2, '0')}:{String(camp.scheduleEndMinute % 60).padStart(2, '0')}</b>
-                        </span>
-                      )}
                       <span className="text-[11px] text-slate-500 font-mono">
                         {new Date(camp.createdAt).toLocaleDateString('pt-BR')}
                       </span>
                     </div>
-
-                    {/* Aviso de Janela Comercial Fechada (anti-bloqueio automático) */}
-                    {camp.status === 'RUNNING' && statsMap[camp.id]?.scheduleStatus && !statsMap[camp.id]?.scheduleStatus?.isInWindow && (
-                      <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs flex items-start gap-2">
-                        <Clock size={15} className="shrink-0 mt-0.5 text-amber-400" />
-                        <div className="space-y-0.5">
-                          <div className="font-semibold flex items-center gap-1.5 text-amber-200">
-                            <span>Aguardando Janela Comercial</span>
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">Pausa Automática</span>
-                          </div>
-                          <p className="text-[11px] text-amber-300/80 leading-relaxed">
-                            Envios suspensos fora do horário/dia configurado.
-                            {statsMap[camp.id]?.scheduleStatus?.nextOpenTimestamp && (
-                              <> Retomada automática prevista para <b>{formatNextOpen(statsMap[camp.id].scheduleStatus!.nextOpenTimestamp!)}</b>.</>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Barra de progresso real (derivada dos status dos leads no banco) */}
                     {statsMap[camp.id] && statsMap[camp.id].total > 0 && (statsMap[camp.id].progress > 0 || camp.status === 'RUNNING') && (
@@ -2011,7 +1916,7 @@ export default function Dashboard() {
                             {statsMap[camp.id].progress}%
                             {camp.status === 'RUNNING' && 
                              statsMap[camp.id].estimatedSecondsRemaining !== null && 
-                             (!statsMap[camp.id]?.scheduleStatus || statsMap[camp.id]?.scheduleStatus?.isInWindow) && (
+                             (
                               <> · restam {formatEta(statsMap[camp.id].estimatedSecondsRemaining!)}</>
                             )}
                           </span>
@@ -2356,11 +2261,6 @@ export default function Dashboard() {
                         file: null,
                         delayMin: 90,
                         delayMax: 180,
-                        scheduleStartMinute: 480,
-                        scheduleEndMinute: 1200,
-                        scheduleDays: '1,2,3,4,5',
-                        scheduleTimezone: 'America/Sao_Paulo',
-                        recontactAfterDays: 30
                       });
                       setImportPreview({ loading: false, error: null, diagnostic: null });
                       addToast('info', 'Rascunho descartado com sucesso.');
@@ -2471,11 +2371,6 @@ export default function Dashboard() {
                         <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                        <span className="text-[10px] text-purple-300 font-semibold block">Recontato Bloqueado</span>
-                        <p className="text-base font-bold text-purple-400 mt-0.5">{importPreview.diagnostic.recontactBlockedCount}</p>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Regra {newCampaign.recontactAfterDays}d</span>
-                      </div>
                     </div>
 
                     {/* Amostra dos Primeiros Contatos Classificados */}
@@ -2531,52 +2426,6 @@ export default function Dashboard() {
                     )}
                   </div>
                 )}
-              </div>
-
-              {/* Política de Recontato Inteligente */}
-              <div className="glass-card p-4 rounded-2xl border border-white/[0.08] space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Política de Proteção contra Recontato
-                  </label>
-                  <span className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                    Anti-Spam
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Bloqueia automaticamente contatos que já receberam disparos recentes da sua empresa para evitar denúncias no WhatsApp.
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 pt-1">
-                  {[
-                    { days: 0, label: 'Livre (0 dias)', desc: 'Ignora histórico' },
-                    { days: 15, label: '15 dias', desc: 'Recontato quinzenal' },
-                    { days: 30, label: '30 dias', desc: 'Recomendado' },
-                    { days: 60, label: '60 dias', desc: 'Bimestral' },
-                    { days: 90, label: '90 dias', desc: 'Trimestral' }
-                  ].map(opt => {
-                    const isSelected = newCampaign.recontactAfterDays === opt.days;
-                    return (
-                      <button
-                        key={opt.days}
-                        type="button"
-                        onClick={() => {
-                          setNewCampaign(prev => ({ ...prev, recontactAfterDays: opt.days }));
-                          if (newCampaign.file) {
-                            handleFileChange(newCampaign.file, opt.days);
-                          }
-                        }}
-                        className={`p-2 rounded-xl text-left transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-purple-600/30 border border-purple-500/50 text-white shadow-sm'
-                            : 'bg-white/[0.03] border border-white/[0.06] text-slate-300 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <span className="text-xs font-bold block">{opt.label}</span>
-                        <span className="text-[9px] text-slate-400 block">{opt.desc}</span>
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
 
               {/* Sugestões de Copys de Alta Conversão */}
@@ -2672,129 +2521,6 @@ export default function Dashboard() {
                   />
                   <p className="text-[10px] text-slate-500 mt-1 font-mono">Recomendado: 180s</p>
                 </div>
-              </div>
-
-              {/* Horários e Dias de Envio (Janela Comercial) */}
-              <div className="glass-card rounded-2xl border border-white/[0.08] overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsScheduleOpen(!isScheduleOpen)}
-                  className="w-full p-3.5 sm:p-4 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Clock size={16} className="text-purple-400" />
-                    <div>
-                      <span className="text-xs font-bold text-white block">
-                        Horários e Dias de Envio (Janela Comercial)
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {String(Math.floor(newCampaign.scheduleStartMinute / 60)).padStart(2, '0')}:
-                        {String(newCampaign.scheduleStartMinute % 60).padStart(2, '0')} às{' '}
-                        {String(Math.floor(newCampaign.scheduleEndMinute / 60)).padStart(2, '0')}:
-                        {String(newCampaign.scheduleEndMinute % 60).padStart(2, '0')} · {
-                          newCampaign.scheduleDays.split(',').filter(Boolean).length === 7 ? 'Todos os dias' :
-                          newCampaign.scheduleDays === '1,2,3,4,5' ? 'Seg a Sex' :
-                          `${newCampaign.scheduleDays.split(',').filter(Boolean).length} dia(s) selecionado(s)`
-                        }
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                      Anti-Bloqueio
-                    </span>
-                    {isScheduleOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-                  </div>
-                </button>
-
-                {isScheduleOpen && (
-                  <div className="p-4 pt-0 space-y-4 border-t border-white/[0.04] mt-1 text-xs">
-                    <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-200 text-[11px] flex items-center justify-between">
-                      <span>Fuso Horário Oficial: <b>América/São Paulo (Horário de Brasília)</b></span>
-                      <span className="font-mono text-[10px] text-purple-300">GMT-3</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                          Início dos Disparos
-                        </label>
-                        <input
-                          type="time"
-                          value={`${String(Math.floor(newCampaign.scheduleStartMinute / 60)).padStart(2, '0')}:${String(newCampaign.scheduleStartMinute % 60).padStart(2, '0')}`}
-                          onChange={e => {
-                            const [h, m] = e.target.value.split(':').map(Number);
-                            if (!isNaN(h) && !isNaN(m)) {
-                              setNewCampaign({ ...newCampaign, scheduleStartMinute: h * 60 + m });
-                            }
-                          }}
-                          className="block w-full px-3 py-2 glass-input rounded-xl text-xs font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                          Término dos Disparos
-                        </label>
-                        <input
-                          type="time"
-                          value={`${String(Math.floor(newCampaign.scheduleEndMinute / 60)).padStart(2, '0')}:${String(newCampaign.scheduleEndMinute % 60).padStart(2, '0')}`}
-                          onChange={e => {
-                            const [h, m] = e.target.value.split(':').map(Number);
-                            if (!isNaN(h) && !isNaN(m)) {
-                              setNewCampaign({ ...newCampaign, scheduleEndMinute: h * 60 + m });
-                            }
-                          }}
-                          className="block w-full px-3 py-2 glass-input rounded-xl text-xs font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Dias da Semana Permitidos
-                      </label>
-                      <div className="grid grid-cols-7 gap-1.5">
-                        {[
-                          { id: '1', label: 'Seg' },
-                          { id: '2', label: 'Ter' },
-                          { id: '3', label: 'Qua' },
-                          { id: '4', label: 'Qui' },
-                          { id: '5', label: 'Sex' },
-                          { id: '6', label: 'Sáb' },
-                          { id: '0', label: 'Dom' }
-                        ].map(day => {
-                          const currentDays = newCampaign.scheduleDays.split(',').filter(Boolean);
-                          const isSelected = currentDays.includes(day.id);
-                          return (
-                            <button
-                              key={day.id}
-                              type="button"
-                              onClick={() => {
-                                let updated: string[];
-                                if (isSelected) {
-                                  updated = currentDays.filter(d => d !== day.id);
-                                } else {
-                                  updated = [...currentDays, day.id];
-                                }
-                                setNewCampaign({ ...newCampaign, scheduleDays: updated.join(',') });
-                              }}
-                              className={`py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                                isSelected
-                                  ? 'bg-purple-600 text-white shadow-sm'
-                                  : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
-                              }`}
-                            >
-                              {day.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {newCampaign.scheduleDays.trim().length === 0 && (
-                        <p className="text-[10px] text-red-400 mt-1">Selecione pelo menos um dia da semana.</p>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Mensagem Principal / Sem Site */}

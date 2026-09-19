@@ -97,14 +97,14 @@ test('POST /campaigns/preview-import: gera diagnóstico preciso e mutuamente exc
   const fakeUser = { id: 'u-1', email: 'user@test.com', role: 'ADMIN', authVersion: 0, subscriptionStatus: 'ACTIVE', emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] };
   mockMethod(t, prisma.user, 'findUnique', async () => fakeUser);
   mockMethod(t, prisma.dispatchHistory, 'findMany', async () => [
-    { phone: '5511999990001', lastSentAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), sendCount: 1, lastCampaignName: 'Campanha Antiga' }
+    { phone: '5511999990001', lastSentAt: new Date(Date.now() - 60 * 1000), sendCount: 1, lastCampaignName: 'Campanha Antiga' }
   ]);
 
   const token = jwt.sign({ userId: 'u-1', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
   const base = await serveCampaigns(t);
 
   // CSV com:
-  // 1. Válido com histórico (já contatado há 40 dias, recontactAfterDays = 30 -> apto)
+  // 1. Válido com histórico (contatado há um minuto; configuração antiga de 30 dias deve ser ignorada)
   // 2. Válido novo
   // 3. Duplicado do 2
   // 4. Inválido (sem telefone)
@@ -225,4 +225,23 @@ test('GET /campaigns/:id/leads: retorna paginação server-side e KPIs com QUEUE
   assert.equal(body.counts.sent, 1);
   assert.equal(body.counts.delivered, 1);
   assert.equal(body.counts.total, 3);
+});
+
+test('POST /campaigns: ignora campos antigos de janela e recontato', async t => {
+  mockMethod(t, prisma.user, 'findUnique', async () => ({ id: 'u-1', role: 'ADMIN', authVersion: 0, emailVerifiedAt: new Date(), workspaces: [{ id: 'w-1' }] }));
+  mockMethod(t, prisma.campaign, 'create', async ({ data }: any) => {
+    assert.equal(data.scheduleDays, undefined);
+    assert.equal(data.scheduleStartMinute, undefined);
+    assert.equal(data.recontactAfterDays, undefined);
+    return { id: 'new', ...data };
+  });
+  mockMethod(t, prisma.workspace, 'update', async () => ({}));
+  const token = jwt.sign({ userId: 'u-1', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
+  const base = await serveCampaigns(t);
+  const response = await fetch(base, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ name: 'Sem restrições', messageSemSite: 'Olá', scheduleDays: '', scheduleStartMinute: 1200, scheduleEndMinute: 480, recontactAfterDays: 30 })
+  });
+  assert.equal(response.status, 201);
 });

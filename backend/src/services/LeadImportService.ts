@@ -324,10 +324,10 @@ export class LeadImportService {
   public static async classifyLeads(params: {
     rawLeads: RawLeadData[];
     workspaceId: string;
+    /** @deprecated Ignorado; histórico não impede novas importações. */
     recontactAfterDays?: number;
-    nowMs?: number;
   }): Promise<LeadImportDiagnostic> {
-    const { rawLeads, workspaceId, recontactAfterDays = 0, nowMs = Date.now() } = params;
+    const { rawLeads, workspaceId } = params;
 
     if (rawLeads.length > this.MAX_LEADS_LIMIT) {
       throw new Error(`O arquivo contém ${rawLeads.length} registros. O limite máximo permitido por importação é de ${this.MAX_LEADS_LIMIT} leads.`);
@@ -379,11 +379,8 @@ export class LeadImportService {
     let validCount = 0;
     let duplicateCount = 0;
     let invalidCount = 0;
-    let recontactBlockedCount = 0;
+    const recontactBlockedCount = 0; // Compatibilidade com clientes antigos; histórico não bloqueia.
     let alreadyContactedCount = 0;
-
-    const msInDay = 24 * 60 * 60 * 1000;
-    const recontactMs = (recontactAfterDays > 0) ? recontactAfterDays * msInDay : 0;
 
     for (let i = 0; i < rawLeads.length; i++) {
       const raw = rawLeads[i];
@@ -448,34 +445,7 @@ export class LeadImportService {
       const hist = historyMap.get(normPhone);
       const hasHistory = !!hist;
 
-      // Categoria C: RECONTACT_BLOCKED (se recontactAfterDays > 0 e último envio foi recente)
-      let isBlockedByPolicy = false;
-      let blockReason: string | undefined = undefined;
-
-      if (hasHistory && recontactMs > 0 && hist.lastSentAt) {
-        const elapsedMs = nowMs - new Date(hist.lastSentAt).getTime();
-        if (elapsedMs < recontactMs) {
-          isBlockedByPolicy = true;
-          const daysPassed = Math.floor(elapsedMs / msInDay);
-          const daysLeft = Math.ceil((recontactMs - elapsedMs) / msInDay);
-          blockReason = `Contatado há ${daysPassed} dia(s) (${hist.lastCampaignName || 'Campanha anterior'}). Bloqueado pela política de recontato de ${recontactAfterDays} dias (restam ${daysLeft} dia(s)).`;
-        }
-      }
-
-      if (isBlockedByPolicy) {
-        recontactBlockedCount++;
-        const issue = {
-          row: rowNumber,
-          title,
-          phone: normPhone,
-          type: 'RECONTACT_BLOCKED' as const,
-          reason: blockReason || 'Bloqueado pela política de recontato recente'
-        };
-        if (issues.length < this.MAX_ISSUES_RETURNED) issues.push(issue);
-        continue;
-      }
-
-      // Categoria D: VALID (apto para importação e disparo)
+      // Categoria C: VALID (apto para importação e disparo)
       validCount++;
       if (hasHistory) {
         alreadyContactedCount++;
@@ -550,16 +520,15 @@ export class LeadImportService {
       );
     }
 
-    // Revalidação em tempo real com a política de recontato da própria campanha
+    // Revalida telefones e duplicados antes de importar.
     const diagnostic = await this.classifyLeads({
       rawLeads,
-      workspaceId,
-      recontactAfterDays: campaign.recontactAfterDays ?? 0
+      workspaceId
     });
 
     if (diagnostic.validCount === 0) {
       throw new Error(
-        `Nenhum lead válido para importação. Total de registros: ${diagnostic.totalRows} (${diagnostic.invalidCount} inválidos, ${diagnostic.duplicateCount} duplicados, ${diagnostic.recontactBlockedCount} bloqueados por recontato recente).`
+        `Nenhum lead válido para importação. Total de registros: ${diagnostic.totalRows} (${diagnostic.invalidCount} inválidos, ${diagnostic.duplicateCount} duplicados).`
       );
     }
 
