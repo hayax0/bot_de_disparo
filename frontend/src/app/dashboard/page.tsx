@@ -674,14 +674,19 @@ export default function Dashboard() {
 
     fetchLeadsForCampaign(selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm)
       .then(res => {
-        if (!isCurrent || detailsRequestIdRef.current !== reqId) return;
+        if (!isCurrent || selectedCampaignIdRef.current !== selectedCampaignId || detailsRequestIdRef.current !== reqId) return;
         setCampaignDetails(res.data);
         setDetailsLastSyncTime(Date.now());
         setDetailsSyncError(null);
       })
       .catch(() => {
-        if (!isCurrent || detailsRequestIdRef.current !== reqId) return;
+        if (!isCurrent || selectedCampaignIdRef.current !== selectedCampaignId || detailsRequestIdRef.current !== reqId) return;
         setDetailsSyncError('Falha ao atualizar leads.');
+      })
+      .finally(() => {
+        if (isCurrent && selectedCampaignIdRef.current === selectedCampaignId) {
+          setIsLoadingDetails(false);
+        }
       });
 
     return () => {
@@ -704,7 +709,7 @@ export default function Dashboard() {
       // Previne requisições simultâneas concorrentes caso a anterior ainda esteja em voo
       if (isPollingDetailsRef.current) return;
       isPollingDetailsRef.current = true;
-      const reqId = ++detailsRequestIdRef.current;
+      ++detailsRequestIdRef.current;
 
       try {
         const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
@@ -713,8 +718,8 @@ export default function Dashboard() {
           api.get(`/campaigns/${currentId}/queue-health`)
         ]);
 
-        // Descarta respostas se o usuário fechou o modal ou se um ciclo mais recente já foi disparado
-        if (selectedCampaignIdRef.current !== currentId || detailsRequestIdRef.current !== reqId) return;
+        // Descarta respostas se o usuário fechou o modal ou trocou de campanha
+        if (selectedCampaignIdRef.current !== currentId) return;
 
         let partialIssue = false;
 
@@ -722,6 +727,7 @@ export default function Dashboard() {
           setCampaignDetails(leadsRes.value.data);
           setDetailsLastSyncTime(Date.now());
           setDetailsSyncError(null);
+          setIsLoadingDetails(false);
         } else {
           setDetailsSyncError('Não foi possível atualizar a lista de leads.');
         }
@@ -744,7 +750,7 @@ export default function Dashboard() {
           setDetailsSyncWarning(null);
         }
       } catch {
-        if (selectedCampaignIdRef.current === currentId && detailsRequestIdRef.current === reqId) {
+        if (selectedCampaignIdRef.current === currentId) {
           setDetailsSyncError('Falha ao atualizar dados em tempo real.');
         }
       } finally {
@@ -766,7 +772,10 @@ export default function Dashboard() {
         setIsModalOpen(false);
         setIsTutorialOpen(false);
         setSelectedCampaignId(null);
+        selectedCampaignIdRef.current = null;
         setQueueHealth(null);
+        setCampaignDetails(null);
+        setIsLoadingDetails(false);
         setCampaignToDelete(null);
         setIsMobileMenuOpen(false);
         setSelectedHistoryMessage(null);
@@ -842,8 +851,8 @@ export default function Dashboard() {
   // Carregar detalhes dos leads da campanha com proteção contra race conditions e respostas fora de ordem
   const openCampaignDetails = useCallback(async (campaignId: string) => {
     selectedCampaignIdRef.current = campaignId;
-    const reqId = ++detailsRequestIdRef.current;
     setQueueHealth(null);
+    setCampaignDetails(null);
     setSelectedCampaignId(campaignId);
     setIsLoadingDetails(true);
     setDetailsSyncError(null);
@@ -858,7 +867,7 @@ export default function Dashboard() {
         api.get(`/campaigns/${campaignId}/queue-health`)
       ]);
 
-      if (selectedCampaignIdRef.current !== campaignId || detailsRequestIdRef.current !== reqId) return;
+      if (selectedCampaignIdRef.current !== campaignId) return;
 
       let partialIssue = false;
 
@@ -889,7 +898,7 @@ export default function Dashboard() {
         setDetailsSyncWarning(null);
       }
     } catch (err: unknown) {
-      if (selectedCampaignIdRef.current !== campaignId || detailsRequestIdRef.current !== reqId) return;
+      if (selectedCampaignIdRef.current !== campaignId) return;
       let msg = 'Erro ao carregar detalhes dos leads.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         msg = err.response.data.error;
@@ -898,11 +907,21 @@ export default function Dashboard() {
       setSelectedCampaignId(null);
       setQueueHealth(null);
     } finally {
-      if (selectedCampaignIdRef.current === campaignId && detailsRequestIdRef.current === reqId) {
+      if (selectedCampaignIdRef.current === campaignId) {
         setIsLoadingDetails(false);
       }
     }
   }, [addToast, fetchLeadsForCampaign]);
+
+  const closeCampaignDetails = useCallback(() => {
+    selectedCampaignIdRef.current = null;
+    setSelectedCampaignId(null);
+    setQueueHealth(null);
+    setCampaignDetails(null);
+    setIsLoadingDetails(false);
+    setDetailsSyncError(null);
+    setDetailsSyncWarning(null);
+  }, []);
 
   const defaultComSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava analisando a estrutura de vocês e vi que vocês já possuem um site ativo ({website}). Mas me diz uma coisa: quanto tempo a sua equipe perde na semana respondendo mensagem de curioso no WhatsApp que só quer saber preço e não tem perfil pra fechar?\n\nA gente implementou uma camada de triagem automática que roda no próprio site de vocês, educa o cliente, filtra o orçamento e só joga pro seu WhatsApp quem tá pronto pra fechar contrato.\n\nFaria sentido eu te mandar um áudio de 45 segundos mostrando como aplicar isso na {nome}?";
   const defaultSemSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava dando uma olhada na presença de vocês em {bairro} e vi que vocês ainda não têm um site próprio no ar. Como o cliente de maior ticket sempre pesquisa a credibilidade da empresa no Google antes de fechar, eu montei uma demonstração prática de como ficaria a página da {nome} no ar com filtro de clientes automático.\n\nFaria sentido eu te mandar o link desse protótipo pra você dar uma olhada em 1 minuto?";
@@ -2990,7 +3009,7 @@ export default function Dashboard() {
                 <p className="text-xs text-slate-400 mt-0.5">Acompanhamento em tempo real de disparos e respostas.</p>
               </div>
               <button
-                onClick={() => { setSelectedCampaignId(null); setQueueHealth(null); }}
+                onClick={closeCampaignDetails}
                 className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
               >
                 <X size={18} />
@@ -3300,7 +3319,7 @@ export default function Dashboard() {
                 )}
               </div>
               <button
-                onClick={() => { setSelectedCampaignId(null); setQueueHealth(null); }}
+                onClick={closeCampaignDetails}
                 className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Fechar
