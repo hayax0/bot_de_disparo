@@ -52,7 +52,7 @@ type DeliveryStep = "queued" | "sent" | "delivered" | "replied";
 
 export function LiveWhatsAppMockup() {
   const [activeTemplate, setActiveTemplate] = useState<TemplateKey>("com-site");
-  const [typedText, setTypedText] = useState("");
+  const [typedText, setTypedText] = useState<string | null>(null);
   const [deliveryStep, setDeliveryStep] = useState<DeliveryStep>("queued");
   const [isTyping, setIsTyping] = useState(false);
   const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
@@ -70,10 +70,22 @@ export function LiveWhatsAppMockup() {
     timeoutsRef.current.forEach(clearTimeout);
     timeoutsRef.current = [];
 
+    const animateTyping = window.matchMedia("(min-width: 768px) and (hover: hover) and (prefers-reduced-motion: no-preference)").matches;
+    const advanceDelivery = () => {
+      const t1 = setTimeout(() => setDeliveryStep("sent"), 600);
+      const t2 = setTimeout(() => setDeliveryStep("delivered"), 1400);
+      const t3 = setTimeout(() => setDeliveryStep("replied"), 2600);
+      timeoutsRef.current.push(t1, t2, t3);
+    };
+
     const initTimeout = setTimeout(() => {
-      setIsTyping(true);
-      setTypedText("");
       setDeliveryStep("queued");
+      setIsTyping(animateTyping);
+      setTypedText(animateTyping ? "" : null);
+      if (!animateTyping) {
+        advanceDelivery();
+        return;
+      }
 
       let charIndex = 0;
       const interval = setInterval(() => {
@@ -84,10 +96,7 @@ export function LiveWhatsAppMockup() {
           clearInterval(interval);
           setIsTyping(false);
 
-          const t1 = setTimeout(() => setDeliveryStep("sent"), 600);
-          const t2 = setTimeout(() => setDeliveryStep("delivered"), 1400);
-          const t3 = setTimeout(() => setDeliveryStep("replied"), 2600);
-          timeoutsRef.current.push(t1, t2, t3);
+          advanceDelivery();
         }
       }, 18);
 
@@ -103,9 +112,9 @@ export function LiveWhatsAppMockup() {
   }, [activeTemplate, targetText]);
 
   return (
-    <div className="w-full max-w-lg mx-auto tech-card rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-2xl relative">
+    <div aria-label="Simulador de mensagens" className="min-w-0 w-full max-w-lg mx-auto tech-card rounded-2xl p-4 sm:p-5 border border-white/[0.08] shadow-2xl relative">
       {/* Barra superior de controle do simulador */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-white/[0.08]">
+      <div className="flex flex-col items-start gap-2 pb-3 mb-3 border-b border-white/[0.08]">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-xs font-semibold text-slate-200">
@@ -125,8 +134,9 @@ export function LiveWhatsAppMockup() {
           return (
             <button
               key={key}
-              onClick={() => setActiveTemplate(key)}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all ${
+              aria-pressed={isSelected}
+              onClick={() => { setActiveTemplate(key); setTypedText(null); setDeliveryStep("queued"); }}
+              className={`min-w-0 min-h-11 flex-1 py-2 px-1 sm:px-2 rounded-lg text-xs font-semibold transition-all ${
                 isSelected
                   ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30"
                   : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
@@ -139,13 +149,13 @@ export function LiveWhatsAppMockup() {
       </div>
 
       {/* Cabeçalho do contato simulado */}
-      <div className="bg-[#131724] rounded-xl p-3 mb-3 flex items-center justify-between border border-white/[0.06]">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-inner">
+      <div className="bg-[#131724] rounded-xl p-3 mb-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between border border-white/[0.06]">
+        <div className="min-w-0 flex items-center gap-3">
+          <div className="w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-inner">
             {current.leadName[0]}
           </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex flex-col">
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-bold text-white leading-tight">
                 {current.leadName}
               </span>
@@ -153,14 +163,14 @@ export function LiveWhatsAppMockup() {
                 Lead
               </span>
             </div>
-            <span className="text-[11px] text-slate-400 leading-tight">
+            <span className="text-xs text-slate-400 leading-snug break-words">
               {current.leadCompany}
             </span>
           </div>
         </div>
 
         {/* Indicador de Status do Disparo na Fila */}
-        <div className="flex items-center gap-1 text-[11px] font-mono">
+        <div className="shrink-0 max-w-full flex items-center gap-1 text-[11px] font-mono">
           {deliveryStep === "queued" && (
             <span className="text-purple-300 flex items-center gap-1 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
               <Clock size={12} />
@@ -192,9 +202,9 @@ export function LiveWhatsAppMockup() {
       <div className="bg-[#0A0C12] rounded-xl p-3.5 space-y-3 min-h-[190px] flex flex-col justify-between border border-white/[0.04]">
         {/* Mensagem Enviada pela Plataforma */}
         <div className="flex justify-end">
-          <div className="max-w-[88%] bg-[#005c4b] text-[#e9edef] rounded-2xl rounded-tr-sm p-3 text-xs leading-relaxed shadow-md relative">
-            <p className="whitespace-pre-line">
-              {typedText}
+          <div className="max-w-[88%] bg-[#005c4b] text-[#e9edef] rounded-2xl rounded-tr-sm p-3 text-sm sm:text-xs leading-relaxed shadow-md relative">
+            <p className="whitespace-pre-line break-words">
+              {typedText ?? targetText}
               {isTyping && <span className="inline-block w-1.5 h-3 bg-white ml-0.5 animate-pulse" />}
             </p>
             <div className="flex items-center justify-end gap-1 mt-1.5 text-[10px] text-emerald-200/70">
@@ -222,8 +232,8 @@ export function LiveWhatsAppMockup() {
       </div>
 
       {/* Legenda explicativa transparente */}
-      <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-slate-400">
-        <span className="flex items-center gap-1.5">
+      <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex flex-col items-start gap-2 text-[11px] text-slate-400">
+        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
           <Braces size={13} className="text-purple-400" />
           <span>Variáveis dinâmicas:</span>
           <code className="text-purple-300 bg-purple-500/10 px-1 py-0.2 rounded font-mono">{"{nome}"}</code>

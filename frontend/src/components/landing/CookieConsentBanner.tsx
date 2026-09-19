@@ -41,9 +41,9 @@ export function CookieConsentBanner() {
   return (
     <aside
       aria-label="Consentimento de Cookies e Privacidade"
-      className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-50 animate-in fade-in slide-in-from-bottom-5 duration-300"
+      className="max-h-[calc(100dvh-6rem)] overflow-y-auto fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-50 animate-in fade-in slide-in-from-bottom-5 duration-300"
     >
-      <div className="tech-card rounded-2xl p-5 border border-purple-500/30 shadow-2xl shadow-purple-950/40 bg-[#0c0e14]/95 backdrop-blur-xl relative">
+      <div className="tech-card rounded-2xl p-5 border border-purple-500/30 shadow-2xl shadow-purple-950/40 bg-[#0c0e14]/95 sm:backdrop-blur-xl relative">
         <button
           onClick={handleDismiss}
           aria-label="Fechar banner de cookies"
@@ -76,16 +76,16 @@ export function CookieConsentBanner() {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 mt-4 pt-3 border-t border-white/[0.06]">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2.5 mt-4 pt-3 border-t border-white/[0.06]">
           <button
             onClick={handleDismiss}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+            className="min-h-11 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
           >
             Apenas Essenciais
           </button>
           <button
             onClick={handleAccept}
-            className="btn-tech-primary px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm"
+            className="btn-tech-primary min-h-11 px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm"
           >
             Entendi e Aceito
           </button>

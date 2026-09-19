@@ -19,8 +19,13 @@ export function LandingNavbar() {
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
     };
+    handleScroll();
+    window.addEventListener("pageshow", handleScroll);
     window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("pageshow", handleScroll);
+    };
   }, []);
 
   const isLoggedIn = Boolean(isHydrated && token);
@@ -39,10 +44,10 @@ export function LandingNavbar() {
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-200 ${
+      className={`fixed top-0 left-0 right-0 z-50 bg-[#07080B] border-b border-white/[0.08] transition-colors duration-200 ${
         scrolled
-          ? "bg-[#07080B]/85 backdrop-blur-md border-b border-white/[0.08] shadow-lg shadow-black/40"
-          : "bg-transparent border-b border-transparent"
+          ? "lg:bg-[#07080B]/95 lg:backdrop-blur-md shadow-lg shadow-black/40"
+          : "lg:bg-transparent lg:border-transparent"
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
@@ -69,7 +74,7 @@ export function LandingNavbar() {
         </Link>
 
         {/* Links Desktop */}
-        <nav className="hidden md:flex items-center gap-7">
+        <nav className="hidden lg:flex items-center gap-7">
           {navLinks.map((link) => (
             <a
               key={link.href}
@@ -82,7 +87,7 @@ export function LandingNavbar() {
         </nav>
 
         {/* CTAs Desktop */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden lg:flex items-center gap-3">
           {isLoggedIn ? (
             <Link
               href="/dashboard"
@@ -113,7 +118,7 @@ export function LandingNavbar() {
         {/* Botão Hambúrguer Mobile */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2 text-slate-300 hover:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+          className="lg:hidden min-h-11 min-w-11 p-2 text-slate-300 hover:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/50"
           aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"}
           aria-expanded={mobileMenuOpen}
         >
@@ -123,14 +128,14 @@ export function LandingNavbar() {
 
       {/* Menu Mobile */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-[#0D0F15] border-b border-white/10 px-4 pt-3 pb-6 space-y-3 shadow-2xl">
+        <div className="lg:hidden max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain bg-[#0D0F15] border-b border-white/10 px-4 pt-3 pb-6 space-y-3 shadow-2xl">
           <nav className="flex flex-col space-y-2">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
                 onClick={handleNavClick}
-                className="px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] rounded-lg transition-colors"
+                className="min-h-11 flex items-center px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] rounded-lg transition-colors"
               >
                 {link.label}
               </a>

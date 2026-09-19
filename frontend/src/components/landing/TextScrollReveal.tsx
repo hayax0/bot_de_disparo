@@ -30,7 +30,7 @@ export function TextScrollReveal() {
   return (
     <section className="py-20 sm:py-28 bg-[#090B12] border-y border-white/[0.06] relative overflow-hidden manifesto-trigger">
       {/* Luz ambiente de fundo roxa e azul */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[320px] bg-gradient-to-r from-purple-600/10 via-indigo-600/10 to-sky-600/5 blur-[140px] pointer-events-none" />
+      <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[320px] bg-gradient-to-r from-purple-600/10 via-indigo-600/10 to-sky-600/5 blur-[140px] pointer-events-none" />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Painel Principal do Manifesto Tecnológico */}
@@ -94,7 +94,7 @@ export function TextScrollReveal() {
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
               <div className="flex items-center gap-1.5">
                 <History size={14} className="text-indigo-400 shrink-0" />
-                <span>Histórico persistente anti-recontato</span>
+                <span>Histórico permanente de contatos</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Shuffle size={14} className="text-purple-400 shrink-0" />

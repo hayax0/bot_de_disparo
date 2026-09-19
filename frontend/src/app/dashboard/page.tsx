@@ -51,6 +51,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
+import { AdminTab } from '@/components/dashboard/AdminTab';
 
 interface Campaign {
   id: string;
@@ -228,7 +229,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'history'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'history' | 'admin'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -1392,6 +1393,29 @@ export default function Dashboard() {
               )}
             </button>
 
+            {user?.role === 'ADMIN' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('admin');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'admin'
+                    ? 'bg-purple-600/20 border border-purple-500/40 text-purple-200 shadow-inner'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldCheck size={16} className={activeTab === 'admin' ? 'text-purple-400' : 'text-slate-500'} />
+                  <span>Painel Admin</span>
+                </div>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/25 text-purple-300">
+                  ADMIN
+                </span>
+              </button>
+            )}
+
             <button
               onClick={() => setIsTutorialOpen(true)}
               className="w-full px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer"
@@ -1777,6 +1801,24 @@ export default function Dashboard() {
               </span>
             )}
           </button>
+
+          {user?.role === 'ADMIN' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('admin')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'admin'
+                  ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+              }`}
+            >
+              <ShieldCheck size={15} />
+              <span>Painel Admin</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/25 text-purple-300 font-bold">
+                ADMIN
+              </span>
+            </button>
+          )}
         </div>
 
         {activeTab === 'campaigns' && (
@@ -2219,6 +2261,14 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+    )}
+
+    {activeTab === 'admin' && (
+      <AdminTab
+        userRole={user?.role}
+        currentUserId={user?.id}
+        addToast={addToast}
+      />
     )}
 
       </main>

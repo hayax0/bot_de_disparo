@@ -21,7 +21,7 @@ export function ComparisonSection() {
     {
       feature: "Histórico & Prevenção de Erros",
       manual: "Planilhas dispersas com risco alto de abordar o mesmo contato duas vezes",
-      platform: "Histórico permanente por Workspace que alerta e previne recontato acidental",
+      platform: "Histórico permanente por empresa para consultar contatos e envios anteriores",
     },
     {
       feature: "Necessidade de Hardware",

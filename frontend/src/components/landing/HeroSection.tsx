@@ -6,9 +6,9 @@ import { LiveWhatsAppMockup } from "./LiveWhatsAppMockup";
 
 export function HeroSection() {
   return (
-    <section className="relative pt-28 pb-16 sm:pt-36 sm:pb-24 overflow-hidden">
+    <section className="relative pt-28 pb-16 sm:pt-36 sm:pb-24">
       {/* Luz ambiente de fundo violeta e índigo */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-gradient-to-b from-purple-600/15 via-indigo-600/10 to-transparent blur-[120px] pointer-events-none -z-10" />
+      <div className="hidden sm:block absolute top-1/4 left-1/2 -translate-x-1/2 w-full max-w-[700px] h-[350px] bg-gradient-to-b from-purple-600/15 via-indigo-600/10 to-transparent blur-[120px] pointer-events-none -z-10" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
@@ -63,13 +63,13 @@ export function HeroSection() {
               </div>
               <div className="flex items-center gap-1.5">
                 <ShieldCheck size={15} className="text-sky-400" />
-                <span>Histórico contra recontato</span>
+                <span>Histórico de contatos</span>
               </div>
             </div>
           </div>
 
           {/* Lado Direito: Simulador Visual Interativo */}
-          <div className="lg:col-span-6 w-full flex justify-center">
+          <div className="lg:col-span-6 min-w-0 w-full flex justify-center">
             <LiveWhatsAppMockup />
           </div>
         </div>

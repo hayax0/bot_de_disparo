@@ -81,7 +81,7 @@ export function BentoFeatures() {
             </div>
           </div>
 
-          {/* Card 3: Médio (Span 4) - Histórico Persistente contra Recontato */}
+          {/* Card 3: Médio (Span 4) - Histórico Permanente de Contatos */}
           <div className="md:col-span-4 tech-card rounded-2xl p-6 sm:p-7 flex flex-col justify-between border border-white/[0.08] group">
             <div className="space-y-3">
               <div className="p-2.5 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 w-fit">
@@ -91,12 +91,12 @@ export function BentoFeatures() {
                 Histórico Permanente de Contatos
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                O sistema registra permanentemente cada número abordado no seu Workspace. Mesmo que você exclua campanhas antigas, novos envios alertam se o lead já recebeu mensagem antes.
+                O sistema registra permanentemente cada número abordado no seu Workspace. Mesmo que você exclua campanhas antigas, o histórico continua disponível para consultar os contatos anteriores.
               </p>
             </div>
             <div className="mt-5 p-3 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-emerald-400 flex items-center gap-1.5">
               <ShieldCheck size={14} />
-              <span>Zero recontato acidental</span>
+              <span>Histórico disponível para consulta</span>
             </div>
           </div>
 
