@@ -83,7 +83,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
   // Carregar métricas globais
   const fetchMetrics = useCallback(async () => {
     try {
-      const res = await api.get('/api/admin/metrics');
+      const res = await api.get('/admin/metrics');
       setMetrics(res.data);
     } catch (err: unknown) {
       console.error('Erro ao carregar métricas admin:', err);
@@ -101,7 +101,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
       if (currentSearch.trim()) params.set('q', currentSearch.trim());
       if (currentStatus !== 'ALL') params.set('status', currentStatus);
 
-      const res = await api.get(`/api/admin/users?${params.toString()}`);
+      const res = await api.get(`/admin/users?${params.toString()}`);
       setUsers(res.data.users || []);
       setPage(res.data.pagination?.page || 1);
       setTotalPages(res.data.pagination?.totalPages || 1);
@@ -120,8 +120,8 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
       const loadInitialData = async () => {
         try {
           const [metricsRes, usersRes] = await Promise.all([
-            api.get('/api/admin/metrics'),
-            api.get('/api/admin/users?page=1&limit=20')
+            api.get('/admin/metrics'),
+            api.get('/admin/users?page=1&limit=20')
           ]);
           if (active) {
             setMetrics(metricsRes.data);
@@ -151,7 +151,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
   const handleQuickActivate30Days = async (targetUser: AdminUserItem) => {
     setActionLoading(targetUser.id);
     try {
-      await api.patch(`/api/admin/users/${targetUser.id}/status`, {
+      await api.patch(`/admin/users/${targetUser.id}/status`, {
         subscriptionStatus: 'ACTIVE',
         extendDays: 30
       });
@@ -172,7 +172,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
     }
     setActionLoading(targetUser.id);
     try {
-      await api.patch(`/api/admin/users/${targetUser.id}/status`, {
+      await api.patch(`/admin/users/${targetUser.id}/status`, {
         subscriptionStatus: 'LIFETIME'
       });
       addToast('success', `Acesso VIP Vitalício concedido para ${targetUser.email}!`);
@@ -192,7 +192,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
     }
     setActionLoading(targetUser.id);
     try {
-      await api.patch(`/api/admin/users/${targetUser.id}/status`, {
+      await api.patch(`/admin/users/${targetUser.id}/status`, {
         subscriptionStatus: 'INACTIVE'
       });
       addToast('info', `Assinatura de ${targetUser.email} suspensa.`);
@@ -220,7 +220,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
 
     setActionLoading(targetUser.id);
     try {
-      await api.delete(`/api/admin/users/${targetUser.id}`);
+      await api.delete(`/admin/users/${targetUser.id}`);
       addToast('success', `Usuário ${targetUser.email} excluído com sucesso.`);
       void fetchMetrics();
       void fetchUsers(page, search, statusFilter);
@@ -255,7 +255,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
         payload.extendDays = extendDays;
       }
 
-      await api.patch(`/api/admin/users/${selectedUser.id}/status`, payload);
+      await api.patch(`/admin/users/${selectedUser.id}/status`, payload);
       addToast('success', `Dados de ${selectedUser.email} atualizados com sucesso!`);
       setIsEditModalOpen(false);
       setSelectedUser(null);

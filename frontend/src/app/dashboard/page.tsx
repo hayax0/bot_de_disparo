@@ -2263,7 +2263,7 @@ export default function Dashboard() {
       </div>
     )}
 
-    {activeTab === 'admin' && (
+    {activeTab === 'admin' && user?.role === 'ADMIN' && (
       <AdminTab
         userRole={user?.role}
         currentUserId={user?.id}
