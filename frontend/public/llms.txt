@@ -1,0 +1,26 @@
+# Disparador de Mensagens — Automação e Prospecção Ativa no WhatsApp
+
+> Plataforma SaaS profissional para prospecção B2B e disparo humanizado via WhatsApp com gestão de múltiplos números, motor de cadência anti-ban e infraestrutura 100% em nuvem.
+
+## Visão Geral
+Disparador de Mensagens (https://botdisparo.cmpx.tec.br) é uma solução de software como serviço (SaaS) desenvolvida para empresas, agências, prestadores de serviço e equipes comerciais que necessitam prospectar clientes de forma ativa, estruturada e segura via WhatsApp.
+
+O sistema opera 100% na nuvem, eliminando a necessidade de manter computadores ligados, extensões de navegador ativas ou scripts manuais.
+
+## Principais Recursos e Diferenciais
+- **Cadência Humanizada e Anti-ban**: Motor de envio com delays aleatórios configuráveis (ex: 25s a 65s), pausas automáticas a cada lote de mensagens e aquecimento progressivo de chips para simular o comportamento humano natural.
+- **Spintax Dinâmico**: Suporte a variações semânticas de texto no padrão `{Olá|Oi|Tudo bem}`, garantindo que cada mensagem enviada tenha uma assinatura de texto única e prevenindo filtros de spam.
+- **Validação e Higienização de Contatos**: Validação prévia de números, formatação automática no padrão internacional (DDI + DDD) e deduplicação de contatos antes da execução.
+- **Gestão de Campanhas**: Importação rápida via arquivos CSV e planilhas Excel (.xlsx), acompanhamento em tempo real do progresso da fila e logs detalhados de entrega por lead.
+- **Multi-instância e Segurança**: Conexão de instâncias de WhatsApp via QR Code com isolamento de sessões e reconexão automática com backoff exponencial.
+
+## Planos e Modelos de Assinatura
+A plataforma oferece planos mensais com limites claros e transparentes:
+- **Plano Starter**: Indicado para profissionais autônomos e pequenos negócios iniciando prospecção ativa.
+- **Plano Pro**: Para empresas e agências com alto volume diário de disparos e gestão simultânea de campanhas.
+- **Plano Enterprise**: Para operações de alta escala com suporte dedicado e múltiplos números conectados.
+
+## Links Oficiais
+- [Página Inicial e Demonstração](https://botdisparo.cmpx.tec.br): Apresentação do produto, simulador de ganhos e tabela de preços.
+- [Termos de Uso](https://botdisparo.cmpx.tec.br/termos): Termos legais, diretrizes de uso ético e regras de serviço.
+- [Política de Privacidade](https://botdisparo.cmpx.tec.br/privacidade): Práticas de privacidade e conformidade com a LGPD (Lei Geral de Proteção de Dados).

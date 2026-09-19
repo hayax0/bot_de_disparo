@@ -1,0 +1,27 @@
+# Disparador de Mensagens — Guia Completo e Contexto de Produto para IA
+
+## Identidade e Propósito
+- Nome Comercial: Disparador de Mensagens
+- Domínio Oficial: https://botdisparo.cmpx.tec.br
+- Categoria: SaaS B2B, Vendas, Prospecção Outbound, Automação de WhatsApp
+- Idioma Principal: Português do Brasil (pt-BR)
+
+## Proposta de Valor
+Transformar o processo de captação ativa de clientes em vendas B2B, permitindo o contato em escala via WhatsApp sem que a equipe precise enviar mensagens individualmente pelo celular e sem riscos desnecessários de bloqueio decorrentes de automação amadora.
+
+## Arquitetura e Engenharia
+- **Fila de Mensagens Resiliente (BullMQ + Redis)**: Todos os envios são processados de forma assíncrona por workers dedicados, com garantia de idempotência através de IDs de tarefa determinísticos.
+- **Isolamento de Processos**: Sessões do Chromium gerenciadas individualmente, com liberação adequada de memória e destruição controlada de instâncias para máxima estabilidade em servidores Linux (VPS).
+- **Tratamento de Erros e Recuperação**: Detecção de instâncias desconectadas, rotinas de recuperação de tarefas órfãs durante o boot do servidor e reconexão com backoff inteligente.
+
+## Como o usuário opera a plataforma
+1. Conecta o WhatsApp escaneando o QR Code na interface web.
+2. Faz o upload de sua planilha de contatos (.csv ou .xlsx) contendo telefone, nome e campos personalizados.
+3. Configura a mensagem usando variáveis (`{nome}`, `{empresa}`) e Spintax (`{Olá|Oi|Bom dia}`).
+4. Define a cadência de envio (intervalo mínimo e máximo entre mensagens, tamanho do lote e pausa de descanso).
+5. Inicia a campanha e acompanha em tempo real as mensagens enviadas, taxas de sucesso e eventuais falhas.
+
+## Contato e Suporte
+- Suporte Oficial: suporte@cmpx.tec.br
+- Termos de Uso: https://botdisparo.cmpx.tec.br/termos
+- Política de Privacidade: https://botdisparo.cmpx.tec.br/privacidade
