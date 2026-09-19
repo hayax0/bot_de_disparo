@@ -140,6 +140,7 @@ model Campaign {
   messageSemSite      String?
   delayMin            Int      @default(90) // seconds
   delayMax            Int      @default(180) // seconds
+  // Campos legados mantidos para compatibilidade de banco; não restringem envios.
   scheduleStartMinute Int      @default(480) // 08:00 (minutos desde 00:00)
   scheduleEndMinute   Int      @default(1200) // 20:00 (minutos desde 00:00)
   scheduleDays        String   @default("1,2,3,4,5,6") // Dias da semana: 0=Dom, 1=Seg..6=Sab

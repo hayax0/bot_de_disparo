@@ -10,7 +10,6 @@ import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
-import { ContactPolicyService } from '../services/ContactPolicyService';
 import { LeadImportService } from '../services/LeadImportService';
 
 const router = Router();
@@ -53,10 +52,6 @@ function computeCampaignStats(
     status: string;
     delayMin: number;
     delayMax: number;
-    scheduleStartMinute?: number | null;
-    scheduleEndMinute?: number | null;
-    scheduleDays?: string | null;
-    scheduleTimezone?: string | null;
   },
   counts: Record<string, number>
 ) {
@@ -66,16 +61,9 @@ function computeCampaignStats(
   const terminalCompleted = sent + (counts.ERROR || 0) + (counts.IGNORED || 0) + (counts.OPTED_OUT || 0);
   const progress = total > 0 ? Math.round((terminalCompleted / total) * 100) : 0;
 
-  const windowCheck = ContactPolicyService.checkBusinessWindow({
-    scheduleStartMinute: campaign.scheduleStartMinute ?? 480,
-    scheduleEndMinute: campaign.scheduleEndMinute ?? 1200,
-    scheduleDays: campaign.scheduleDays || '1,2,3,4,5,6',
-    scheduleTimezone: campaign.scheduleTimezone || 'America/Sao_Paulo'
-  });
-
   const avgDelayS = (campaign.delayMin + campaign.delayMax) / 2;
   const avgBatchPauseS = (600 + 900) / 2;
-  const estimatedSecondsRemaining = (campaign.status === 'RUNNING' && windowCheck.isInWindow)
+  const estimatedSecondsRemaining = (campaign.status === 'RUNNING')
     ? Math.round(remaining * avgDelayS + Math.floor(remaining / 8) * avgBatchPauseS)
     : null;
 
@@ -93,12 +81,6 @@ function computeCampaignStats(
     optedOut: counts.OPTED_OUT || 0,
     progress,
     estimatedSecondsRemaining,
-    scheduleStatus: {
-      isInWindow: windowCheck.isInWindow,
-      nextOpenTimestamp: windowCheck.nextOpenTimestamp ?? null,
-      delayMs: windowCheck.delayMs ?? null,
-      reason: windowCheck.reason ?? null
-    }
   };
 }
 
@@ -178,11 +160,6 @@ router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), 
     messageSemSite,
     delayMin,
     delayMax,
-    scheduleStartMinute,
-    scheduleEndMinute,
-    scheduleDays,
-    scheduleTimezone,
-    recontactAfterDays
   } = req.body;
   const workspaceId = req.user!.workspaceId;
 
@@ -197,11 +174,6 @@ router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), 
         messageSemSite: semSite || null,
         delayMin,
         delayMax,
-        scheduleStartMinute: scheduleStartMinute ?? 480,
-        scheduleEndMinute: scheduleEndMinute ?? 1200,
-        scheduleDays: scheduleDays ?? '1,2,3,4,5,6',
-        scheduleTimezone: scheduleTimezone ?? 'America/Sao_Paulo',
-        recontactAfterDays: recontactAfterDays ?? 30,
         workspaceId
       }
     });
@@ -260,15 +232,9 @@ router.post('/preview-import', requireActiveSubscription, (req: Request, res: Re
       });
     }
 
-    const recontactAfterDaysRaw = req.body?.recontactAfterDays !== undefined
-      ? parseInt(String(req.body.recontactAfterDays), 10)
-      : 30;
-    const recontactAfterDays = isNaN(recontactAfterDaysRaw) || recontactAfterDaysRaw < 0 ? 0 : recontactAfterDaysRaw;
-
     const diagnostic = await LeadImportService.classifyLeads({
       rawLeads,
-      workspaceId,
-      recontactAfterDays
+      workspaceId
     });
 
     res.json({

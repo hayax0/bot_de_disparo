@@ -45,39 +45,6 @@ test('Opt-Out Regex: previne falsos positivos em frases cotidianas', () => {
   }
 });
 
-test('Janela Comercial: valida horário e dias permitidos em timezone IANA', () => {
-  // Segunda-feira (day=1) às 14:00 (840 min desde meia-noite) em America/Sao_Paulo
-  const testDate = new Date('2026-09-14T17:00:00.000Z'); // 14:00 em UTC-3
-
-  const windowResult = ContactPolicyService.checkBusinessWindow({
-    now: testDate,
-    scheduleStartMinute: 480,  // 08:00
-    scheduleEndMinute: 1200,   // 20:00
-    scheduleDays: '1,2,3,4,5,6',
-    scheduleTimezone: 'America/Sao_Paulo'
-  });
-
-  assert.equal(windowResult.isInWindow, true);
-});
-
-test('Janela Comercial: adia jobs fora do horário permitido para a próxima abertura', () => {
-  // Segunda-feira às 22:30 (1350 min desde meia-noite) em America/Sao_Paulo (fora da janela 08:00 - 20:00)
-  const nightDate = new Date('2026-09-15T01:30:00.000Z'); // 22:30 em UTC-3
-
-  const windowResult = ContactPolicyService.checkBusinessWindow({
-    now: nightDate,
-    scheduleStartMinute: 480,  // 08:00
-    scheduleEndMinute: 1200,   // 20:00
-    scheduleDays: '1,2,3,4,5,6',
-    scheduleTimezone: 'America/Sao_Paulo'
-  });
-
-  assert.equal(windowResult.isInWindow, false);
-  assert.equal(typeof windowResult.nextOpenTimestamp, 'number');
-  assert.equal(windowResult.delayMs! > 0, true);
-  assert.equal(windowResult.reason?.includes('fora da janela'), true);
-});
-
 test('Blacklist: respeita isolamento entre workspaces e bloqueio global', async (t) => {
   // Mock da consulta ao banco
   mockMethod(t, prisma.blacklist, 'findFirst', async ({ where }: any) => {
@@ -107,23 +74,6 @@ test('Blacklist: respeita isolamento entre workspaces e bloqueio global', async 
   const globalInWsB = await ContactPolicyService.isBlacklisted('5511999999999', 'ws-B');
   assert.equal(globalInWsA, true);
   assert.equal(globalInWsB, true);
-});
-
-test('Recontato Recente: bloqueia envio se o contato foi acionado dentro do cooldown', async (t) => {
-  const sentRecentlyDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // 5 dias atrás
-
-  mockMethod(t, prisma.dispatchHistory, 'findFirst', async () => ({
-    lastSentAt: sentRecentlyDate
-  }));
-
-  const result = await ContactPolicyService.isRecentContact({
-    phone: '5511988887777',
-    workspaceId: 'ws-1',
-    recontactAfterDays: 30 // Limite de 30 dias
-  });
-
-  assert.equal(result.isRecent, true);
-  assert.equal(result.lastSentAt?.toISOString(), sentRecentlyDate.toISOString());
 });
 
 test('Anonimização LGPD: gera ID HMAC estável e irreversível sem expor número', () => {

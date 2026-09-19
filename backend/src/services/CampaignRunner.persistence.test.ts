@@ -134,3 +134,32 @@ test('Worker: preparação de campanha adia job sem consumir tentativa nem envia
   assert.equal(send.mock.callCount(), 0);
   assert.equal(f.lead.status, 'QUEUED');
 });
+
+for (const date of ['2026-09-19T05:00:00Z', '2026-09-20T05:00:00Z']) {
+  test('Worker: permite campanha antiga e contato recente no fim de semana ' + date, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: new Date(date) });
+    const f = fixture(t);
+    Object.assign(f.campaign, { scheduleStartMinute: 480, scheduleEndMinute: 1200, scheduleDays: '1,2,3,4,5', recontactAfterDays: 30 });
+    mockMethod(t, prisma.dispatchHistory, 'findFirst', async () => ({ lastSentAt: new Date() }));
+    let sends = 0;
+    mockMethod(t, WhatsappManager, 'sendMessage', async (_workspace, _phone, _message, beforeSend) => {
+      await beforeSend!('weekend-id');
+      sends++;
+      return { messageId: 'weekend-id', jid: 'test-jid' };
+    });
+    await processor(f.job);
+    assert.equal(sends, 1);
+    assert.equal(f.lead.status, 'SENT');
+    await processor(f.job);
+    assert.equal(sends, 1);
+  });
+}
+
+test('Worker: mantém bloqueio por descadastro', async t => {
+  const f = fixture(t);
+  mockMethod(t, prisma.blacklist, 'findFirst', async () => ({ id: 'blocked' }));
+  const send = mockMethod(t, WhatsappManager, 'sendMessage', async () => { throw new Error('Não deveria enviar'); });
+  await processor(f.job);
+  assert.equal(f.lead.status, 'OPTED_OUT');
+  assert.equal(send.mock.callCount(), 0);
+});
