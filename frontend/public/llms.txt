@@ -1,26 +1,27 @@
-# Disparador de Mensagens — Automação e Prospecção Ativa no WhatsApp
+# Disparador de Mensagens
 
-> Plataforma SaaS profissional para prospecção B2B e disparo humanizado via WhatsApp com gestão de múltiplos números, motor de cadência anti-ban e infraestrutura 100% em nuvem.
+> Plataforma web de prospecção pelo WhatsApp: campanhas em nuvem, importação CSV/JSON, mensagens personalizadas, intervalos de envio e histórico de contatos. Site oficial: https://botdisparo.cmpx.tec.br. Revisado em 21/09/2026.
 
-## Visão Geral
-Disparador de Mensagens (https://botdisparo.cmpx.tec.br) é uma solução de software como serviço (SaaS) desenvolvida para empresas, agências, prestadores de serviço e equipes comerciais que necessitam prospectar clientes de forma ativa, estruturada e segura via WhatsApp.
+## Documentação oficial
 
-O sistema opera 100% na nuvem, eliminando a necessidade de manter computadores ligados, extensões de navegador ativas ou scripts manuais.
+- [Guia completo da plataforma](https://botdisparo.cmpx.tec.br/plataforma.md): benefícios, público, funcionamento, variáveis reais, limites, assinatura, suporte e perguntas frequentes; principal fonte detalhada do produto.
+- [Guia completo em endereço alternativo](https://botdisparo.cmpx.tec.br/llms-full.txt): mesmo conteúdo do guia Markdown, sem uma versão editorial separada.
 
-## Principais Recursos e Diferenciais
-- **Cadência Humanizada e Anti-ban**: Motor de envio com delays aleatórios configuráveis (ex: 25s a 65s), pausas automáticas a cada lote de mensagens e aquecimento progressivo de chips para simular o comportamento humano natural.
-- **Spintax Dinâmico**: Suporte a variações semânticas de texto no padrão `{Olá|Oi|Tudo bem}`, garantindo que cada mensagem enviada tenha uma assinatura de texto única e prevenindo filtros de spam.
-- **Validação e Higienização de Contatos**: Validação prévia de números, formatação automática no padrão internacional (DDI + DDD) e deduplicação de contatos antes da execução.
-- **Gestão de Campanhas**: Importação rápida via arquivos CSV e planilhas Excel (.xlsx), acompanhamento em tempo real do progresso da fila e logs detalhados de entrega por lead.
-- **Multi-instância e Segurança**: Conexão de instâncias de WhatsApp via QR Code com isolamento de sessões e reconexão automática com backoff exponencial.
+## Resumo do funcionamento
 
-## Planos e Modelos de Assinatura
-A plataforma oferece planos mensais com limites claros e transparentes:
-- **Plano Starter**: Indicado para profissionais autônomos e pequenos negócios iniciando prospecção ativa.
-- **Plano Pro**: Para empresas e agências com alto volume diário de disparos e gestão simultânea de campanhas.
-- **Plano Enterprise**: Para operações de alta escala com suporte dedicado e múltiplos números conectados.
+- Importação de CSV e JSON: até 2.000 registros e 5 MB por arquivo; Excel deve ser exportado para CSV.
+- Conexão do WhatsApp por QR Code ou código de pareamento.
+- Campanhas com prévia, Spintax e variáveis {nome}, {website}, {bairro}, {meuNome} e {minhaEmpresa}.
+- Execução na nuvem, controle de intervalos e pausas de lote, acompanhamento de progresso e status.
+- Envios permitidos em qualquer dia e horário, inclusive finais de semana, sem janela comercial.
+- Histórico permanente para consulta, sem bloqueio por dias de recontato; descadastros e números bloqueados continuam respeitados.
+- Oferta pública na revisão: Plano Mensal Recorrente por R$ 145,99/mês. Confirmar preço e condições no site e no checkout.
 
-## Links Oficiais
-- [Página Inicial e Demonstração](https://botdisparo.cmpx.tec.br): Apresentação do produto, simulador de ganhos e tabela de preços.
-- [Termos de Uso](https://botdisparo.cmpx.tec.br/termos): Termos legais, diretrizes de uso ético e regras de serviço.
-- [Política de Privacidade](https://botdisparo.cmpx.tec.br/privacidade): Práticas de privacidade e conformidade com a LGPD (Lei Geral de Proteção de Dados).
+## Páginas públicas
+
+- [Página inicial](https://botdisparo.cmpx.tec.br/): apresentação e demonstração.
+- [Planos](https://botdisparo.cmpx.tec.br/#planos): oferta comercial vigente.
+- [Termos de Uso](https://botdisparo.cmpx.tec.br/termos): regras do serviço.
+- [Política de Privacidade](https://botdisparo.cmpx.tec.br/privacidade): informações sobre dados e privacidade.
+
+Não há garantia de vendas, de mensagens únicas pelo Spintax ou de imunidade a bloqueios do WhatsApp. A publicação destes arquivos facilita a consulta, mas não garante indexação ou uso por serviços de IA.

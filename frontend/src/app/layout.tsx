@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Script from "next/script";
+import { OFFICIAL_PLAN } from "@/lib/constants";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -79,13 +80,14 @@ export default function RootLayout({
     offers: {
       "@type": "Offer",
       priceCurrency: "BRL",
-      price: "97.00",
+      price: OFFICIAL_PLAN.price.replace(",", "."),
     },
   };
 
   return (
     <html lang="pt-BR" className={`dark ${inter.variable} antialiased`}>
       <head>
+        <link rel="alternate" type="text/markdown" href="https://botdisparo.cmpx.tec.br/plataforma.md" title="Guia oficial da plataforma" />
         <link rel="icon" href="/icon.png?v=2" type="image/png" />
         <link rel="shortcut icon" href="/icon.png?v=2" />
         <link rel="apple-touch-icon" href="/icon.png?v=2" />
