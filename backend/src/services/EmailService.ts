@@ -46,7 +46,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
     body {
       margin: 0;
       padding: 0;
-      background-color: #080c14;
+      background-color: #08090D;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       color: #e2e8f0;
       -webkit-font-smoothing: antialiased;
@@ -54,21 +54,21 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
     .wrapper {
       width: 100%;
       table-layout: fixed;
-      background-color: #080c14;
+      background-color: #08090D;
       padding: 40px 10px;
     }
     .container {
       max-width: 580px;
       margin: 0 auto;
-      background-color: #111827;
-      border: 1px solid rgba(168, 85, 247, 0.2);
+      background-color: #0E1017;
+      border: 1px solid rgba(16, 185, 129, 0.22);
       border-radius: 18px;
       overflow: hidden;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(168, 85, 247, 0.08);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(16, 185, 129, 0.06);
     }
     .header {
       padding: 30px 24px;
-      background: linear-gradient(180deg, rgba(168, 85, 247, 0.12) 0%, rgba(17, 24, 39, 0) 100%);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.12) 0%, rgba(14, 16, 23, 0) 100%);
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       text-align: center;
     }
@@ -87,18 +87,18 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
       letter-spacing: -0.3px;
     }
     .highlight-box {
-      background-color: #0b1120;
-      border-left: 4px solid #a855f7;
-      border-top: 1px solid rgba(255, 255, 255, 0.04);
-      border-right: 1px solid rgba(255, 255, 255, 0.04);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      background-color: #0A0D14;
+      border-left: 4px solid #10b981;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       padding: 18px;
       border-radius: 10px;
       margin: 22px 0;
       font-size: 14px;
     }
     .feature-card {
-      background-color: rgba(255, 255, 255, 0.03);
+      background-color: rgba(255, 255, 255, 0.02);
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 12px;
       padding: 14px 16px;
@@ -123,18 +123,18 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
     .btn {
       display: inline-block;
       padding: 16px 36px;
-      background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: #ffffff !important;
       text-decoration: none;
       font-weight: 700;
       font-size: 15px;
       border-radius: 12px;
-      box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.38);
       letter-spacing: 0.3px;
     }
     .footer {
       padding: 24px 28px;
-      background-color: #0b0f19;
+      background-color: #090B10;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
       text-align: center;
       font-size: 12px;
@@ -142,7 +142,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
       line-height: 1.6;
     }
     .footer a {
-      color: #a855f7;
+      color: #34d399;
       text-decoration: none;
     }
     .footer a:hover {
@@ -163,11 +163,11 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto;">
                 <tr>
                   <td style="vertical-align: middle; padding-right: 14px;">
-                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Disparador" width="42" height="42" style="display: block; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);" />
+                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Disparador" width="44" height="44" style="display: block; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); background-color: #08090D;" />
                   </td>
                   <td style="vertical-align: middle; text-align: left;">
                     <div style="font-size: 21px; font-weight: 800; color: #ffffff; line-height: 1.1; letter-spacing: -0.4px;">Disparador</div>
-                    <div style="font-size: 10px; font-weight: 700; color: #c084fc; letter-spacing: 1.6px; font-family: monospace; margin-top: 3px;">PROSPECTOR SAAS</div>
+                    <div style="font-size: 10px; font-weight: 700; color: #34d399; letter-spacing: 1.6px; font-family: monospace; margin-top: 3px;">PROSPECTOR SAAS</div>
                   </td>
                 </tr>
               </table>
@@ -198,12 +198,27 @@ export class EmailService {
     const client = getResendClient();
     if (!client) return { success: false };
     try {
+      const htmlContent = `
+        <h2>Seu Código de Confirmação 🔐</h2>
+        <p>Olá!</p>
+        <p>Use o código de segurança abaixo para confirmar seu e-mail e continuar seu cadastro no <strong>Disparador (Prospector SaaS)</strong>:</p>
+
+        <div style="background-color: #0A0D14; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 24px 16px; margin: 24px 0; text-align: center;">
+          <div style="font-size: 11px; font-weight: 600; color: #34d399; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Código de Verificação</div>
+          <div style="font-size: 32px; font-weight: 800; color: #ffffff; letter-spacing: 8px; font-family: monospace;">${code}</div>
+          <div style="font-size: 12px; color: #94a3b8; margin-top: 10px;">Válido por 10 minutos • Não compartilhe este código</div>
+        </div>
+
+        <p style="font-size: 13px; color: #94a3b8;">Se você não solicitou este cadastro, por favor desconsidere este e-mail.</p>
+      `;
+
       const response = await client.emails.send({
         from: ENV.RESEND_FROM_EMAIL,
         to: email,
         replyTo: ENV.RESEND_REPLY_TO,
         subject: 'Confirme seu e-mail — Disparador',
         text: `Seu código de confirmação é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se você não solicitou um cadastro, ignore esta mensagem.`,
+        html: getBaseEmailTemplate(htmlContent, `Seu código de confirmação do Disparador é: ${code}`),
       });
       return { success: !response.error, id: response.data?.id };
     } catch {
