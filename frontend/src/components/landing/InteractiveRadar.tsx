@@ -26,7 +26,7 @@ const PIPELINE_STEPS: StepItem[] = [
     id: 1,
     title: "1. Captação de Leads",
     tag: "Entrada",
-    desc: "Importe contatos extraídos do Google Maps ou planilhas CSV/JSON com dados de nicho, telefone e website.",
+    desc: "Importe contatos de empresas (via extração Google Maps ou arquivos CSV/JSON) com dados de nicho, telefone e website.",
     icon: Search,
     detail: "Suporte nativo a listas de empresas com telefone, website e classificação.",
   },
@@ -44,23 +44,23 @@ const PIPELINE_STEPS: StepItem[] = [
     tag: "Estratégia",
     desc: "Crie campanhas segmentadas com templates dedicados: mensagens personalizadas para empresas com site ou sem site.",
     icon: FolderGit2,
-    detail: "Reutilização automática da última copy utilizada e suporte a variáveis como {nome} e {empresa}.",
+    detail: "Reutilização automática da última copy utilizada e suporte a variáveis dinâmicas como {nome} e {empresa}.",
   },
   {
     id: 4,
-    title: "4. Fila Inteligente (BullMQ)",
+    title: "4. Fila Inteligente BullMQ",
     tag: "Motor",
     desc: "Os leads são injetados em uma fila assíncrona gerenciada por Redis. Cada disparo recebe um identificador determinístico.",
     icon: Cpu,
-    detail: "Evita duplicidade de tarefas e garante a ordem exata de execução.",
+    detail: "Garante a ordem exata de execução e elimina duplicidade de processamento.",
   },
   {
     id: 5,
     title: "5. Disparo com Cadência Humana",
     tag: "Execução",
-    desc: "A plataforma aplica delays aleatórios entre cada envio (ex: 45s a 90s) para simular o comportamento humano no WhatsApp.",
+    desc: "A plataforma aplica delays aleatórios entre cada envio (ex: 45s a 120s) para simular o comportamento de um operador real.",
     icon: Send,
-    detail: "Variação dinâmica de saudações via Spintax para que mensagens consecutivas não fiquem idênticas.",
+    detail: "Variação dinâmica de saudações para que mensagens consecutivas não fiquem idênticas.",
   },
   {
     id: 6,
@@ -79,11 +79,11 @@ export function InteractiveRadar() {
   const StepIcon = current.icon;
 
   return (
-    <section id="como-funciona" className="py-20 bg-[#07080B] relative">
+    <section id="como-funciona" className="py-24 bg-[#08090D] relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho da Seção */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-medium">
             <ShieldCheck size={14} />
             <span>Fluxo Real da Plataforma</span>
           </div>
@@ -91,31 +91,38 @@ export function InteractiveRadar() {
             Como a prospecção funciona passo a passo
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Da importação dos contatos até a entrega final no WhatsApp, tudo é orquestrado com precisão técnica e segurança de envio.
+            Da importação dos contatos até a entrega final no WhatsApp, tudo é orquestrado com precisão técnica e cadência natural.
           </p>
         </div>
 
         {/* Grade de Navegação das Etapas */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 mb-8">
+        <div
+          role="tablist"
+          aria-label="Etapas da esteira de prospecção"
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3 mb-8"
+        >
           {PIPELINE_STEPS.map((step) => {
             const isSelected = activeStep === step.id;
             const Icon = step.icon;
             return (
               <button
                 key={step.id}
+                role="tab"
+                type="button"
+                aria-selected={isSelected}
                 onClick={() => setActiveStep(step.id)}
-                className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-3 ${
+                className={`p-3.5 rounded-xl text-left border transition-all flex flex-col justify-between gap-3 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none cursor-pointer ${
                   isSelected
-                    ? "bg-[#171B2B] border-purple-500/60 shadow-lg shadow-purple-500/15"
-                    : "bg-[#0D101A] border-white/[0.06] hover:border-purple-500/30"
+                    ? "bg-white/[0.06] border-emerald-500/40 text-white shadow-sm"
+                    : "bg-white/[0.02] border-white/[0.06] text-slate-400 hover:text-white hover:bg-white/[0.04]"
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <div
-                    className={`p-2 rounded-lg ${
+                    className={`p-1.5 rounded-lg border ${
                       isSelected
-                        ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold"
-                        : "bg-white/[0.05] text-slate-300"
+                        ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                        : "bg-white/[0.04] border-white/[0.06] text-slate-400"
                     }`}
                   >
                     <Icon size={16} />
@@ -124,13 +131,13 @@ export function InteractiveRadar() {
                 </div>
                 <div>
                   <span
-                    className={`text-xs font-bold block truncate ${
-                      isSelected ? "text-purple-300" : "text-slate-300"
+                    className={`text-xs font-semibold block truncate ${
+                      isSelected ? "text-emerald-300" : "text-slate-300"
                     }`}
                   >
                     {step.title.split(". ")[1]}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">{step.tag}</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">{step.tag}</span>
                 </div>
               </button>
             );
@@ -138,54 +145,56 @@ export function InteractiveRadar() {
         </div>
 
         {/* Card de Detalhe da Etapa Selecionada */}
-        <div className="tech-card rounded-2xl p-6 sm:p-8 border border-white/[0.08] relative overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-            <div className="lg:col-span-8 space-y-3">
+        <div className="rounded-2xl p-6 sm:p-8 bg-[#0D1018] border border-white/[0.08] relative overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            <div className="lg:col-span-8 space-y-4">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-bold font-mono">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-semibold font-mono">
                   ETAPA 0{current.id}
                 </span>
-                <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
+                <span className="text-xs text-slate-400 font-mono uppercase tracking-wider">
                   {current.tag}
                 </span>
               </div>
               <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
                 {current.title}
               </h3>
-              <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
+              <p className="text-sm text-slate-300 leading-relaxed max-w-2xl font-normal">
                 {current.desc}
               </p>
-              <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center gap-2.5 text-xs text-emerald-300">
+              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center gap-2.5 text-xs text-emerald-300">
                 <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
                 <span>{current.detail}</span>
               </div>
             </div>
 
-            <div className="lg:col-span-4 flex flex-col items-center justify-center p-6 bg-black/50 rounded-xl border border-white/[0.05] text-center space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 shadow-inner">
-                <StepIcon size={26} />
+            <div className="lg:col-span-4 flex flex-col items-center justify-center p-6 bg-black/40 rounded-xl border border-white/[0.05] text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400">
+                <StepIcon size={24} />
               </div>
               <div className="space-y-1">
-                <span className="text-xs font-bold text-white block">Arquitetura Integrada</span>
-                <span className="text-[11px] text-slate-400 block">
-                  Automação com segurança de envio
+                <span className="text-xs font-semibold text-white block">Arquitetura de Envio</span>
+                <span className="text-[11px] text-slate-400 block font-mono">
+                  Controle de cadência humana
                 </span>
               </div>
               <div className="flex items-center gap-2 pt-2">
                 <button
+                  type="button"
                   disabled={activeStep === 1}
                   onClick={() => setActiveStep((prev) => Math.max(1, prev - 1))}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="landing-btn-secondary px-3 py-1.5 text-xs disabled:opacity-30 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 >
                   Anterior
                 </button>
                 <button
+                  type="button"
                   disabled={activeStep === PIPELINE_STEPS.length}
                   onClick={() => setActiveStep((prev) => Math.min(PIPELINE_STEPS.length, prev + 1))}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-tech-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                  className="landing-btn-emerald px-3.5 py-1.5 text-xs disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 >
                   <span>Próximo</span>
-                  <ArrowRight size={13} />
+                  <ArrowRight size={12} />
                 </button>
               </div>
             </div>
@@ -195,3 +204,4 @@ export function InteractiveRadar() {
     </section>
   );
 }
+

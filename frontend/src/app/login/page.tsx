@@ -62,20 +62,18 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 relative overflow-hidden">
-      {/* Luz ambiente difusa de fundo */}
-      <div className="glow-ambient" />
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Sutil iluminação neutra de profundidade */}
+      <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/[0.02] blur-[140px] pointer-events-none" />
 
-      <div className="w-full max-w-md glass-panel rounded-3xl p-6 sm:p-8 relative z-10 border border-white/[0.08] shadow-2xl backdrop-blur-2xl">
+      <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl overflow-hidden mb-4 shadow-xl shadow-purple-500/30 border border-purple-500/30">
-            <Image src="/logo.png" alt="Logo" width={56} height={56} priority className="w-full h-full object-cover" />
+          <div className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5">
+            <Image src="/logo.png" alt="Logo" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             {viewMode === 'login' ? 'Bem-vindo de volta' : 'Recuperar Senha'}
           </h1>
-          <p className="text-xs text-slate-400 mt-1.5 text-center">
+          <p className="text-xs text-slate-400 mt-1.5 text-center font-normal">
             {viewMode === 'login'
               ? 'Acesse o painel do Disparador de Mensagens'
               : 'Informe seu e-mail para receber as instruções de recuperação'}
@@ -83,15 +81,15 @@ export default function LoginPage() {
         </div>
 
         {errorMessage && (
-          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl flex flex-col gap-2 text-xs text-red-400 font-medium animate-in fade-in">
+          <div className="mb-5 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex flex-col gap-2 text-xs text-rose-300 font-medium animate-in fade-in">
             <div className="flex items-center gap-2.5">
-              <AlertCircle size={16} className="text-red-400 shrink-0" />
+              <AlertCircle size={16} className="text-rose-400 shrink-0" />
               <span>{errorMessage}</span>
             </div>
             {errorCode === 'EMAIL_VERIFICATION_REQUIRED' && (
               <Link 
                 href="/register" 
-                className="text-xs font-semibold text-purple-300 hover:text-purple-200 underline mt-1 pl-6"
+                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 underline mt-1 pl-6 focus-visible:outline-none"
               >
                 Clique aqui para regularizar sua conta no Cadastre-se →
               </Link>
@@ -101,12 +99,12 @@ export default function LoginPage() {
 
         {viewMode === 'forgot' && forgotSuccess ? (
           <div className="text-center space-y-4 animate-in fade-in zoom-in duration-300">
-            <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto text-emerald-400 shadow-lg shadow-emerald-500/20">
-              <CheckCircle2 size={28} />
+            <div className="w-13 h-13 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto text-emerald-400">
+              <CheckCircle2 size={26} />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Verifique sua caixa de entrada</h2>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              <h2 className="text-sm font-semibold text-white">Verifique sua caixa de entrada</h2>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed font-normal">
                 Se este e-mail estiver cadastrado, enviamos um link temporário para redefinição de senha (válido por 15 minutos).
               </p>
             </div>
@@ -116,7 +114,7 @@ export default function LoginPage() {
                 setForgotSuccess(false);
                 setErrorMessage(null);
               }}
-              className="w-full btn-primary-dark py-2.5 rounded-xl text-xs cursor-pointer flex items-center justify-center gap-2 mt-4"
+              className="w-full dash-btn-secondary py-2.5 text-xs flex items-center justify-center gap-2 mt-4 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <ArrowLeft size={14} />
               Voltar para o Login
@@ -125,17 +123,17 @@ export default function LoginPage() {
         ) : viewMode === 'login' ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
+              <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Mail size={16} />
+                  <Mail size={15} />
                 </div>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  className="block w-full pl-10 pr-3.5 py-2.5 dash-input rounded-xl text-sm"
                   placeholder="seu@email.com"
                 />
               </div>
@@ -143,28 +141,28 @@ export default function LoginPage() {
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Senha</label>
+                <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider">Senha</label>
                 <button
                   type="button"
                   onClick={() => {
                     setViewMode('forgot');
                     setErrorMessage(null);
                   }}
-                  className="text-[11px] text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer focus-visible:outline-none focus-visible:underline"
                 >
                   Esqueci minha senha
                 </button>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Lock size={16} />
+                  <Lock size={15} />
                 </div>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  className="block w-full pl-10 pr-3.5 py-2.5 dash-input rounded-xl text-sm"
                   placeholder="Mínimo 6 caracteres"
                 />
               </div>
@@ -173,7 +171,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn-primary-dark py-3 rounded-xl mt-6 group cursor-pointer flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full dash-btn-primary py-3 mt-6 group cursor-pointer flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -183,7 +181,7 @@ export default function LoginPage() {
               ) : (
                 <>
                   Entrar na Plataforma
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                  <ArrowRight size={15} className="ml-2 group-hover:translate-x-1 transition-transform" />
                 </>
               )}
             </button>
@@ -191,17 +189,17 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleForgotPassword} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">E-mail Cadastrado</label>
+              <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">E-mail Cadastrado</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Mail size={16} />
+                  <Mail size={15} />
                 </div>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  className="block w-full pl-10 pr-3.5 py-2.5 dash-input rounded-xl text-sm"
                   placeholder="seu@email.com"
                 />
               </div>
@@ -210,7 +208,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn-primary-dark py-3 rounded-xl mt-4 group cursor-pointer flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full dash-btn-primary py-3 mt-4 group cursor-pointer flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -220,7 +218,7 @@ export default function LoginPage() {
               ) : (
                 <>
                   Enviar link de recuperação
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                  <ArrowRight size={15} className="ml-2 group-hover:translate-x-1 transition-transform" />
                 </>
               )}
             </button>
@@ -231,7 +229,7 @@ export default function LoginPage() {
                 setViewMode('login');
                 setErrorMessage(null);
               }}
-              className="w-full text-center text-xs text-slate-400 hover:text-slate-200 transition-colors py-2 cursor-pointer flex items-center justify-center gap-1"
+              className="w-full text-center text-xs text-slate-400 hover:text-slate-200 transition-colors py-2 cursor-pointer flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:underline"
             >
               <ArrowLeft size={12} />
               Voltar ao Login
@@ -245,11 +243,11 @@ export default function LoginPage() {
               onClick={() => {
                 router.push('/register');
               }}
-              className="text-xs font-medium text-slate-400 hover:text-purple-300 transition-colors cursor-pointer"
+              className="text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-pointer focus-visible:outline-none focus-visible:underline"
             >
               Não tem conta?{' '}
-              <span className="text-purple-400 font-semibold underline underline-offset-4">
-                Registre-se gratuitamente
+              <span className="text-emerald-400 font-medium underline underline-offset-4">
+                Registre-se na plataforma
               </span>
             </button>
           </div>
