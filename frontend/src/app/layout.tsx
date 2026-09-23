@@ -55,11 +55,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icon.png", href: "/icon.png" },
-      { url: "/logo.png", href: "/logo.png" },
+      { url: "/icon.png?v=3", href: "/icon.png?v=3" },
+      { url: "/favicon.ico?v=3", href: "/favicon.ico?v=3" },
+      { url: "/logo.png?v=3", href: "/logo.png?v=3" },
     ],
-    apple: "/icon.png",
-    shortcut: "/icon.png",
+    apple: "/icon.png?v=3",
+    shortcut: "/icon.png?v=3",
   },
 };
 
@@ -88,9 +89,10 @@ export default function RootLayout({
     <html lang="pt-BR" className={`dark ${inter.variable} antialiased`}>
       <head>
         <link rel="alternate" type="text/markdown" href="https://botdisparo.cmpx.tec.br/plataforma.md" title="Guia oficial da plataforma" />
-        <link rel="icon" href="/icon.png?v=2" type="image/png" />
-        <link rel="shortcut icon" href="/icon.png?v=2" />
-        <link rel="apple-touch-icon" href="/icon.png?v=2" />
+        <link rel="icon" href="/icon.png?v=3" type="image/png" />
+        <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
+        <link rel="shortcut icon" href="/icon.png?v=3" />
+        <link rel="apple-touch-icon" href="/icon.png?v=3" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
