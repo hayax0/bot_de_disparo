@@ -109,88 +109,86 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 relative overflow-hidden">
-      {/* Luz ambiente difusa de fundo em tons de roxo e índigo */}
-      <div className="glow-ambient" />
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Sutil iluminação neutra de profundidade */}
+      <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/[0.02] blur-[140px] pointer-events-none" />
 
-      <div className="w-full max-w-md glass-panel rounded-3xl p-6 sm:p-8 relative z-10 border border-white/[0.08] shadow-2xl backdrop-blur-2xl">
+      <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
         <div className="flex flex-col items-center mb-8">
-          <Link href="/" className="w-14 h-14 rounded-2xl overflow-hidden mb-4 shadow-xl shadow-purple-500/30 border border-purple-500/30 hover:scale-105 transition-transform">
-            <Image src="/logo.png" alt="Logo Disparador" width={56} height={56} priority className="w-full h-full object-cover" />
+          <Link href="/" className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5 hover:border-emerald-500/40 transition-colors">
+            <Image src="/logo.png" alt="Logo Disparador" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </Link>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             Criar sua conta
           </h1>
-          <p className="text-xs text-slate-400 mt-1.5 text-center">
+          <p className="text-xs text-slate-400 mt-1.5 text-center font-normal">
             Cadastre-se para iniciar sua prospecção automatizada via WhatsApp
           </p>
         </div>
 
         {errorMessage && (
-          <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-2.5 text-xs text-red-400 font-medium animate-in fade-in">
-            <AlertCircle size={16} className="text-red-400 shrink-0" />
+          <div className="mb-5 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2.5 text-xs text-rose-300 font-medium animate-in fade-in">
+            <AlertCircle size={16} className="text-rose-400 shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Seu Nome</label>
+            <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">Seu Nome</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                <User size={16} />
+                <User size={15} />
               </div>
               <input 
                 type="text" 
                 required
                 value={name}
                 onChange={e => setName(e.target.value)}
-                className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                className="block w-full pl-10 pr-3.5 py-2.5 dash-input rounded-xl text-sm"
                 placeholder="Ex: Seu Nome ou Empresa"
               />
             </div>
           </div>
           
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
+            <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                <Mail size={16} />
+                <Mail size={15} />
               </div>
               <input 
                 type="email" 
                 required
                 value={email}
                 onChange={e => { setEmail(e.target.value); setVerificationRequired(false); setVerificationCode(''); setCodeMessage(''); }}
-                className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                className="block w-full pl-10 pr-3.5 py-2.5 dash-input rounded-xl text-sm"
                 placeholder="seu@email.com"
               />
             </div>
           </div>
           
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Senha</label>
+            <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">Senha</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                <Lock size={16} />
+                <Lock size={15} />
               </div>
               <input 
                 type="password" 
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="block w-full pl-10 pr-3.5 py-2.5 glass-input rounded-xl text-sm"
+                className="block w-full pl-10 pr-3.5 py-2.5 dash-input rounded-xl text-sm"
                 placeholder="Mínimo 6 caracteres"
               />
             </div>
           </div>
 
           {verificationRequired && (
-            <div className="space-y-2.5 p-3.5 bg-purple-500/10 border border-purple-500/25 rounded-2xl animate-in fade-in" aria-live="polite">
+            <div className="space-y-2.5 p-3.5 bg-emerald-500/[0.06] border border-emerald-500/25 rounded-2xl animate-in fade-in" aria-live="polite">
               <div className="flex items-start gap-2">
-                <CheckCircle2 size={16} className="text-purple-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-purple-200 leading-relaxed">
+                <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-slate-200 leading-relaxed font-normal">
                   Enviamos um código de 6 dígitos para seu e-mail. Digite-o abaixo para concluir o cadastro.
                 </p>
               </div>
@@ -213,7 +211,7 @@ export default function RegisterPage() {
                   maxLength={6}
                   value={verificationCode} 
                   onChange={e => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-base font-mono tracking-widest text-center font-bold text-purple-300 focus:border-purple-400" 
+                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-base font-mono tracking-widest text-center font-bold text-emerald-400" 
                   placeholder="000000" 
                 />
               </div>
@@ -223,7 +221,7 @@ export default function RegisterPage() {
                   type="button" 
                   disabled={loading || cooldown > 0} 
                   onClick={requestCode} 
-                  className="text-xs font-semibold text-purple-400 hover:text-purple-300 underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                  className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 underline disabled:opacity-50 disabled:no-underline cursor-pointer focus-visible:outline-none"
                 >
                   {cooldown > 0 ? `Reenviar código em ${cooldown}s` : 'Reenviar código por e-mail'}
                 </button>
@@ -237,14 +235,14 @@ export default function RegisterPage() {
                 type="checkbox"
                 checked={termsAccepted}
                 onChange={e => setTermsAccepted(e.target.checked)}
-                className="mt-1 w-4 h-4 rounded border-white/20 bg-white/[0.05] text-purple-600 focus:ring-purple-500 focus:ring-offset-0 cursor-pointer"
+                className="mt-1 w-4 h-4 rounded border-white/20 bg-white/[0.05] text-emerald-500 focus:ring-emerald-400 focus:ring-offset-0 cursor-pointer"
               />
-              <span className="text-xs text-slate-400 leading-relaxed">
+              <span className="text-xs text-slate-400 leading-relaxed font-normal">
                 Li e concordo expressamente com os{' '}
                 <Link 
                   href="/termos" 
                   target="_blank" 
-                  className="text-purple-400 font-semibold hover:underline"
+                  className="text-emerald-400 font-medium hover:underline focus-visible:outline-none"
                 >
                   Termos de Uso
                 </Link>{' '}
@@ -252,7 +250,7 @@ export default function RegisterPage() {
                 <Link 
                   href="/privacidade" 
                   target="_blank" 
-                  className="text-purple-400 font-semibold hover:underline"
+                  className="text-emerald-400 font-medium hover:underline focus-visible:outline-none"
                 >
                   Política de Privacidade
                 </Link>
@@ -264,7 +262,7 @@ export default function RegisterPage() {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full btn-tech-primary py-3 rounded-xl mt-6 group cursor-pointer flex items-center justify-center text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-600/25"
+            className="w-full dash-btn-primary py-3 mt-6 group cursor-pointer flex items-center justify-center text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
           >
             {loading ? (
               <span className="flex items-center gap-2">
@@ -274,12 +272,12 @@ export default function RegisterPage() {
             ) : verificationRequired ? (
               <>
                 <span>Confirmar Código e Criar Conta</span>
-                <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                <ArrowRight size={15} className="ml-2 group-hover:translate-x-1 transition-transform" />
               </>
             ) : (
               <>
                 <span>Enviar Código de Confirmação</span>
-                <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                <ArrowRight size={15} className="ml-2 group-hover:translate-x-1 transition-transform" />
               </>
             )}
           </button>
@@ -288,10 +286,10 @@ export default function RegisterPage() {
         <div className="mt-6 text-center pt-4 border-t border-white/[0.06]">
           <Link 
             href="/login"
-            className="text-xs font-medium text-slate-400 hover:text-purple-300 transition-colors"
+            className="text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:underline"
           >
             Já tem uma conta?{' '}
-            <span className="text-purple-400 font-semibold underline underline-offset-4">
+            <span className="text-emerald-400 font-medium underline underline-offset-4">
               Entre aqui
             </span>
           </Link>

@@ -1248,14 +1248,13 @@ export default function Dashboard() {
 
   if (!isHydrated) {
     return (
-      <div className="min-h-screen bg-[#08090D] flex items-center justify-center relative selection:bg-purple-500/30">
-        <div className="glow-ambient" />
+      <div className="min-h-screen bg-[#08090D] flex items-center justify-center relative selection:bg-emerald-500/20">
         <div className="flex flex-col items-center gap-4 z-10">
-          <div className="w-10 h-10 rounded-2xl overflow-hidden shadow-lg shadow-purple-500/25 border border-purple-500/30 flex items-center justify-center bg-purple-950/30">
-            <Image src="/logo.png" alt="Logo" width={40} height={40} priority className="w-full h-full object-cover" />
+          <div className="w-11 h-11 rounded-2xl overflow-hidden border border-white/[0.12] bg-[#0E1017] p-0.5 flex items-center justify-center">
+            <Image src="/logo.png" alt="Logo" width={40} height={40} priority className="w-full h-full object-cover rounded-xl" />
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-            <RefreshCw size={13} className="animate-spin text-purple-400" />
+          <div className="flex items-center gap-2 text-xs font-mono tabular-nums text-slate-400">
+            <RefreshCw size={13} className="animate-spin text-emerald-400" />
             <span>Carregando painel...</span>
           </div>
         </div>
@@ -1264,68 +1263,65 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#08090D] text-slate-100 flex flex-col md:flex-row relative selection:bg-purple-500/30 selection:text-purple-200">
+    <div className="min-h-screen bg-[#08090D] text-slate-100 flex flex-col md:flex-row relative selection:bg-emerald-500/20 selection:text-emerald-200">
       
-      {/* Luz ambiente difusa no topo */}
-      <div className="glow-ambient" />
-
       {/* Barra de Notificações Toast */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-3">
         {toasts.map(t => (
           <div 
             key={t.id} 
             className={`pointer-events-auto p-3.5 rounded-2xl text-xs font-medium backdrop-blur-2xl shadow-2xl flex items-center gap-2.5 animate-in slide-in-from-bottom-2 border ${
-              t.type === 'success' ? 'bg-emerald-950/80 text-emerald-200 border-emerald-500/30' : 
-              t.type === 'error' ? 'bg-red-950/80 text-red-200 border-red-500/30' : 
-              'bg-purple-950/80 text-purple-200 border-purple-500/30'
+              t.type === 'success' ? 'bg-[#0E1612]/95 text-emerald-200 border-emerald-500/30' : 
+              t.type === 'error' ? 'bg-[#180E10]/95 text-rose-200 border-rose-500/30' : 
+              'bg-[#0E1017]/95 text-slate-200 border-white/[0.1]'
             }`}
           >
             {t.type === 'success' && <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />}
-            {t.type === 'error' && <AlertCircle size={16} className="text-red-400 shrink-0" />}
-            {t.type === 'info' && <Info size={16} className="text-purple-400 shrink-0" />}
+            {t.type === 'error' && <AlertCircle size={16} className="text-rose-400 shrink-0" />}
+            {t.type === 'info' && <Info size={16} className="text-slate-300 shrink-0" />}
             <span>{t.message}</span>
           </div>
         ))}
       </div>
 
       {/* Header Mobile Minimalista */}
-      <header className="md:hidden flex items-center justify-between p-4 glass-panel border-b border-white/[0.06] sticky top-0 z-30">
+      <header className="md:hidden flex items-center justify-between p-4 bg-[#090B10] border-b border-white/[0.08] sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl overflow-hidden shadow-md shadow-purple-500/20 border border-purple-500/30">
-            <Image src="/logo.png" alt="Logo" width={32} height={32} priority className="w-full h-full object-cover" />
+          <div className="w-8 h-8 rounded-xl overflow-hidden border border-white/[0.1] bg-[#0E1017] p-0.5">
+            <Image src="/logo.png" alt="Logo" width={32} height={32} priority className="w-full h-full object-cover rounded-lg" />
           </div>
-          <span className="font-bold text-sm tracking-tight text-white">Disparador</span>
+          <span className="font-semibold text-sm tracking-tight text-white">Disparador</span>
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
-          className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+          className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
           aria-label="Abrir menu"
         >
           {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </header>
 
-      {/* Sidebar Desktop Minimalista e Translúcida */}
+      {/* Sidebar Desktop Minimalista */}
       <aside className={`
-        fixed inset-y-0 left-0 z-40 w-64 glass-panel border-r border-white/[0.06] flex flex-col justify-between p-5 transition-transform duration-300 md:translate-x-0 md:sticky md:top-0 md:h-screen shrink-0 overflow-y-auto
+        fixed inset-y-0 left-0 z-40 w-64 bg-[#090B10] border-r border-white/[0.08] flex flex-col justify-between p-5 transition-transform duration-300 md:translate-x-0 md:sticky md:top-0 md:h-screen shrink-0 overflow-y-auto
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-6 px-2">
-            <div className="w-9 h-9 rounded-2xl overflow-hidden shadow-lg shadow-purple-500/25 border border-purple-500/30">
-              <Image src="/logo.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover" />
+            <div className="w-9 h-9 rounded-2xl overflow-hidden border border-white/[0.12] bg-[#0E1017] p-0.5">
+              <Image src="/logo.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover rounded-xl" />
             </div>
             <div>
-              <span className="font-bold text-sm tracking-tight text-white block">Disparador</span>
-              <span className="text-[10px] text-purple-400 font-mono">PROSPECTOR SAAS</span>
+              <span className="font-semibold text-sm tracking-tight text-white block">Disparador</span>
+              <span className="text-[10px] text-emerald-400 font-mono tracking-wider">PLATAFORMA SAAS</span>
             </div>
           </div>
 
           {/* Card da Empresa / Workspace ({minhaEmpresa}) */}
-          <div className="mb-5 p-2.5 rounded-2xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-between gap-2">
+          <div className="mb-5 p-2.5 rounded-2xl bg-white/[0.02] border border-white/[0.08] flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 overflow-hidden min-w-0">
-              <div className="w-7 h-7 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                 <Building2 size={13} />
               </div>
               <div className="overflow-hidden min-w-0">
@@ -1341,7 +1337,7 @@ export default function Dashboard() {
                 setEditingWorkspaceName(workspaceName || '');
                 setIsWorkspaceModalOpen(true);
               }}
-              className="p-1.5 text-slate-400 hover:text-purple-300 hover:bg-white/[0.06] rounded-xl transition-colors cursor-pointer shrink-0"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-xl transition-colors cursor-pointer shrink-0 focus-visible:outline-none"
               title="Editar nome da empresa"
             >
               <Edit2 size={13} />
@@ -1355,17 +1351,17 @@ export default function Dashboard() {
                 setActiveTab('campaigns');
                 setIsMobileMenuOpen(false);
               }}
-              className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
+              className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                 activeTab === 'campaigns'
-                  ? 'bg-white/[0.08] border border-white/[0.1] text-white shadow-inner'
+                  ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
                   : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
               }`}
             >
               <div className="flex items-center gap-3">
-                <Activity size={16} className={activeTab === 'campaigns' ? 'text-purple-400' : 'text-slate-500'} />
+                <Activity size={15} className={activeTab === 'campaigns' ? 'text-emerald-400' : 'text-slate-500'} />
                 <span>Minhas Campanhas</span>
               </div>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-400">
+              <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-300">
                 {campaigns.length}
               </span>
             </button>
@@ -1376,18 +1372,18 @@ export default function Dashboard() {
                 setIsMobileMenuOpen(false);
                 fetchHistory(1, historySearch);
               }}
-              className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
+              className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                 activeTab === 'history'
-                  ? 'bg-white/[0.08] border border-white/[0.1] text-white shadow-inner'
+                  ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
                   : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
               }`}
             >
               <div className="flex items-center gap-3">
-                <History size={16} className={activeTab === 'history' ? 'text-purple-400' : 'text-slate-500'} />
+                <History size={15} className={activeTab === 'history' ? 'text-emerald-400' : 'text-slate-500'} />
                 <span>Histórico de Contatos</span>
               </div>
               {historyStats.totalCompanies > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
                   {historyStats.totalCompanies}
                 </span>
               )}
@@ -1400,17 +1396,17 @@ export default function Dashboard() {
                   setActiveTab('admin');
                   setIsMobileMenuOpen(false);
                 }}
-                className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
+                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                   activeTab === 'admin'
-                    ? 'bg-purple-600/20 border border-purple-500/40 text-purple-200 shadow-inner'
+                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
                     : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <ShieldCheck size={16} className={activeTab === 'admin' ? 'text-purple-400' : 'text-slate-500'} />
+                  <ShieldCheck size={15} className={activeTab === 'admin' ? 'text-emerald-400' : 'text-slate-500'} />
                   <span>Painel Admin</span>
                 </div>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/25 text-purple-300">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
                   ADMIN
                 </span>
               </button>
@@ -1418,16 +1414,16 @@ export default function Dashboard() {
 
             <button
               onClick={() => setIsTutorialOpen(true)}
-              className="w-full px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer"
+              className="w-full px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
-              <BookOpen size={16} className="text-slate-500" />
+              <BookOpen size={15} className="text-slate-500" />
               <span>Tutorial Apify</span>
             </button>
           </nav>
         </div>
 
         {/* Perfil & Logout */}
-        <div className="pt-4 border-t border-white/[0.06] space-y-3">
+        <div className="pt-4 border-t border-white/[0.08] space-y-3">
           <div className="px-2">
             <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono block mb-1">CONTA</span>
             <div className="flex items-center justify-between gap-1">
@@ -1435,8 +1431,8 @@ export default function Dashboard() {
               {!user ? (
                 <div className="h-4 w-12 bg-white/[0.06] rounded animate-pulse shrink-0" />
               ) : user.role === 'ADMIN' ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/30 text-purple-300 text-[10px] font-bold shrink-0">
-                  <Crown size={10} className="text-purple-400" />
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.08] border border-white/[0.12] text-emerald-400 text-[10px] font-bold shrink-0">
+                  <Crown size={10} className="text-emerald-400" />
                   VIP
                 </span>
               ) : user.subscriptionStatus === 'ACTIVE' ? (
@@ -1447,7 +1443,7 @@ export default function Dashboard() {
               ) : (
                 <button
                   onClick={() => setIsSubscriptionModalOpen(true)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold shrink-0 hover:bg-amber-500/20 cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold shrink-0 hover:bg-amber-500/20 cursor-pointer focus-visible:outline-none"
                 >
                   <AlertTriangle size={10} className="text-amber-400" />
                   Renovar
@@ -1461,7 +1457,7 @@ export default function Dashboard() {
               logout();
               router.push('/login');
             }} 
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-red-300 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer focus-visible:outline-none"
           >
             <LogOut size={14} />
             <span>Encerrar Sessão</span>
@@ -1474,14 +1470,14 @@ export default function Dashboard() {
         
         {/* Banner de Regularização de Conta Necessária */}
         {verificationRequiredMessage && (
-          <div className="glass-panel rounded-2xl p-4 border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in">
+          <div className="glass-panel rounded-2xl p-4 border border-amber-500/40 bg-amber-500/10 flex flex sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                <AlertCircle size={20} />
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                <AlertCircle size={18} />
               </div>
               <div>
-                <h3 className="text-xs sm:text-sm font-bold text-white">Regularização de Conta Necessária</h3>
-                <p className="text-[11px] text-amber-300/90">{verificationRequiredMessage}</p>
+                <h3 className="text-xs sm:text-sm font-semibold text-white">Regularização de Conta Necessária</h3>
+                <p className="text-[11px] text-amber-300/90 font-normal">{verificationRequiredMessage}</p>
               </div>
             </div>
             <button
@@ -1489,7 +1485,7 @@ export default function Dashboard() {
                 logout();
                 router.push('/register');
               }}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition-all shrink-0 cursor-pointer"
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-xl shadow-sm transition-all shrink-0 cursor-pointer focus-visible:outline-none"
             >
               Regularizar no Cadastre-se →
             </button>
@@ -1498,21 +1494,21 @@ export default function Dashboard() {
 
         {/* Banner de Assinatura Inativa / Vencida */}
         {user && user.role !== 'ADMIN' && user.subscriptionStatus !== 'ACTIVE' && (
-          <div className="glass-panel rounded-2xl p-4 border border-amber-500/30 bg-amber-500/[0.06] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="dash-card rounded-2xl p-4 border border-amber-500/30 bg-amber-500/[0.04] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
                 <CreditCard size={18} />
               </div>
               <div>
-                <h3 className="text-xs sm:text-sm font-bold text-white">Sua assinatura está inativa ou expirada</h3>
-                <p className="text-[11px] text-slate-400">Ative seu plano para liberar a conexão do WhatsApp, importação de leads e disparos.</p>
+                <h3 className="text-xs sm:text-sm font-semibold text-white">Sua assinatura está inativa ou expirada</h3>
+                <p className="text-[11px] text-slate-400 font-normal">Ative seu plano para liberar a conexão do WhatsApp, importação de leads e disparos.</p>
               </div>
             </div>
             <a
               href="https://pay.cakto.com.br/at474et_1080517"
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-primary-dark px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 shrink-0 cursor-pointer"
+              className="dash-btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-2 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <Zap size={14} />
               <span>Assinar Plano Mensal</span>
@@ -1523,17 +1519,17 @@ export default function Dashboard() {
         {/* Top Header com Botão de Ação */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Visão Geral</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white">Visão Geral</h1>
             <div className="flex items-center gap-2 flex-wrap mt-1">
-              <p className="text-xs text-slate-400">Gerencie suas campanhas de prospecção com automação e segurança anti-bloqueio.</p>
+              <p className="text-xs text-slate-400 font-normal">Gerencie suas campanhas de prospecção com cadência humana programada e automação na nuvem.</p>
               {lastSyncTime && (
-                <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5 bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/[0.08]">
+                <span className="text-[10px] text-slate-400 font-mono tabular-nums flex items-center gap-1.5 bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/[0.08]">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                   Atualizado às {new Date(lastSyncTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
               )}
               {syncError && (
-                <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20" title={syncError}>
+                <span className="text-[10px] text-amber-400 font-mono tabular-nums flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20" title={syncError}>
                   <AlertCircle size={11} />
                   Aviso de conexão
                 </span>
@@ -1543,14 +1539,14 @@ export default function Dashboard() {
           <div className="flex items-center gap-2.5">
             <button 
               onClick={() => setIsTutorialOpen(true)}
-              className="btn-secondary-dark px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+              className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
-              <HelpCircle size={14} className="text-purple-400" />
+              <HelpCircle size={14} className="text-emerald-400" />
               <span>Como extrair leads</span>
             </button>
             <button 
               onClick={openNewCampaignModal}
-              className="btn-primary-dark px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+              className="dash-btn-primary px-4 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <Plus size={15} />
               <span>Nova Campanha</span>
@@ -1558,22 +1554,22 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Status do WhatsApp Minimalista com LED Neon */}
-        <section className="glass-panel rounded-3xl p-5 border border-white/[0.08] relative overflow-hidden">
+        {/* Status do WhatsApp Minimalista com LED */}
+        <section className="dash-card rounded-2xl p-5 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${
                 waStatus?.status === 'CONNECTED' 
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.2)]' 
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
                   : waStatus?.status === 'QRCODE'
-                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                   : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
               }`}>
                 <Smartphone size={20} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-bold text-sm sm:text-base text-white">WhatsApp de Disparo</h2>
+                  <h2 className="font-semibold text-sm sm:text-base text-white">WhatsApp de Disparo</h2>
                   <span className="relative flex h-2 w-2">
                     {waStatus?.status === 'CONNECTED' && (
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1584,9 +1580,9 @@ export default function Dashboard() {
                     }`}></span>
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-400 mt-0.5 font-normal">
                   {waStatus?.status === 'CONNECTED' 
-                    ? 'Conexão ativa e segura na VPS com simulação humana' 
+                    ? 'Conexão ativa e estável na nuvem com simulação de ritmo humano' 
                     : waStatus?.status === 'QRCODE' 
                     ? 'Aguardando leitura do QR Code no aplicativo' 
                     : 'Nenhum número pareado no momento'}
@@ -1599,9 +1595,9 @@ export default function Dashboard() {
                 <button
                   onClick={handleConnect}
                   disabled={connecting}
-                  className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="dash-btn-primary px-4 py-2 text-xs cursor-pointer flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 >
-                  {connecting ? <RefreshCw size={15} className="animate-spin" /> : <QrCode size={15} />}
+                  {connecting ? <RefreshCw size={14} className="animate-spin" /> : <QrCode size={14} />}
                   <span>{connecting ? 'Iniciando...' : 'Conectar WhatsApp'}</span>
                 </button>
               )}
@@ -1610,7 +1606,7 @@ export default function Dashboard() {
                   <button
                     onClick={handleConnect}
                     disabled={connecting}
-                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs cursor-pointer text-purple-300 border-purple-500/30 hover:bg-purple-500/10 disabled:opacity-60 flex items-center gap-1.5"
+                    className="dash-btn-secondary px-3 py-1.5 text-xs cursor-pointer text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/10 disabled:opacity-60 flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                   >
                     {connecting && <RefreshCw size={12} className="animate-spin" />}
                     🔄 Atualizar QR
@@ -1618,7 +1614,7 @@ export default function Dashboard() {
                   <button
                     onClick={handleDisconnect}
                     disabled={connecting}
-                    className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors cursor-pointer disabled:opacity-60"
+                    className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors cursor-pointer disabled:opacity-60 focus-visible:outline-none"
                   >
                     Cancelar
                   </button>
@@ -1628,7 +1624,7 @@ export default function Dashboard() {
                 <button
                   onClick={handleDisconnect}
                   disabled={connecting}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5 focus-visible:outline-none"
                 >
                   {connecting && <RefreshCw size={12} className="animate-spin" />}
                   {connecting ? 'Desconectando...' : 'Desconectar'}
@@ -1639,15 +1635,15 @@ export default function Dashboard() {
 
           {/* Exibição do QR Code ou Código de Pareamento quando em processo de conexão */}
           {waStatus?.status === 'QRCODE' && (
-            <div className="mt-5 pt-5 border-t border-white/[0.06] flex flex-col items-center justify-center animate-in fade-in">
+            <div className="mt-5 pt-5 border-t border-white/[0.08] flex flex-col items-center justify-center animate-in fade-in">
               {/* Abas de Alternância: QR Code vs Código por Número */}
               <div className="flex items-center p-1 bg-white/[0.04] border border-white/[0.08] rounded-xl mb-4">
                 <button
                   type="button"
                   onClick={() => setPairingMode('qr')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 focus-visible:outline-none ${
                     pairingMode === 'qr'
-                      ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-sm'
+                      ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -1657,9 +1653,9 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setPairingMode('code')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 focus-visible:outline-none ${
                     pairingMode === 'code'
-                      ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-sm'
+                      ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -1670,7 +1666,7 @@ export default function Dashboard() {
 
               {pairingMode === 'qr' && waStatus.qrCode && (
                 <div className="flex flex-col items-center">
-                  <div className="p-3 bg-white rounded-2xl shadow-2xl border border-white/20">
+                  <div className="p-3 bg-white rounded-2xl shadow-xl border border-white/20">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img 
                       src={waStatus.qrCode} 
@@ -1678,14 +1674,14 @@ export default function Dashboard() {
                       className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl object-contain"
                     />
                   </div>
-                  <p className="text-xs text-slate-400 mt-3 text-center max-w-sm">
+                  <p className="text-xs text-slate-400 mt-3 text-center max-w-sm font-normal">
                     Abra o WhatsApp no celular ➔ <b>Aparelhos Conectados</b> ➔ <b>Conectar um aparelho</b> e aponte a câmera.
                   </p>
                 </div>
               )}
 
               {pairingMode === 'code' && (
-                <div className="w-full max-w-sm bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 flex flex-col items-center">
+                <div className="w-full max-w-sm bg-white/[0.02] border border-white/[0.08] rounded-2xl p-4 flex flex-col items-center">
                   {!pairingCode ? (
                     <form onSubmit={handleRequestPairingCode} className="w-full space-y-3">
                       <div>
@@ -1706,18 +1702,18 @@ export default function Dashboard() {
                               setPairingPhone(`(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`);
                             }
                           }}
-                          className="w-full px-3 py-2 text-sm rounded-xl bg-black/40 border border-white/[0.1] text-white focus:border-purple-500 focus:outline-none placeholder:text-slate-600 font-mono"
+                          className="w-full px-3 py-2 text-sm rounded-xl dash-input placeholder:text-slate-600 font-mono tabular-nums"
                         />
                       </div>
                       <button
                         type="submit"
                         disabled={isPairingLoading}
-                        className="btn-primary-dark w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                        className="dash-btn-primary w-full py-2 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                       >
                         {isPairingLoading && <RefreshCw size={13} className="animate-spin" />}
                         <span>{isPairingLoading ? 'Gerando Código...' : 'Gerar Código de Pareamento'}</span>
                       </button>
-                      <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                      <p className="text-[11px] text-slate-500 text-center leading-relaxed font-normal">
                         Não precisa de câmera. Você receberá um código de 8 dígitos para digitar no aplicativo do WhatsApp.
                       </p>
                     </form>
@@ -1725,7 +1721,7 @@ export default function Dashboard() {
                     <div className="w-full flex flex-col items-center space-y-3">
                       <span className="text-xs text-slate-400">Digite este código no seu WhatsApp:</span>
                       <div className="flex items-center gap-2">
-                        <div className="px-5 py-3 rounded-2xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-2xl sm:text-3xl font-mono font-bold tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.25)] select-all">
+                        <div className="px-5 py-3 rounded-2xl bg-white/[0.04] border border-white/[0.12] text-emerald-400 text-2xl sm:text-3xl font-mono tabular-nums font-bold tracking-widest select-all">
                           {pairingCode}
                         </div>
                         <button
@@ -1736,13 +1732,13 @@ export default function Dashboard() {
                               addToast('success', 'Código copiado para a área de transferência!');
                             }
                           }}
-                          className="p-3 rounded-2xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-300 hover:text-white transition-all cursor-pointer"
+                          className="p-3 rounded-2xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] text-slate-300 hover:text-white transition-all cursor-pointer focus-visible:outline-none"
                           title="Copiar código"
                         >
-                          <Copy size={18} />
+                          <Copy size={17} />
                         </button>
                       </div>
-                      <div className="text-[11px] text-slate-400 text-center space-y-1 bg-black/30 p-3 rounded-xl border border-white/[0.05] w-full">
+                      <div className="text-[11px] text-slate-400 text-center space-y-1 bg-white/[0.02] p-3 rounded-xl border border-white/[0.05] w-full font-normal">
                         <p>1. No WhatsApp do celular, vá em <b>Aparelhos Conectados</b></p>
                         <p>2. Toque em <b>Conectar um aparelho</b></p>
                         <p>3. Toque em <b>Conectar com número de telefone</b> (no rodapé)</p>
@@ -1751,7 +1747,7 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setPairingCode(null)}
-                        className="text-xs text-purple-400 hover:text-purple-300 underline cursor-pointer mt-1"
+                        className="text-xs text-emerald-400 hover:text-emerald-300 underline cursor-pointer mt-1 focus-visible:outline-none"
                       >
                         Gerar outro código / Mudar número
                       </button>
@@ -1763,20 +1759,20 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Navegação por Abas: Campanhas x Histórico de Disparos */}
+        {/* Navegação por Abas: Campanhas x Histórico x Admin */}
         <div className="flex items-center gap-2 border-b border-white/[0.08] pb-1">
           <button
             type="button"
             onClick={() => setActiveTab('campaigns')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
               activeTab === 'campaigns'
-                ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
             }`}
           >
-            <Layers size={15} />
+            <Layers size={14} className={activeTab === 'campaigns' ? 'text-emerald-400' : 'text-slate-500'} />
             <span>Minhas Campanhas</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white/[0.08] text-slate-300 font-mono">
+            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white/[0.08] text-slate-300 font-mono tabular-nums">
               {campaigns.length}
             </span>
           </button>
@@ -1787,16 +1783,16 @@ export default function Dashboard() {
               setActiveTab('history');
               fetchHistory(1, historySearch);
             }}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
               activeTab === 'history'
-                ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
             }`}
           >
-            <History size={15} />
-            <span>Histórico de Empresas Contatadas</span>
+            <History size={14} className={activeTab === 'history' ? 'text-emerald-400' : 'text-slate-500'} />
+            <span>Histórico de Contatos</span>
             {historyStats.totalCompanies > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/20 text-purple-300 font-mono">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono tabular-nums">
                 {historyStats.totalCompanies}
               </span>
             )}
@@ -1806,15 +1802,15 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => setActiveTab('admin')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                 activeTab === 'admin'
-                  ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                  : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
               }`}
             >
-              <ShieldCheck size={15} />
+              <ShieldCheck size={14} className={activeTab === 'admin' ? 'text-emerald-400' : 'text-slate-500'} />
               <span>Painel Admin</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-purple-500/25 text-purple-300 font-bold">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-bold">
                 ADMIN
               </span>
             </button>
@@ -1825,240 +1821,256 @@ export default function Dashboard() {
           <>
             {/* Cards de Métricas (KPIs Globais) */}
             <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Campanhas</span>
-              <Layers size={15} className="text-purple-400" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-white">{campaigns.length}</div>
-            <div className="text-[10px] text-slate-500 mt-1 font-mono">Configuradas na conta</div>
-          </div>
-
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Total Leads</span>
-              <Users size={15} className="text-indigo-400" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-white">{totalLeadsGlobal}</div>
-            <div className="text-[10px] text-slate-500 mt-1 font-mono">Importados do Apify</div>
-          </div>
-
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Anti-Bloqueio</span>
-              <ShieldCheck size={15} className="text-emerald-400" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-emerald-400">Ativo</div>
-            <div className="text-[10px] text-slate-500 mt-1 font-mono">Delays + Pausas de lote</div>
-          </div>
-
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Servidor VPS</span>
-              <Zap size={15} className="text-amber-400" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-amber-400">24/7 Online</div>
-            <div className="text-[10px] text-slate-500 mt-1 font-mono">Execução em background</div>
-          </div>
-        </section>
-
-        {/* Lista de Campanhas */}
-        <section className="space-y-3.5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">Minhas Campanhas</h2>
-            <span className="text-xs text-slate-500 font-mono">{campaigns.length} total</span>
-          </div>
-
-          {isLoading ? (
-            <div className="grid grid-cols-1 gap-3.5" aria-busy="true" aria-label="Carregando campanhas">
-              {[0, 1, 2].map(i => (
-                <div key={i} className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.07] animate-pulse">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-2.5 flex-1">
-                      <div className="h-4 w-2/5 rounded-lg bg-white/[0.08]" />
-                      <div className="h-3 w-1/3 rounded-lg bg-white/[0.05]" />
-                      <div className="h-1.5 w-full rounded-full bg-white/[0.06]" />
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
-                      <div className="h-8 w-20 rounded-xl bg-white/[0.06]" />
-                      <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
-                    </div>
+              <div className="dash-card p-4">
+                <div className="flex items-center justify-between text-slate-400 mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Campanhas</span>
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <Layers size={13} />
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : campaigns.length === 0 ? (
-            <div className="glass-panel rounded-3xl p-10 sm:p-14 text-center border border-dashed border-white/[0.1] flex flex-col items-center">
-              <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mb-4">
-                <FileJson size={24} />
+                <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">{campaigns.length}</div>
+                <div className="text-[10px] text-slate-500 mt-1 font-mono">Configuradas na conta</div>
               </div>
-              <h3 className="text-base font-bold text-white mb-1">Nenhuma campanha criada ainda</h3>
-              <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
-                Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.
-              </p>
-              <button 
-                onClick={openNewCampaignModal}
-                className="btn-primary-dark px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-2"
-              >
-                <Plus size={15} />
-                <span>Criar Primeira Campanha</span>
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3.5">
-              {campaigns.map(camp => (
-                <div 
-                  key={camp.id} 
-                  className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.07] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <h3 className="font-bold text-sm sm:text-base text-white">{camp.name}</h3>
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
-                          camp.status === 'RUNNING' 
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 animate-pulse' 
-                            : camp.status === 'COMPLETED'
-                            ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
-                            : 'bg-white/[0.05] text-slate-400 border border-white/[0.1]'
-                        }`}>
-                          {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
-                        </span>
-                    </div>
 
-                    <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
-                      <span className="flex items-center gap-1">
-                        <Users size={13} className="text-slate-500" />
-                        <b>{camp._count?.leads || 0}</b> leads
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={13} className="text-slate-500" />
-                        Delay: <b>{camp.delayMin}s - {camp.delayMax}s</b>
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-mono">
-                        {new Date(camp.createdAt).toLocaleDateString('pt-BR')}
-                      </span>
-                    </div>
+              <div className="dash-card p-4">
+                <div className="flex items-center justify-between text-slate-400 mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Total Leads</span>
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <Users size={13} />
+                  </div>
+                </div>
+                <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">{totalLeadsGlobal}</div>
+                <div className="text-[10px] text-slate-500 mt-1 font-mono">Importados do Apify</div>
+              </div>
 
-                    {/* Barra de progresso real (derivada dos status dos leads no banco) */}
-                    {statsMap[camp.id] && statsMap[camp.id].total > 0 && (statsMap[camp.id].progress > 0 || camp.status === 'RUNNING') && (
-                      <div className="pt-1 space-y-1.5">
-                        <div className="flex items-center justify-between text-[10px] font-mono">
-                          <span className="text-slate-400">
-                            <span className="text-emerald-400">{statsMap[camp.id].sent + statsMap[camp.id].replied}</span>
-                            {' '}enviados
-                            {statsMap[camp.id].replied > 0 && (
-                              <> · <span className="text-purple-400">{statsMap[camp.id].replied}</span> respostas</>
-                            )}
-                            {statsMap[camp.id].error > 0 && (
-                              <> · <span className="text-red-400">{statsMap[camp.id].error}</span> erros</>
-                            )}
-                          </span>
-                          <span className="text-slate-500">
-                            {statsMap[camp.id].progress}%
-                            {camp.status === 'RUNNING' && 
-                             statsMap[camp.id].estimatedSecondsRemaining !== null && 
-                             (
-                              <> · restam {formatEta(statsMap[camp.id].estimatedSecondsRemaining!)}</>
-                            )}
-                          </span>
+              <div className="dash-card p-4">
+                <div className="flex items-center justify-between text-slate-400 mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Anti-Bloqueio</span>
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <ShieldCheck size={13} />
+                  </div>
+                </div>
+                <div className="text-xl sm:text-2xl font-bold text-emerald-400">Ativo</div>
+                <div className="text-[10px] text-slate-500 mt-1 font-mono">Delays + Pausas de lote</div>
+              </div>
+
+              <div className="dash-card p-4">
+                <div className="flex items-center justify-between text-slate-400 mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Servidor VPS</span>
+                  <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <Zap size={13} />
+                  </div>
+                </div>
+                <div className="text-xl sm:text-2xl font-bold text-amber-400">24/7 Online</div>
+                <div className="text-[10px] text-slate-500 mt-1 font-mono">Execução em background</div>
+              </div>
+            </section>
+
+            {/* Lista de Campanhas */}
+            <section className="space-y-3.5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold tracking-wide text-slate-200">Minhas Campanhas</h2>
+                <span className="text-xs text-slate-500 font-mono tabular-nums">{campaigns.length} total</span>
+              </div>
+
+              {isLoading ? (
+                <div className="grid grid-cols-1 gap-3.5" aria-busy="true" aria-label="Carregando campanhas">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="dash-card p-4 sm:p-5 animate-pulse">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="space-y-2.5 flex-1">
+                          <div className="h-4 w-2/5 rounded-lg bg-white/[0.08]" />
+                          <div className="h-3 w-1/3 rounded-lg bg-white/[0.05]" />
+                          <div className="h-1.5 w-full rounded-full bg-white/[0.06]" />
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-700 ${
-                              camp.status === 'RUNNING' ? 'bg-gradient-to-r from-purple-500 to-emerald-400' : 'bg-purple-500/60'
-                            }`}
-                            style={{ width: `${statsMap[camp.id].progress}%` }}
-                          />
+                        <div className="flex gap-2">
+                          <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
+                          <div className="h-8 w-20 rounded-xl bg-white/[0.06]" />
+                          <div className="h-8 w-8 rounded-xl bg-white/[0.06]" />
                         </div>
                       </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    {camp.status === 'RUNNING' ? (
-                      <button
-                        onClick={() => handlePause(camp.id)}
-                        disabled={actionLoading === camp.id}
-                        className="p-2 rounded-xl text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Pausar Campanha"
-                      >
-                        {actionLoading === camp.id ? <RefreshCw size={16} className="animate-spin" /> : <Pause size={16} />}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleStart(camp.id)}
-                        disabled={camp.status === 'STARTING' || waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
-                        className="btn-primary-dark p-2 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Iniciar Campanha'}
-                      >
-                        {actionLoading === camp.id ? <RefreshCw size={16} className="animate-spin" /> : <Play size={16} />}
-                      </button>
-                    )}
-
-                    <button 
-                      onClick={() => openCampaignDetails(camp.id)}
-                      className="btn-secondary-dark px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Eye size={14} />
-                      <span>Ver Leads</span>
-                    </button>
-
-                    <button 
-                      onClick={() => setCampaignToDelete(camp)}
-                      disabled={camp.status === 'STARTING'}
-                      className="p-2 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                      title="Excluir Campanha"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </>
-    )}
+              ) : campaigns.length === 0 ? (
+                <div className="dash-card p-10 sm:p-14 text-center border-dashed border-white/10 flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-slate-300 flex items-center justify-center mb-4">
+                    <FileJson size={22} className="text-emerald-400" />
+                  </div>
+                  <h3 className="text-base font-semibold text-white mb-1">Nenhuma campanha criada ainda</h3>
+                  <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
+                    Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.
+                  </p>
+                  <button 
+                    onClick={openNewCampaignModal}
+                    className="dash-btn-primary px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-2"
+                  >
+                    <Plus size={15} />
+                    <span>Criar Primeira Campanha</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3.5">
+                  {campaigns.map(camp => (
+                    <div 
+                      key={camp.id} 
+                      className="dash-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <h3 className="font-semibold text-sm sm:text-base text-white">{camp.name}</h3>
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
+                            camp.status === 'RUNNING' 
+                              ? 'dash-badge-emerald animate-pulse' 
+                              : camp.status === 'COMPLETED'
+                              ? 'bg-white/[0.06] text-slate-200 border border-white/[0.12]'
+                              : 'dash-badge-neutral'
+                          }`}>
+                            {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                          <span className="flex items-center gap-1.5">
+                            <Users size={13} className="text-slate-500" />
+                            <b className="text-slate-300 font-mono tabular-nums">{camp._count?.leads || 0}</b> leads
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <Clock size={13} className="text-slate-500" />
+                            Delay: <b className="text-slate-300 font-mono tabular-nums">{camp.delayMin}s - {camp.delayMax}s</b>
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-mono tabular-nums">
+                            {new Date(camp.createdAt).toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+
+                        {/* Barra de progresso real (derivada dos status dos leads no banco) */}
+                        {statsMap[camp.id] && statsMap[camp.id].total > 0 && (statsMap[camp.id].progress > 0 || camp.status === 'RUNNING') && (
+                          <div className="pt-1.5 space-y-1.5 max-w-xl">
+                            <div className="flex items-center justify-between text-[11px] font-mono tabular-nums">
+                              <span className="text-slate-400">
+                                <span className="text-emerald-400 font-semibold">{statsMap[camp.id].sent + statsMap[camp.id].replied}</span>
+                                {' '}enviados
+                                {statsMap[camp.id].replied > 0 && (
+                                  <> · <span className="text-emerald-300 font-semibold">{statsMap[camp.id].replied}</span> respostas</>
+                                )}
+                                {statsMap[camp.id].error > 0 && (
+                                  <> · <span className="text-red-400 font-semibold">{statsMap[camp.id].error}</span> erros</>
+                                )}
+                              </span>
+                              <span className="text-slate-500">
+                                {statsMap[camp.id].progress}%
+                                {camp.status === 'RUNNING' && 
+                                 statsMap[camp.id].estimatedSecondsRemaining !== null && 
+                                 (
+                                  <> · restam {formatEta(statsMap[camp.id].estimatedSecondsRemaining!)}</>
+                                )}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-700 ${
+                                  camp.status === 'RUNNING' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.35)]' : 'bg-white/30'
+                                }`}
+                                style={{ width: `${statsMap[camp.id].progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        {camp.status === 'RUNNING' ? (
+                          <button
+                            onClick={() => handlePause(camp.id)}
+                            disabled={actionLoading === camp.id}
+                            className="p-2.5 rounded-xl text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/20 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
+                            title="Pausar Campanha"
+                          >
+                            {actionLoading === camp.id ? <RefreshCw size={15} className="animate-spin" /> : <Pause size={15} />}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleStart(camp.id)}
+                            disabled={camp.status === 'STARTING' || waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
+                            className="dash-btn-primary p-2.5 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Iniciar Campanha'}
+                          >
+                            {actionLoading === camp.id ? <RefreshCw size={15} className="animate-spin" /> : <Play size={15} />}
+                          </button>
+                        )}
+
+                        <button 
+                          onClick={() => openCampaignDetails(camp.id)}
+                          className="dash-btn-secondary px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Eye size={14} />
+                          <span>Ver Leads</span>
+                        </button>
+
+                        <button 
+                          onClick={() => setCampaignToDelete(camp)}
+                          disabled={camp.status === 'STARTING'}
+                          className="p-2.5 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
+                          title="Excluir Campanha"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
 
     {/* VISÃO: HISTÓRICO DE EMPRESAS CONTATADAS */}
     {activeTab === 'history' && (
       <div className="space-y-6 animate-in fade-in">
         {/* KPIs do Histórico */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+          <div className="dash-card p-4">
             <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Contatos Únicos</span>
-              <Users size={15} className="text-purple-400" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Contatos Únicos</span>
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <Users size={13} />
+              </div>
             </div>
-            <div className="text-xl sm:text-2xl font-bold text-white">{historyStats.totalCompanies}</div>
+            <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">{historyStats.totalCompanies}</div>
             <div className="text-[10px] text-slate-500 mt-1 font-mono">Telefones únicos contatados</div>
           </div>
 
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+          <div className="dash-card p-4">
             <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Disparos Efetivados</span>
-              <Zap size={15} className="text-emerald-400" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Disparos Efetivados</span>
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <Zap size={13} />
+              </div>
             </div>
-            <div className="text-xl sm:text-2xl font-bold text-emerald-400">{historyStats.totalDispatches}</div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-400 font-mono tabular-nums">{historyStats.totalDispatches}</div>
             <div className="text-[10px] text-slate-500 mt-1 font-mono">Total de mensagens entregues</div>
           </div>
 
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+          <div className="dash-card p-4">
             <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Persistência</span>
-              <ShieldCheck size={15} className="text-indigo-400" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Persistência</span>
+              <div className="w-6 h-6 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-300">
+                <ShieldCheck size={13} />
+              </div>
             </div>
-            <div className="text-xl sm:text-2xl font-bold text-indigo-400">Permanente</div>
+            <div className="text-xl sm:text-2xl font-bold text-white">Permanente</div>
             <div className="text-[10px] text-slate-500 mt-1 font-mono">Independente de campanhas</div>
           </div>
 
-          <div className="glass-card rounded-2xl p-4 border border-white/[0.07]">
+          <div className="dash-card p-4">
             <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider">Isolamento</span>
-              <CheckCircle2 size={15} className="text-sky-400" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Isolamento</span>
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <CheckCircle2 size={13} />
+              </div>
             </div>
-            <div className="text-xl sm:text-2xl font-bold text-sky-400">100% Seguro</div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-400">100% Seguro</div>
             <div className="text-[10px] text-slate-500 mt-1 font-mono">Exclusivo do seu Workspace</div>
           </div>
         </section>
@@ -2067,8 +2079,8 @@ export default function Dashboard() {
         <section className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <History size={16} className="text-purple-400" />
+              <h2 className="text-sm font-semibold tracking-wide text-slate-200 flex items-center gap-2">
+                <History size={15} className="text-emerald-400" />
                 <span>Empresas que Já Receberam Disparos</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -2091,7 +2103,7 @@ export default function Dashboard() {
                       fetchHistory(1, historySearch);
                     }
                   }}
-                  className="w-full pl-9 pr-8 py-2 text-xs glass-input rounded-xl"
+                  className="dash-input w-full pl-9 pr-8 py-2 text-xs rounded-xl"
                 />
                 {historySearch && (
                   <button
@@ -2109,7 +2121,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => fetchHistory(1, historySearch)}
-                className="btn-secondary-dark px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="dash-btn-secondary px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shrink-0"
                 title="Pesquisar"
               >
                 <Search size={13} />
@@ -2119,10 +2131,10 @@ export default function Dashboard() {
           </div>
 
           {/* Tabela do Histórico */}
-          <div className="glass-card rounded-2xl border border-white/[0.08] overflow-hidden">
+          <div className="dash-card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-white/[0.03] border-b border-white/[0.08] text-slate-400 font-semibold">
+                <thead className="bg-white/[0.03] border-b border-white/[0.06] text-slate-400 font-semibold">
                   <tr>
                     <th className="p-3">Empresa</th>
                     <th className="p-3">Telefone</th>
@@ -2139,7 +2151,7 @@ export default function Dashboard() {
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-slate-400">
                         <div className="flex items-center justify-center gap-2">
-                          <RefreshCw size={15} className="animate-spin text-purple-400" />
+                          <RefreshCw size={15} className="animate-spin text-emerald-400" />
                           <span>Carregando histórico de disparos...</span>
                         </div>
                       </td>
@@ -2148,7 +2160,7 @@ export default function Dashboard() {
                     <tr>
                       <td colSpan={8} className="p-10 text-center text-slate-500">
                         <div className="flex flex-col items-center max-w-sm mx-auto space-y-2">
-                          <History size={28} className="text-slate-600 mb-1" />
+                          <History size={26} className="text-slate-600 mb-1" />
                           <p className="font-semibold text-slate-300">Nenhum histórico de disparo encontrado</p>
                           <p className="text-xs text-slate-500">
                             {historySearch
@@ -2164,7 +2176,7 @@ export default function Dashboard() {
                         <td className="p-3 font-semibold text-slate-200 max-w-[180px] truncate" title={item.companyTitle}>
                           {item.companyTitle}
                         </td>
-                        <td className="p-3 text-slate-300 font-mono whitespace-nowrap">
+                        <td className="p-3 text-slate-300 font-mono whitespace-nowrap tabular-nums">
                           {formatPhone(item.phone)}
                         </td>
                         <td className="p-3 text-slate-400 whitespace-nowrap">
@@ -2174,7 +2186,7 @@ export default function Dashboard() {
                                 href={item.website.startsWith('http') ? item.website : `https://${item.website}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded font-medium border border-emerald-500/20 transition-colors"
+                                className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/15 px-2 py-0.5 rounded font-medium border border-emerald-500/20 transition-colors"
                                 title={item.website}
                               >
                                 <Globe size={11} /> Site
@@ -2189,17 +2201,17 @@ export default function Dashboard() {
                             )}
                           </div>
                         </td>
-                        <td className="p-3 text-slate-400 whitespace-nowrap font-mono text-[11px]">
+                        <td className="p-3 text-slate-400 whitespace-nowrap font-mono text-[11px] tabular-nums">
                           {new Date(item.firstSentAt).toLocaleDateString('pt-BR')}
                         </td>
-                        <td className="p-3 text-slate-300 whitespace-nowrap font-mono text-[11px]">
+                        <td className="p-3 text-slate-300 whitespace-nowrap font-mono text-[11px] tabular-nums">
                           {new Date(item.lastSentAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
                         </td>
                         <td className="p-3 text-center whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] font-mono tabular-nums ${
                             item.sendCount > 1
-                              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                              : 'bg-white/[0.06] text-slate-300 border border-white/[0.1]'
+                              ? 'dash-badge-emerald'
+                              : 'dash-badge-neutral'
                           }`}>
                             {item.sendCount}x
                           </span>
@@ -2212,10 +2224,10 @@ export default function Dashboard() {
                             <button
                               type="button"
                               onClick={() => setSelectedHistoryMessage(item)}
-                              className="btn-secondary-dark px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1.5 hover:text-purple-300 hover:border-purple-500/40 cursor-pointer"
+                              className="dash-btn-secondary px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1.5 cursor-pointer"
                               title="Visualizar última mensagem enviada"
                             >
-                              <Eye size={12} className="text-purple-400" />
+                              <Eye size={12} className="text-emerald-400" />
                               <span>Ver Mensagem</span>
                             </button>
                           ) : (
@@ -2231,8 +2243,8 @@ export default function Dashboard() {
 
             {/* Paginação */}
             {historyPagination.totalPages > 1 && (
-              <div className="p-3 bg-white/[0.02] border-t border-white/[0.08] flex items-center justify-between text-xs text-slate-400">
-                <div>
+              <div className="p-3 bg-white/[0.02] border-t border-white/[0.06] flex items-center justify-between text-xs text-slate-400">
+                <div className="font-mono tabular-nums">
                   Mostrando página <b className="text-slate-200">{historyPagination.page}</b> de{' '}
                   <b className="text-slate-200">{historyPagination.totalPages}</b> ({historyPagination.total} contatos)
                 </div>
@@ -2241,7 +2253,7 @@ export default function Dashboard() {
                     type="button"
                     disabled={historyPagination.page <= 1 || historyLoading}
                     onClick={() => fetchHistory(historyPagination.page - 1, historySearch)}
-                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="dash-btn-secondary px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft size={13} />
                     <span>Anterior</span>
@@ -2250,7 +2262,7 @@ export default function Dashboard() {
                     type="button"
                     disabled={historyPagination.page >= historyPagination.totalPages || historyLoading}
                     onClick={() => fetchHistory(historyPagination.page + 1, historySearch)}
-                    className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="dash-btn-secondary px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <span>Próxima</span>
                     <ChevronRight size={13} />
@@ -2276,16 +2288,16 @@ export default function Dashboard() {
       {/* Modal: Nova Campanha (Dark Glassmorphism) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+          <div className="dash-card border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-white">Criar Nova Campanha</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-white">Criar Nova Campanha</h2>
                 <p className="text-xs text-slate-400 mt-0.5">Importe seus leads e configure suas mensagens inteligentes.</p>
               </div>
               <button 
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <X size={18} />
               </button>
@@ -2295,9 +2307,9 @@ export default function Dashboard() {
               
               {/* Banner de Rascunho Restaurado */}
               {hasRestoredDraft && (
-                <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/25 flex items-center justify-between text-xs text-purple-200">
+                <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-xs text-emerald-200">
                   <div className="flex items-center gap-2">
-                    <Sparkles size={15} className="text-purple-400 shrink-0" />
+                    <Sparkles size={15} className="text-emerald-400 shrink-0" />
                     <span>Rascunho recuperado automaticamente do seu último preenchimento.</span>
                   </div>
                   <button
@@ -2315,7 +2327,7 @@ export default function Dashboard() {
                       setImportPreview({ loading: false, error: null, diagnostic: null });
                       addToast('info', 'Rascunho descartado com sucesso.');
                     }}
-                    className="text-purple-400 hover:text-purple-200 underline text-xs font-semibold cursor-pointer shrink-0 ml-2"
+                    className="text-emerald-400 hover:text-emerald-300 underline text-xs font-semibold cursor-pointer shrink-0 ml-2"
                   >
                     Descartar rascunho
                   </button>
@@ -2330,13 +2342,13 @@ export default function Dashboard() {
                   autoFocus
                   value={newCampaign.name}
                   onChange={e => setNewCampaign({...newCampaign, name: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-sm"
                   placeholder="Ex: Clínicas Odontológicas - São Paulo"
                 />
               </div>
 
               {/* Upload de Arquivo com Prévia em Tempo Real */}
-              <div className="glass-card p-4 rounded-2xl border border-white/[0.08] space-y-3">
+              <div className="dash-card p-4 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
                     Arquivo de Leads (.JSON ou .CSV)
@@ -2344,7 +2356,7 @@ export default function Dashboard() {
                   <button 
                     type="button" 
                     onClick={() => setIsTutorialOpen(true)}
-                    className="text-xs text-purple-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <HelpCircle size={13} /> Como gerar?
                   </button>
@@ -2355,7 +2367,7 @@ export default function Dashboard() {
                   accept=".json,.csv,text/csv,application/json"
                   required
                   onChange={e => handleFileChange(e.target.files ? e.target.files[0] : null)}
-                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 file:transition-colors cursor-pointer"
+                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border file:border-white/10 file:text-xs file:font-semibold file:bg-white/[0.08] file:text-slate-200 hover:file:bg-white/[0.12] hover:file:border-emerald-500/30 file:transition-colors cursor-pointer"
                 />
                 
                 <p className="text-[10px] text-slate-500 font-mono">
@@ -2364,8 +2376,8 @@ export default function Dashboard() {
 
                 {/* Carregando Prévia */}
                 {importPreview.loading && (
-                  <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center gap-2.5 text-xs text-purple-200">
-                    <RefreshCw size={14} className="animate-spin text-purple-400" />
+                  <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2.5 text-xs text-slate-300">
+                    <RefreshCw size={14} className="animate-spin text-emerald-400" />
                     <span>Analisando arquivo, validando números de WhatsApp e verificando histórico de recontato...</span>
                   </div>
                 )}
@@ -2382,12 +2394,12 @@ export default function Dashboard() {
                 {importPreview.diagnostic && (
                   <div className="space-y-3 pt-2 border-t border-white/[0.06]">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                      <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
                         <FileCheck size={14} className="text-emerald-400" />
                         Diagnóstico da Lista ({importPreview.diagnostic.totalRows} registros lidos)
                       </span>
                       {importPreview.diagnostic.validCount > 0 ? (
-                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono tabular-nums">
                           {importPreview.diagnostic.validCount} aptos para envio
                         </span>
                       ) : (
@@ -2401,9 +2413,9 @@ export default function Dashboard() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                         <span className="text-[10px] text-emerald-300 font-semibold block">Aptos p/ Disparo</span>
-                        <p className="text-base font-bold text-emerald-400 mt-0.5">{importPreview.diagnostic.validCount}</p>
+                        <p className="text-base font-bold text-emerald-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.validCount}</p>
                         {importPreview.diagnostic.alreadyContactedCount > 0 && (
-                          <span className="text-[9px] text-amber-300/90 block mt-0.5">
+                          <span className="text-[9px] text-amber-300/90 block mt-0.5 font-mono tabular-nums">
                             ({importPreview.diagnostic.alreadyContactedCount} com histórico)
                           </span>
                         )}
@@ -2411,16 +2423,15 @@ export default function Dashboard() {
 
                       <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
                         <span className="text-[10px] text-amber-300 font-semibold block">Duplicados</span>
-                        <p className="text-base font-bold text-amber-400 mt-0.5">{importPreview.diagnostic.duplicateCount}</p>
+                        <p className="text-base font-bold text-amber-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.duplicateCount}</p>
                         <span className="text-[9px] text-slate-400 block mt-0.5">Ignorados auto</span>
                       </div>
 
                       <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
                         <span className="text-[10px] text-rose-300 font-semibold block">Inválidos / S/ Tel</span>
-                        <p className="text-base font-bold text-rose-400 mt-0.5">{importPreview.diagnostic.invalidCount}</p>
+                        <p className="text-base font-bold text-rose-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.invalidCount}</p>
                         <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
                       </div>
-
                     </div>
 
                     {/* Amostra dos Primeiros Contatos Classificados */}
@@ -2434,20 +2445,20 @@ export default function Dashboard() {
                             <div key={idx} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-white/[0.02]">
                               <div className="flex items-center gap-2 truncate max-w-[70%]">
                                 <span className="font-semibold text-slate-200 truncate">{s.title}</span>
-                                <span className="text-slate-400 font-mono text-[10px]">{s.phone}</span>
+                                <span className="text-slate-400 font-mono text-[10px] tabular-nums">{s.phone}</span>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {s.website ? (
-                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20">
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20 font-medium">
                                     Com Site
                                   </span>
                                 ) : (
-                                  <span className="px-1.5 py-0.2 rounded bg-slate-500/10 text-slate-400 text-[9px]">
+                                  <span className="px-1.5 py-0.2 rounded bg-white/[0.05] text-slate-400 text-[9px]">
                                     Sem Site
                                   </span>
                                 )}
                                 {s.alreadyContacted && (
-                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20" title="Contato com envio anterior">
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20 font-medium" title="Contato com envio anterior">
                                     Já Contatado
                                   </span>
                                 )}
@@ -2467,7 +2478,7 @@ export default function Dashboard() {
                         <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
                           {importPreview.diagnostic.issues.map((iss, i) => (
                             <div key={i} className="text-[10px] p-1.5 rounded bg-black/30 border border-white/[0.03] flex items-start gap-2">
-                              <span className="font-mono text-purple-300 shrink-0">Linha {iss.row}:</span>
+                              <span className="font-mono text-emerald-400 shrink-0">Linha {iss.row}:</span>
                               <span className="text-slate-300">{iss.reason}</span>
                             </div>
                           ))}
@@ -2479,16 +2490,16 @@ export default function Dashboard() {
               </div>
 
               {/* Sugestões de Copys de Alta Conversão */}
-              <div className="glass-card p-4 rounded-2xl border border-purple-500/20 bg-purple-950/20">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+              <div className="dash-card p-4 rounded-2xl border border-white/[0.08] space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                     💡 Sugestões de Copys Validadas
                   </span>
-                  <span className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20">
+                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                     Clique para Inserir
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mb-3">
+                <p className="text-[11px] text-slate-400 mb-2">
                   Escreva seu próprio texto ou use uma das copys validadas abaixo:
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -2503,7 +2514,7 @@ export default function Dashboard() {
                         }));
                         addToast('info', 'Última copy usada restaurada!');
                       }}
-                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 active:scale-[0.98] transition-all cursor-pointer"
                       title="Restaurar a última abordagem personalizada que você utilizou"
                     >
                       <RefreshCw size={12} />
@@ -2517,28 +2528,28 @@ export default function Dashboard() {
                       messageSemSite: defaultSemSite,
                       messageComSite: defaultComSite
                     })}
-                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-purple-600/30 border border-white/10 hover:border-purple-500/40 text-purple-200 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 hover:border-emerald-500/40 text-slate-200 rounded-xl text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
                   >
                     🚀 Kit Completo (Com e Sem Site)
                   </button>
                   <button
                     type="button"
                     onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultSemSite })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs transition-all cursor-pointer"
+                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
                   >
                     ✨ Venda de Site (Sem Site)
                   </button>
                   <button
                     type="button"
                     onClick={() => setNewCampaign({ ...newCampaign, messageComSite: defaultComSite })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs transition-all cursor-pointer"
+                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
                   >
                     🎯 Triagem WhatsApp (Com Site)
                   </button>
                   <button
                     type="button"
                     onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultB2B })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs transition-all cursor-pointer"
+                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
                   >
                     💼 Prospecção B2B Direta
                   </button>
@@ -2555,7 +2566,7 @@ export default function Dashboard() {
                     min={10}
                     value={newCampaign.delayMin}
                     onChange={e => setNewCampaign({...newCampaign, delayMin: Number(e.target.value)})}
-                    className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                    className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-sm font-mono tabular-nums"
                   />
                   <p className="text-[10px] text-slate-500 mt-1 font-mono">Recomendado: 90s</p>
                 </div>
@@ -2567,7 +2578,7 @@ export default function Dashboard() {
                     min={10}
                     value={newCampaign.delayMax}
                     onChange={e => setNewCampaign({...newCampaign, delayMax: Number(e.target.value)})}
-                    className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                    className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-sm font-mono tabular-nums"
                   />
                   <p className="text-[10px] text-slate-500 mt-1 font-mono">Recomendado: 180s</p>
                 </div>
@@ -2577,9 +2588,9 @@ export default function Dashboard() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Mensagem Principal <span className="text-purple-400 font-bold">(Para Sem Site ou Geral)</span>
+                    Mensagem Principal <span className="text-emerald-400 font-semibold">(Para Sem Site ou Geral)</span>
                   </label>
-                  <span className="text-[10px] text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                  <span className="text-[10px] text-slate-300 bg-white/[0.06] px-2 py-0.5 rounded border border-white/[0.1]">
                     {newCampaign.messageComSite.trim() ? 'Leads Sem Site' : 'Enviada para Todos'}
                   </span>
                 </div>
@@ -2597,7 +2608,7 @@ export default function Dashboard() {
                       key={item.tag}
                       type="button"
                       onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: newCampaign.messageSemSite + item.tag })}
-                      className="px-1.5 py-0.5 bg-white/[0.05] hover:bg-purple-500/20 hover:text-purple-300 border border-white/[0.08] rounded text-[10px] font-mono text-slate-300 transition-colors cursor-pointer"
+                      className="px-2 py-0.5 bg-white/[0.04] hover:bg-emerald-500/15 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/25 rounded-md text-[10px] font-mono text-slate-300 active:scale-[0.98] transition-all cursor-pointer"
                     >
                       +{item.label}
                     </button>
@@ -2608,7 +2619,7 @@ export default function Dashboard() {
                   rows={4}
                   value={newCampaign.messageSemSite}
                   onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-xs sm:text-sm font-sans"
+                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
                   placeholder="Escreva sua mensagem personalizada ou clique em um dos modelos acima..."
                 />
               </div>
@@ -2617,7 +2628,7 @@ export default function Dashboard() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Mensagem Específica para quem <span className="text-emerald-400 font-bold">TEM SITE PRÓPRIO</span>
+                    Mensagem Específica para quem <span className="text-emerald-400 font-semibold">TEM SITE PRÓPRIO</span>
                   </label>
                   <span className="text-[10px] text-slate-400 bg-white/[0.05] px-2 py-0.5 rounded border border-white/[0.08]">
                     Opcional
@@ -2638,7 +2649,7 @@ export default function Dashboard() {
                       key={item.tag}
                       type="button"
                       onClick={() => setNewCampaign({ ...newCampaign, messageComSite: newCampaign.messageComSite + item.tag })}
-                      className="px-1.5 py-0.5 bg-white/[0.05] hover:bg-emerald-500/20 hover:text-emerald-300 border border-white/[0.08] rounded text-[10px] font-mono text-slate-300 transition-colors cursor-pointer"
+                      className="px-2 py-0.5 bg-white/[0.04] hover:bg-emerald-500/15 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/25 rounded-md text-[10px] font-mono text-slate-300 active:scale-[0.98] transition-all cursor-pointer"
                     >
                       +{item.label}
                     </button>
@@ -2649,21 +2660,21 @@ export default function Dashboard() {
                   rows={4}
                   value={newCampaign.messageComSite}
                   onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-xs sm:text-sm font-sans"
+                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
                   placeholder="Se deixar em branco, o robô enviará a mensagem principal para todos os leads..."
                 />
               </div>
 
               {/* Simulador WhatsApp Web Dark */}
               {(newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim()) && (
-                <div className="glass-card rounded-2xl border border-emerald-500/20 bg-[#0B141A]/90 p-4 space-y-3">
+                <div className="dash-card rounded-2xl border border-emerald-500/20 bg-[#0B141A]/95 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-emerald-300 text-xs font-bold">
+                      <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 text-xs font-bold">
                         WA
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-200 block">Simulador WhatsApp Web</span>
+                        <span className="text-xs font-semibold text-slate-200 block">Simulador WhatsApp Web</span>
                         <span className="text-[10px] text-emerald-400 font-mono">Disparo Real Simulado</span>
                       </div>
                     </div>
@@ -2672,7 +2683,7 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setSpintaxSeed(s => s + 1)}
-                        className="px-2 py-1 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-lg text-[10px] font-semibold text-slate-300 flex items-center gap-1 transition-colors cursor-pointer"
+                        className="px-2.5 py-1 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-lg text-[10px] font-semibold text-slate-300 flex items-center gap-1 active:scale-[0.98] transition-all cursor-pointer"
                         title="Gera uma nova variação para demonstrar a alternância dinâmica de palavras"
                       >
                         <RefreshCw size={10} className={messagePreviewLoading ? 'animate-spin' : ''} />
@@ -2686,9 +2697,9 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setMessagePreviewTab('semSite')}
-                      className={`flex-1 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                      className={`flex-1 py-1.5 rounded-lg font-medium active:scale-[0.98] transition-all cursor-pointer ${
                         messagePreviewTab === 'semSite'
-                          ? 'bg-purple-600 text-white shadow-sm'
+                          ? 'bg-white/[0.1] text-white border border-white/[0.15] shadow-sm font-semibold'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
@@ -2697,9 +2708,9 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setMessagePreviewTab('comSite')}
-                      className={`flex-1 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                      className={`flex-1 py-1.5 rounded-lg font-medium active:scale-[0.98] transition-all cursor-pointer ${
                         messagePreviewTab === 'comSite'
-                          ? 'bg-emerald-600 text-white shadow-sm'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm font-semibold'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
@@ -2752,14 +2763,14 @@ export default function Dashboard() {
                 <button 
                   type="button" 
                   onClick={() => setIsModalOpen(false)}
-                  className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                  className="dash-btn-secondary px-4 py-2 rounded-xl text-xs cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit" 
                   disabled={isSubmitting || (importPreview.diagnostic?.validCount === 0)}
-                  className="btn-primary-dark px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="dash-btn-primary px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting 
                     ? 'Criando e Importando Leads...' 
@@ -2777,16 +2788,16 @@ export default function Dashboard() {
       {/* Modal: Detalhes dos Leads da Campanha */}
       {selectedCampaignId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+          <div className="dash-card border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-white">{campaignDetails?.campaign.name || 'Detalhes da Campanha'}</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-white">{campaignDetails?.campaign.name || 'Detalhes da Campanha'}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">Acompanhamento em tempo real de disparos e respostas.</p>
               </div>
               <button
                 onClick={closeCampaignDetails}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <X size={18} />
               </button>
@@ -2796,7 +2807,7 @@ export default function Dashboard() {
               <div className="p-5 sm:p-6 space-y-4 animate-pulse" aria-busy="true" aria-label="Carregando leads">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[0, 1, 2, 3].map(i => (
-                    <div key={i} className="glass-card p-3 rounded-xl border border-white/[0.08]">
+                    <div key={i} className="dash-card p-3 rounded-xl">
                       <div className="h-2.5 w-16 rounded bg-white/[0.08]" />
                       <div className="h-6 w-10 rounded bg-white/[0.08] mt-2" />
                     </div>
@@ -2814,33 +2825,33 @@ export default function Dashboard() {
                 
                 {/* KPIs da Campanha */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
+                  <div className="dash-card p-2.5 rounded-xl">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Pendentes</span>
-                    <p className="text-base font-bold text-amber-400 mt-0.5">{campaignDetails?.counts.pending || 0}</p>
+                    <p className="text-base font-bold text-slate-300 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.pending || 0}</p>
                   </div>
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Aguardando liberação pelo agendamento ou delay entre disparos">
+                  <div className="dash-card p-2.5 rounded-xl" title="Aguardando liberação pelo agendamento ou delay entre disparos">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Na Fila</span>
-                    <p className="text-base font-bold text-indigo-400 mt-0.5">{campaignDetails?.counts.queued || 0}</p>
+                    <p className="text-base font-bold text-amber-400 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.queued || 0}</p>
                   </div>
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Aceito pelo servidor do WhatsApp (1 tick)">
+                  <div className="dash-card p-2.5 rounded-xl" title="Aceito pelo servidor do WhatsApp (1 tick)">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Enviados (1 ✓)</span>
-                    <p className="text-base font-bold text-sky-400 mt-0.5">{campaignDetails?.counts.sent || 0}</p>
+                    <p className="text-base font-bold text-sky-400 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.sent || 0}</p>
                   </div>
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Entregue no aparelho do contato (2 ticks cinzas)">
+                  <div className="dash-card p-2.5 rounded-xl" title="Entregue no aparelho do contato (2 ticks cinzas)">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Entregues (2 ✓✓)</span>
-                    <p className="text-base font-bold text-emerald-400 mt-0.5">{campaignDetails?.counts.delivered || 0}</p>
+                    <p className="text-base font-bold text-emerald-400 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.delivered || 0}</p>
                   </div>
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]" title="Lido pelo destinatário (2 ticks azuis)">
+                  <div className="dash-card p-2.5 rounded-xl" title="Lido pelo destinatário (2 ticks azuis)">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Lidos (2 ✓✓)</span>
-                    <p className="text-base font-bold text-cyan-400 mt-0.5">{campaignDetails?.counts.read || 0}</p>
+                    <p className="text-base font-bold text-cyan-400 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.read || 0}</p>
                   </div>
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
+                  <div className="dash-card p-2.5 rounded-xl">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Respondidos</span>
-                    <p className="text-base font-bold text-purple-400 mt-0.5">{campaignDetails?.counts.replied || 0}</p>
+                    <p className="text-base font-bold text-emerald-300 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.replied || 0}</p>
                   </div>
-                  <div className="glass-card p-2.5 rounded-xl border border-white/[0.08]">
+                  <div className="dash-card p-2.5 rounded-xl">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">Erros</span>
-                    <p className="text-base font-bold text-red-400 mt-0.5">{campaignDetails?.counts.error || 0}</p>
+                    <p className="text-base font-bold text-red-400 mt-0.5 font-mono tabular-nums">{campaignDetails?.counts.error || 0}</p>
                   </div>
                 </div>
 
@@ -2867,7 +2878,7 @@ export default function Dashboard() {
                         setLeadSearchTerm(e.target.value);
                         setLeadPage(1);
                       }}
-                      className="w-full pl-9 pr-3 py-2 text-xs glass-input rounded-xl"
+                      className="w-full pl-9 pr-3 py-2 text-xs dash-input rounded-xl"
                     />
                   </div>
 
@@ -2888,9 +2899,9 @@ export default function Dashboard() {
                           setLeadFilterStatus(f.key);
                           setLeadPage(1);
                         }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer shrink-0 ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap active:scale-[0.98] cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                           leadFilterStatus === f.key 
-                            ? 'bg-purple-600 text-white' 
+                            ? 'bg-white/[0.1] text-white border border-white/[0.15] font-semibold shadow-sm' 
                             : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
                         }`}
                       >
@@ -2901,10 +2912,10 @@ export default function Dashboard() {
                 </div>
 
                 {/* Tabela de Leads Dark Minimalista */}
-                <div className="glass-card rounded-2xl border border-white/[0.08] overflow-hidden">
+                <div className="dash-card overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-white/[0.03] border-b border-white/[0.08] text-slate-400 font-semibold">
+                      <thead className="bg-white/[0.03] border-b border-white/[0.06] text-slate-400 font-semibold">
                         <tr>
                           <th className="p-3">Empresa</th>
                           <th className="p-3">Telefone</th>
@@ -2939,7 +2950,7 @@ export default function Dashboard() {
                                   </div>
                                 )}
                               </td>
-                              <td className="p-3 text-slate-400 font-mono whitespace-nowrap">{lead.phone}</td>
+                              <td className="p-3 text-slate-400 font-mono whitespace-nowrap tabular-nums">{lead.phone}</td>
                               <td className="p-3 text-slate-400 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
                                   {lead.website ? (
@@ -2959,20 +2970,20 @@ export default function Dashboard() {
                               <td className="p-3 whitespace-nowrap">
                                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold text-[10px] ${
                                   lead.status === 'DELIVERED'
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    ? 'dash-badge-emerald'
                                     : lead.status === 'READ'
                                     ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
                                     : lead.status === 'SENT'
                                     ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
                                     : lead.status === 'PENDING'
-                                    ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+                                    ? 'dash-badge-neutral'
                                     : lead.status === 'QUEUED'
-                                    ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                                    ? 'dash-badge-amber'
                                     : lead.status === 'SENDING'
-                                    ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
+                                    ? 'dash-badge-amber'
                                     : lead.status === 'REPLIED'
-                                    ? 'bg-purple-500/10 text-purple-300 border border-purple-500/20'
-                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                                    : 'dash-badge-danger'
                                 }`}
                                 title={
                                   lead.status === 'SENT'
@@ -3012,7 +3023,7 @@ export default function Dashboard() {
                                 </span>
                               </td>
                               <td
-                                className="p-3 text-slate-500 text-[11px] max-w-[200px] truncate font-mono"
+                                className="p-3 text-slate-500 text-[11px] max-w-[200px] truncate font-mono tabular-nums"
                                 title={lead.errorMessage || undefined}
                               >
                                 {lead.status === 'ERROR' ? (
@@ -3036,8 +3047,8 @@ export default function Dashboard() {
 
                   {/* Paginação da Tabela de Leads */}
                   {totalFilteredLeadsCount > LEADS_PER_PAGE && (
-                    <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                      <span className="text-slate-400">
+                    <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.06] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                      <span className="text-slate-400 font-mono tabular-nums">
                         Mostrando <b className="text-slate-200">{(currentLeadPage - 1) * LEADS_PER_PAGE + 1}</b> a{' '}
                         <b className="text-slate-200">{Math.min(currentLeadPage * LEADS_PER_PAGE, totalFilteredLeadsCount)}</b> de{' '}
                         <b className="text-slate-200">{totalFilteredLeadsCount}</b> leads
@@ -3047,19 +3058,19 @@ export default function Dashboard() {
                           type="button"
                           onClick={() => setLeadPage(p => Math.max(1, p - 1))}
                           disabled={currentLeadPage <= 1}
-                          className="btn-secondary-dark px-2.5 py-1 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="dash-btn-secondary px-2.5 py-1 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <ChevronLeft size={13} />
                           <span>Anterior</span>
                         </button>
-                        <span className="px-2 font-mono text-slate-400">
+                        <span className="px-2 font-mono tabular-nums text-slate-400">
                           {currentLeadPage} / {totalLeadPages}
                         </span>
                         <button
                           type="button"
                           onClick={() => setLeadPage(p => Math.min(totalLeadPages, p + 1))}
                           disabled={currentLeadPage >= totalLeadPages}
-                          className="btn-secondary-dark px-2.5 py-1 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="dash-btn-secondary px-2.5 py-1 rounded-xl text-xs flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <span>Próxima</span>
                           <ChevronRight size={13} />
@@ -3096,7 +3107,7 @@ export default function Dashboard() {
               </div>
               <button
                 onClick={closeCampaignDetails}
-                className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                className="dash-btn-secondary px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Fechar
               </button>
@@ -3108,21 +3119,21 @@ export default function Dashboard() {
       {/* Modal Tutorial Apify (Dark Glassmorphism) */}
       {isTutorialOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+          <div className="dash-card border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
                   <BookOpen size={18} />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-white">Como Extrair Leads no Apify</h2>
+                  <h2 className="text-base font-semibold text-white">Como Extrair Leads no Apify</h2>
                   <p className="text-xs text-slate-400">Gere sua lista de contatos do Google Maps em 3 minutos.</p>
                 </div>
               </div>
               <button 
                 onClick={() => setIsTutorialOpen(false)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <X size={18} />
               </button>
@@ -3131,19 +3142,19 @@ export default function Dashboard() {
             <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1 text-xs text-slate-300">
               
               <div className="flex gap-3.5">
-                <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-6 h-6 rounded-full bg-emerald-500 text-black font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                   1
                 </div>
                 <div className="space-y-1">
                   <h3 className="font-semibold text-white text-sm">Acesse o Apify e abra o Scraper</h3>
                   <p className="text-slate-400 leading-relaxed">
-                    Acesse <a href="https://apify.com" target="_blank" rel="noreferrer" className="text-purple-400 hover:underline inline-flex items-center gap-0.5">apify.com <ExternalLink size={11} /></a> (crie conta gratuita com $5). No Store, procure por <b>&quot;Google Maps Scraper&quot;</b>.
+                    Acesse <a href="https://apify.com" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline inline-flex items-center gap-0.5">apify.com <ExternalLink size={11} /></a> (crie conta gratuita com $5). No Store, procure por <b>&quot;Google Maps Scraper&quot;</b>.
                   </p>
                 </div>
               </div>
 
               <div className="flex gap-3.5">
-                <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-6 h-6 rounded-full bg-emerald-500 text-black font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                   2
                 </div>
                 <div className="space-y-1">
@@ -3155,7 +3166,7 @@ export default function Dashboard() {
               </div>
 
               <div className="flex gap-3.5">
-                <div className="w-6 h-6 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-6 h-6 rounded-full bg-emerald-500 text-black font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                   3
                 </div>
                 <div className="space-y-1">
@@ -3171,7 +3182,7 @@ export default function Dashboard() {
             <div className="p-4 border-t border-white/[0.08] flex justify-end">
               <button 
                 onClick={() => setIsTutorialOpen(false)}
-                className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                className="dash-btn-primary px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Entendi, fechar
               </button>
@@ -3183,13 +3194,13 @@ export default function Dashboard() {
       {/* Modal: Confirmar Exclusão */}
       {campaignToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-red-500/20 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95">
+          <div className="dash-card border border-red-500/20 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center">
                 <AlertTriangle size={20} />
               </div>
               <div>
-                <h3 className="font-bold text-white text-base">Excluir Campanha</h3>
+                <h3 className="font-semibold text-white text-base">Excluir Campanha</h3>
                 <p className="text-xs text-slate-400 font-mono">Esta ação não pode ser desfeita.</p>
               </div>
             </div>
@@ -3201,14 +3212,14 @@ export default function Dashboard() {
             <div className="flex justify-end gap-2.5">
               <button 
                 onClick={() => setCampaignToDelete(null)}
-                className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                className="dash-btn-secondary px-4 py-2 rounded-xl text-xs cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={actionLoading === campaignToDelete.id}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs transition-colors cursor-pointer shadow-lg shadow-red-600/30 disabled:opacity-60 flex items-center gap-2"
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-medium rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-red-600/20 disabled:opacity-60 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
               >
                 {actionLoading === campaignToDelete.id && <RefreshCw size={13} className="animate-spin" />}
                 Sim, excluir
@@ -3221,26 +3232,26 @@ export default function Dashboard() {
       {/* Modal: Assinatura Necessária / Cakto */}
       {isSubscriptionModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-purple-500/30 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 relative">
+          <div className="dash-card border border-emerald-500/20 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 relative">
             <button 
               onClick={() => setIsSubscriptionModalOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer"
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <X size={18} />
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/30 text-purple-400 flex items-center justify-center shadow-lg shadow-purple-500/10">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/10">
                 <Crown size={24} />
               </div>
               <div>
-                <h3 className="font-bold text-white text-base">Ativação de Assinatura</h3>
+                <h3 className="font-semibold text-white text-base">Ativação de Assinatura</h3>
                 <p className="text-xs text-slate-400">Acesso ilimitado à plataforma de disparos</p>
               </div>
             </div>
 
             <div className="space-y-3 mb-6">
-              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-2">
+              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
                 <div className="flex items-center gap-2 text-xs text-slate-300">
                   <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
                   <span>Disparos inteligentes com delay anti-bloqueio</span>
@@ -3259,26 +3270,26 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="text-center p-3 rounded-2xl bg-purple-500/[0.07] border border-purple-500/20">
-                <span className="text-[11px] text-purple-300 font-medium block">Plano Mensal Recorrente</span>
-                <div className="text-2xl font-bold text-white mt-0.5">R$ 145,99 <span className="text-xs font-normal text-slate-400">/mês</span></div>
-                <span className="text-[10px] text-slate-400 block mt-1">Liberação instantânea via PIX ou Cartão</span>
+              <div className="text-center p-3 rounded-2xl bg-white/[0.02] border border-white/[0.08]">
+                <span className="text-[11px] text-slate-400 font-medium block">Plano Mensal Recorrente</span>
+                <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">R$ 145,99 <span className="text-xs font-normal text-slate-400">/mês</span></div>
+                <span className="text-[10px] text-emerald-400 block mt-1">Liberação instantânea via PIX ou Cartão</span>
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
               <a
-                href="https://pay.cakto.com.br/at474et_1080517"
+                href={CAKTO_CHECKOUT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full dash-btn-primary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Zap size={15} />
                 <span>Assinar Agora</span>
               </a>
               <button 
                 onClick={() => setIsSubscriptionModalOpen(false)}
-                className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium transition-colors cursor-pointer"
+                className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
               >
                 Talvez mais tarde
               </button>
@@ -3290,11 +3301,11 @@ export default function Dashboard() {
       {/* Modal: Visualizar Última Mensagem Enviada no Histórico */}
       {selectedHistoryMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+          <div className="dash-card border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <MessageSquare size={16} className="text-purple-400" />
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <MessageSquare size={16} className="text-emerald-400" />
                   <span>Última Mensagem Enviada</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -3303,14 +3314,14 @@ export default function Dashboard() {
               </div>
               <button
                 onClick={() => setSelectedHistoryMessage(null)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <X size={18} />
               </button>
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono tabular-nums">
                 <span>Campanha: <b className="text-slate-200">{selectedHistoryMessage.lastCampaignName || '—'}</b></span>
                 <span>Enviada em: <b className="text-slate-200">{new Date(selectedHistoryMessage.lastSentAt).toLocaleString('pt-BR')}</b></span>
               </div>
@@ -3328,7 +3339,7 @@ export default function Dashboard() {
                       addToast('success', 'Mensagem copiada para a área de transferência!');
                     }
                   }}
-                  className="btn-secondary-dark px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                  className="dash-btn-secondary px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <Copy size={13} />
                   <span>Copiar Mensagem</span>
@@ -3337,7 +3348,7 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setSelectedHistoryMessage(null)}
-                  className="btn-primary-dark px-4 py-1.5 rounded-xl text-xs cursor-pointer"
+                  className="dash-btn-primary px-4 py-1.5 rounded-xl text-xs cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -3349,19 +3360,19 @@ export default function Dashboard() {
 
       {/* Paywall Overlay Intransponível: bloqueia visualização e interação para usuários sem assinatura ativa */}
       {isHydrated && user && !isSubscriptionActive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#07080B]/95 backdrop-blur-2xl animate-in fade-in select-none">
-          <div className="w-full max-w-md tech-card rounded-3xl p-6 sm:p-8 border border-purple-500/40 shadow-2xl shadow-purple-950/50 bg-[#0C0E16] relative text-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#08090D]/95 backdrop-blur-2xl animate-in fade-in select-none">
+          <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl relative text-center">
             
             {/* Ícone de bloqueio */}
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-500/20">
-              <Lock size={26} />
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/10">
+              <Lock size={24} />
             </div>
 
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold mb-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full dash-badge-neutral text-xs font-semibold mb-2">
               <span>Assinatura Necessária</span>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
               Acesso Bloqueado
             </h2>
 
@@ -3374,18 +3385,18 @@ export default function Dashboard() {
             </p>
 
             {/* Box do Plano Oficial */}
-            <div className="my-5 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] text-left">
+            <div className="my-5 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-left">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-[11px] font-semibold text-purple-400 uppercase tracking-wider block">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
                     {OFFICIAL_PLAN.name}
                   </span>
-                  <div className="text-2xl font-black text-white mt-0.5">
+                  <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">
                     {OFFICIAL_PLAN.currency} {OFFICIAL_PLAN.price}{' '}
                     <span className="text-xs font-normal text-slate-400">{OFFICIAL_PLAN.period}</span>
                   </div>
                 </div>
-                <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
+                <div className="px-2.5 py-1 rounded-lg dash-badge-emerald font-semibold">
                   Liberação Imediata
                 </div>
               </div>
@@ -3415,7 +3426,7 @@ export default function Dashboard() {
                 href={CAKTO_CHECKOUT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full btn-tech-primary py-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 cursor-pointer"
+                className="w-full dash-btn-primary py-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Zap size={16} />
                 <span>Ativar Assinatura</span>
@@ -3425,7 +3436,7 @@ export default function Dashboard() {
                 type="button"
                 onClick={handleVerifyPayment}
                 disabled={verifyingPayment}
-                className="w-full py-3 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-purple-500/30 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full py-3 rounded-xl text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw size={14} className={verifyingPayment ? 'animate-spin' : ''} />
                 <span>{verifyingPayment ? 'Consultando servidor...' : 'Verificar Pagamento'}</span>
@@ -3437,14 +3448,14 @@ export default function Dashboard() {
                   logout();
                   router.push('/login');
                 }}
-                className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <LogOut size={13} />
                 <span>Encerrar Sessão</span>
               </button>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500">
+            <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500 font-mono">
               Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
             </div>
           </div>
@@ -3454,20 +3465,20 @@ export default function Dashboard() {
       {/* Modal: Editar Nome da Empresa ({minhaEmpresa}) */}
       {isWorkspaceModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="glass-panel bg-[#0B0D14]/95 border border-white/10 rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+          <div className="dash-card border border-white/10 rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
                   <Building2 size={16} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Nome da Empresa</h3>
+                  <h3 className="text-sm font-semibold text-white">Nome da Empresa</h3>
                   <p className="text-[11px] text-slate-400">Variável {`{minhaEmpresa}`} nos disparos</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsWorkspaceModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <X size={18} />
               </button>
@@ -3485,13 +3496,13 @@ export default function Dashboard() {
                   maxLength={100}
                   value={editingWorkspaceName}
                   onChange={e => setEditingWorkspaceName(e.target.value)}
-                  className="block w-full px-3.5 py-2.5 glass-input rounded-xl text-sm"
+                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-sm"
                   placeholder="Ex: Agência Alta Conversão"
                 />
-                <p className="text-[10px] text-slate-500 mt-1.5">Mínimo de 2 e máximo de 100 caracteres.</p>
+                <p className="text-[10px] text-slate-500 mt-1.5 font-mono">Mínimo de 2 e máximo de 100 caracteres.</p>
               </div>
 
-              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-200 leading-relaxed">
+              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-slate-300 leading-relaxed">
                 💡 <b>Como funciona:</b> A alteração será usada nas <b>próximas mensagens geradas</b> pela plataforma (inclusive de campanhas já em andamento). Mensagens que já foram enviadas pelo WhatsApp permanecem com o conteúdo original.
               </div>
 
@@ -3499,14 +3510,14 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setIsWorkspaceModalOpen(false)}
-                  className="btn-secondary-dark px-4 py-2 rounded-xl text-xs cursor-pointer"
+                  className="dash-btn-secondary px-4 py-2 rounded-xl text-xs cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={savingWorkspace || !editingWorkspaceName.trim()}
-                  className="btn-primary-dark px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className="dash-btn-primary px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {savingWorkspace ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
                   <span>{savingWorkspace ? 'Salvando...' : 'Salvar Alterações'}</span>
