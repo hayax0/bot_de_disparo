@@ -1,4 +1,4 @@
-import { Layers, Cloud, History, ShieldAlert } from "lucide-react";
+import { Layers, Cloud, History, Clock } from "lucide-react";
 
 export function SocialProofBand() {
   const trustPillars = [
@@ -9,46 +9,40 @@ export function SocialProofBand() {
     },
     {
       icon: Layers,
-      title: "Fila Inteligente de Mensagens",
-      desc: "Arquitetura com fila assíncrona que processa envio por envio com garantia de ordem e estabilidade.",
+      title: "Fila Inteligente BullMQ",
+      desc: "Processamento sequencial assíncrono com Redis, garantindo ordem exata e alta estabilidade.",
     },
     {
-      icon: ShieldAlert,
-      title: "Cadência Humana Anti-Bloqueio",
-      desc: "Delays aleatórios configuráveis para manter intervalos naturais e consistentes entre cada contato.",
+      icon: Clock,
+      title: "Cadência e Delays Naturais",
+      desc: "Intervalos configuráveis entre cada disparo para simular o comportamento de um operador humano.",
     },
     {
       icon: History,
-      title: "Histórico Permanente por Workspace",
-      desc: "Evita o constrangimento de prospectar o mesmo número repetidas vezes, mesmo em listas novas.",
+      title: "Memória por Workspace",
+      desc: "Histórico consolidado que previne contatar a mesma empresa repetidas vezes.",
     },
   ];
 
   return (
-    <section className="py-8 border-y border-white/[0.06] bg-[#0A0C14]">
+    <section className="py-10 border-y border-white/[0.06] bg-[#090B10]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
           {trustPillars.map((item, index) => {
             const Icon = item.icon;
-            const iconColors = [
-              "bg-purple-500/10 text-purple-400 border-purple-500/20",
-              "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
-              "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-              "bg-sky-500/10 text-sky-400 border-sky-500/20",
-            ];
             return (
               <div
                 key={index}
-                className="flex items-start gap-3.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-purple-500/20 transition-colors"
+                className="flex items-start gap-3.5 group"
               >
-                <div className={`p-2 rounded-lg border shrink-0 ${iconColors[index % iconColors.length]}`}>
+                <div className="p-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-emerald-400 shrink-0 group-hover:border-emerald-500/30 transition-colors">
                   <Icon size={18} />
                 </div>
-                <div className="space-y-0.5">
-                  <h3 className="text-xs sm:text-sm font-bold text-white leading-tight">
+                <div className="space-y-1">
+                  <h3 className="text-xs sm:text-sm font-semibold text-white tracking-tight">
                     {item.title}
                   </h3>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                  <p className="text-xs text-slate-400 leading-relaxed font-normal">
                     {item.desc}
                   </p>
                 </div>
@@ -60,3 +54,4 @@ export function SocialProofBand() {
     </section>
   );
 }
+

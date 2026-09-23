@@ -221,5 +221,92 @@ html.lenis, html.lenis body {
   }
 }
 
+/* ==========================================================================
+   LANDING PAGE — DESIGN SYSTEM ESCOPADO (Clean Minimalist + Apple Fluid)
+   Isolado estritamente para .landing-page, sem afetar Dashboard ou Login.
+   ========================================================================== */
 
+.landing-page {
+  background-color: #08090D;
+  color: #F1F5F9;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
 
+.landing-page .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Botões com física tátil e resposta instantânea (CSS específico, sem transition all) */
+.landing-page .landing-btn-primary {
+  background: #FFFFFF;
+  color: #08090D;
+  font-weight: 600;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  transition: transform 120ms ease-out, background-color 150ms ease, opacity 120ms ease, box-shadow 150ms ease;
+}
+
+.landing-page .landing-btn-primary:hover {
+  background: #E2E8F0;
+  box-shadow: 0 4px 16px -2px rgba(255, 255, 255, 0.2);
+}
+
+.landing-page .landing-btn-primary:active {
+  transform: scale(0.98);
+}
+
+.landing-page .landing-btn-secondary {
+  background: rgba(255, 255, 255, 0.04);
+  color: #F1F5F9;
+  font-weight: 500;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: transform 120ms ease-out, background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.landing-page .landing-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.landing-page .landing-btn-secondary:active {
+  transform: scale(0.98);
+}
+
+.landing-page .landing-btn-emerald {
+  background: #10B981;
+  color: #FFFFFF;
+  font-weight: 600;
+  border-radius: 9999px;
+  border: 1px solid rgba(16, 185, 129, 0.8);
+  box-shadow: 0 4px 16px -2px rgba(16, 185, 129, 0.3);
+  transition: transform 120ms ease-out, background-color 150ms ease, opacity 120ms ease, box-shadow 150ms ease;
+}
+
+.landing-page .landing-btn-emerald:hover {
+  background: #059669;
+  box-shadow: 0 6px 20px -2px rgba(16, 185, 129, 0.45);
+}
+
+.landing-page .landing-btn-emerald:active {
+  transform: scale(0.98);
+}
+
+/* Superfícies refinadas dos pontos focais */
+.landing-page .focal-card {
+  background: rgba(14, 17, 26, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Sliders de ROI minimalistas e acessíveis */
+.landing-page input[type="range"].landing-range {
+  accent-color: #10B981;
+}
+
+.landing-page input[type="range"].landing-range:focus-visible {
+  outline: 2px solid #10B981;
+  outline-offset: 4px;
+}

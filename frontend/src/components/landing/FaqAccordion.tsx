@@ -17,7 +17,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Como funciona a segurança e o controle de cadência contra bloqueios?",
     answer:
-      "A plataforma utiliza fila inteligente (BullMQ) com delays aleatórios configuráveis (por exemplo, pausas de 45 a 120 segundos entre cada mensagem) para reproduzir o ritmo de digitação e envio de um ser humano. Além disso, o motor de Spintax permite alternar palavras e saudações, evitando mensagens 100% idênticas em lote. Nenhuma ferramenta séria pode prometer imunidade absoluta ao WhatsApp, mas oferecemos as melhores práticas de cadência e controle técnico disponíveis no mercado.",
+      "A plataforma utiliza fila assíncrona (BullMQ) com delays aleatórios configuráveis (por exemplo, pausas de 45 a 120 segundos entre cada mensagem) para reproduzir o ritmo de digitação e envio de um ser humano. Além disso, o motor de Spintax permite alternar palavras e saudações, evitando mensagens 100% idênticas em lote. Nenhuma ferramenta séria pode prometer imunidade absoluta ao WhatsApp, mas oferecemos as melhores práticas de cadência e controle técnico disponíveis no mercado.",
   },
   {
     question: "Como posso importar minha lista de contatos para a plataforma?",
@@ -54,42 +54,44 @@ export function FaqAccordion() {
   };
 
   return (
-    <section id="faq" className="py-20 bg-[#0A0C13] border-t border-white/[0.06] relative">
+    <section id="faq" className="py-24 bg-[#08090D] border-t border-white/[0.06] relative">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold">
-            <HelpCircle size={14} />
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs font-medium">
+            <HelpCircle size={13} className="text-emerald-400" />
             <span>Tire Suas Dúvidas</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
             Perguntas Frequentes
           </h2>
-          <p className="text-xs sm:text-sm text-slate-400">
-            Respostas transparentes sobre o funcionamento técnico, segurança e recursos da plataforma.
+          <p className="text-sm text-slate-400 font-normal">
+            Respostas transparentes sobre o funcionamento técnico, cadência e recursos da plataforma.
           </p>
         </div>
 
-        {/* Acordeão */}
-        <div className="space-y-3">
+        {/* Acordeão Editorial */}
+        <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
           {FAQ_ITEMS.map((item, index) => {
             const isOpen = openIndex === index;
+            const btnId = `faq-btn-${index}`;
+            const panelId = `faq-panel-${index}`;
+
             return (
-              <div
-                key={index}
-                className="tech-card rounded-2xl border border-white/10 overflow-hidden transition-all hover:border-purple-500/30"
-              >
+              <div key={index} className="py-2 transition-colors">
                 <button
+                  id={btnId}
                   onClick={() => toggle(index)}
-                  className="w-full p-5 text-left flex items-center justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-purple-500/30 rounded-2xl"
+                  className="w-full py-4 text-left flex items-center justify-between gap-4 rounded-lg focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none transition-colors"
                   aria-expanded={isOpen}
+                  aria-controls={panelId}
                 >
-                  <span className="text-xs sm:text-sm font-bold text-white leading-snug">
+                  <span className="text-sm sm:text-base font-medium text-white leading-snug">
                     {item.question}
                   </span>
                   <div
-                    className={`p-1.5 rounded-lg bg-white/[0.04] text-slate-300 shrink-0 transition-transform duration-200 ${
-                      isOpen ? "rotate-180 text-purple-400 bg-purple-500/10" : ""
+                    className={`p-1.5 rounded-md text-slate-400 shrink-0 transition-transform duration-200 motion-reduce:transition-none ${
+                      isOpen ? "rotate-180 text-emerald-400" : ""
                     }`}
                   >
                     <ChevronDown size={16} />
@@ -97,7 +99,12 @@ export function FaqAccordion() {
                 </button>
 
                 {isOpen && (
-                  <div className="px-5 pb-5 pt-1 text-xs sm:text-sm text-slate-300 leading-relaxed border-t border-white/[0.04] animate-in fade-in duration-200">
+                  <div
+                    id={panelId}
+                    role="region"
+                    aria-labelledby={btnId}
+                    className="pb-5 pt-1 text-xs sm:text-sm text-slate-300 leading-relaxed font-normal"
+                  >
                     <p>{item.answer}</p>
                   </div>
                 )}
@@ -109,3 +116,4 @@ export function FaqAccordion() {
     </section>
   );
 }
+

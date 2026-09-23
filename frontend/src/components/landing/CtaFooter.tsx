@@ -8,37 +8,37 @@ export function CtaFooter() {
   return (
     <footer className="bg-[#050608] border-t border-white/[0.08] relative">
       {/* Banner de CTA Final */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-14">
-        <div className="tech-card rounded-3xl p-8 sm:p-12 border border-purple-500/30 text-center relative overflow-hidden shadow-2xl shadow-purple-950/20">
-          {/* Brilho sutil de fundo em roxo */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-40 bg-purple-600/15 blur-3xl pointer-events-none" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16">
+        <div className="rounded-3xl p-8 sm:p-12 border border-white/[0.08] bg-[#0A0C12] text-center relative overflow-hidden">
+          {/* Micro-luz neutra sutil */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-emerald-500/[0.04] blur-3xl pointer-events-none" />
 
           <div className="max-w-2xl mx-auto space-y-5 relative z-10">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full badge-purple text-xs font-semibold">
-              <Zap size={14} />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs font-medium">
+              <Zap size={13} className="text-emerald-400" />
               <span>Automação em Segundo Plano</span>
             </div>
 
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight leading-tight">
-              Pronto para colocar sua prospecção no piloto automático?
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight leading-tight">
+              Pronto para colocar sua prospecção no ritmo automático?
             </h2>
 
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Chega de perder horas diárias com o trabalho repetitivo de copiar e colar contatos. Inicie suas campanhas na nuvem com controle de cadência e foco nas respostas dos clientes.
+            <p className="text-sm text-slate-400 leading-relaxed font-normal">
+              Chega de perder horas diárias com a digitação repetitiva de contatos. Inicie suas campanhas na nuvem com cadência humana programada e foque em quem responde.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-2">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
               <Link
                 href="/register"
-                className="w-full sm:w-auto btn-tech-primary px-8 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
+                className="w-full sm:w-auto landing-btn-emerald px-8 py-3 text-sm font-semibold flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
               >
                 <span>Criar Minha Conta</span>
-                <ArrowRight size={16} />
+                <ArrowRight size={15} />
               </Link>
 
               <Link
                 href="/login"
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-purple-500/30 transition-colors flex items-center justify-center"
+                className="w-full sm:w-auto landing-btn-secondary px-6 py-3 text-sm font-medium flex items-center justify-center focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
               >
                 <span>Já sou cliente (Entrar)</span>
               </Link>
@@ -47,7 +47,7 @@ export function CtaFooter() {
         </div>
 
         {/* Rodapé Institucional */}
-        <div className="mt-14 pt-8 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-500">
+        <div className="mt-16 pt-8 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-500">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg overflow-hidden border border-white/10">
               <Image
@@ -58,7 +58,7 @@ export function CtaFooter() {
                 className="w-full h-full object-cover"
               />
             </div>
-            <span className="font-semibold text-slate-300">
+            <span className="font-medium text-slate-300">
               Disparador de Mensagens
             </span>
             <span>—</span>
@@ -66,31 +66,31 @@ export function CtaFooter() {
           </div>
 
           <div className="flex flex-wrap items-center gap-5 text-slate-400">
-            <a href="#recursos" className="hover:text-white transition-colors">
+            <a href="#recursos" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Recursos
             </a>
-            <a href="#como-funciona" className="hover:text-white transition-colors">
+            <a href="#como-funciona" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Como Funciona
             </a>
-            <a href="#calculadora" className="hover:text-white transition-colors">
+            <a href="#calculadora" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Calculadora
             </a>
-            <a href="#planos" className="hover:text-white transition-colors">
+            <a href="#planos" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Planos
             </a>
-            <a href="#faq" className="hover:text-white transition-colors">
+            <a href="#faq" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               FAQ
             </a>
-            <a href="/plataforma.md" className="hover:text-white transition-colors">
+            <a href="/plataforma.md" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Guia da Plataforma (.md)
             </a>
-            <Link href="/termos" className="hover:text-white transition-colors">
+            <Link href="/termos" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Termos de Uso
             </Link>
-            <Link href="/privacidade" className="hover:text-white transition-colors">
+            <Link href="/privacidade" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Política de Privacidade
             </Link>
-            <Link href="/login" className="hover:text-white transition-colors font-medium">
+            <Link href="/login" className="hover:text-white transition-colors font-medium focus-visible:outline-none focus-visible:text-white">
               Login
             </Link>
           </div>
@@ -103,3 +103,4 @@ export function CtaFooter() {
     </footer>
   );
 }
+

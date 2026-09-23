@@ -18,7 +18,7 @@ export default function LandingPage() {
   const { containerRef } = useGsapScroll();
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-[#07080B] text-slate-100 selection:bg-purple-500/30 selection:text-purple-200">
+    <div ref={containerRef} className="landing-page min-h-screen bg-[#08090D] text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-200 overflow-x-hidden">
       {/* Barra de Navegação Superior */}
       <LandingNavbar />
 
