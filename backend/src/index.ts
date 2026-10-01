@@ -35,6 +35,7 @@ import webhooksRoutes from './routes/webhooks';
 import cronRoutes from './routes/cron';
 import contactsRoutes from './routes/contacts';
 import adminRoutes from './routes/admin';
+import searchRoutes from './routes/search';
 import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
 import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
@@ -84,6 +85,7 @@ app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/cron', cronRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/search', searchRoutes);
 
 // Health check — Liveness probe (processo está vivo e respondendo)
 app.get('/api/health/live', (req, res) => {

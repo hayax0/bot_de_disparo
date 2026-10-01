@@ -245,3 +245,68 @@ test('POST /campaigns: ignora campos antigos de janela e recontato', async t => 
   });
   assert.equal(response.status, 201);
 });
+
+test('POST /campaigns/preview-import: cliente novo é bloqueado com INTEGRATED_SEARCH_ONLY', async t => {
+  const newUser = {
+    id: 'u-new',
+    role: 'USER',
+    planId: 'START',
+    authVersion: 0,
+    subscriptionStatus: 'ACTIVE',
+    subscriptionExpiresAt: new Date(Date.now() + 86400000),
+    emailVerifiedAt: new Date(),
+    workspaces: [{ id: 'w-1' }]
+  };
+  mockMethod(t, prisma.user, 'findUnique', async () => newUser);
+
+  const token = jwt.sign({ userId: 'u-new', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
+  const base = await serveCampaigns(t);
+
+  const blob = new Blob(['Empresa,Telefone\nTeste,11999990001'], { type: 'text/csv' });
+  const formData = new FormData();
+  formData.append('file', blob, 'teste.csv');
+
+  const res = await fetch(`${base}/preview-import`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: formData
+  });
+
+  assert.equal(res.status, 403);
+  const body = await res.json();
+  assert.equal(body.code, 'INTEGRATED_SEARCH_ONLY');
+  assert.match(body.error, /busca integrada de empresas/);
+});
+
+test('POST /campaigns/preview-import: conta legada Davi é permitida de importar arquivos', async t => {
+  const legacyUser = {
+    id: 'u-davi',
+    role: 'USER',
+    planId: 'LEGACY_DAVI',
+    authVersion: 0,
+    subscriptionStatus: 'ACTIVE',
+    subscriptionExpiresAt: new Date(Date.now() + 86400000),
+    emailVerifiedAt: new Date(),
+    workspaces: [{ id: 'w-1' }]
+  };
+  mockMethod(t, prisma.user, 'findUnique', async () => legacyUser);
+  mockMethod(t, prisma.dispatchHistory, 'findMany', async () => []);
+
+  const token = jwt.sign({ userId: 'u-davi', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
+  const base = await serveCampaigns(t);
+
+  const blob = new Blob(['Empresa,Telefone\nPadaria Davi,11999990001'], { type: 'text/csv' });
+  const formData = new FormData();
+  formData.append('file', blob, 'davi_leads.csv');
+
+  const res = await fetch(`${base}/preview-import`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: formData
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.validCount, 1);
+});
+

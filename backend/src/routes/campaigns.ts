@@ -11,6 +11,7 @@ import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
+import { isLegacyPlan } from '../config/plans';
 
 const router = Router();
 
@@ -215,6 +216,23 @@ router.post('/preview-import', requireActiveSubscription, (req: Request, res: Re
     return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado para prévia.' });
   }
 
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.userId },
+    select: { role: true, planId: true }
+  });
+  const isLegacy = isLegacyPlan(user?.planId);
+  const isAdmin = user?.role === 'ADMIN';
+
+  if (!isLegacy && !isAdmin) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+    }
+    return res.status(403).json({
+      error: 'O seu plano utiliza a busca integrada de empresas diretamente na plataforma. Para adicionar leads, utilize a Busca de Empresas.',
+      code: 'INTEGRATED_SEARCH_ONLY'
+    });
+  }
+
   const filePath = req.file.path;
   const originalName = req.file.originalname;
 
@@ -310,6 +328,23 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
 
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado.' });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.userId },
+    select: { role: true, planId: true }
+  });
+  const isLegacy = isLegacyPlan(user?.planId);
+  const isAdmin = user?.role === 'ADMIN';
+
+  if (!isLegacy && !isAdmin) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+    }
+    return res.status(403).json({
+      error: 'O seu plano utiliza a busca integrada de empresas diretamente na plataforma. Para adicionar leads, utilize a Busca de Empresas.',
+      code: 'INTEGRATED_SEARCH_ONLY'
+    });
   }
 
   const filePath = req.file.path;

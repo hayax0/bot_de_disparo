@@ -52,6 +52,7 @@ import {
 } from 'lucide-react';
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 import { AdminTab } from '@/components/dashboard/AdminTab';
+import { CompanySearchTab } from '@/components/dashboard/CompanySearchTab';
 
 interface Campaign {
   id: string;
@@ -229,7 +230,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'history' | 'admin'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'admin'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -282,6 +283,21 @@ export default function Dashboard() {
       }>;
     } | null;
   }>({ loading: false, error: null, diagnostic: null });
+
+  // Perfil e Regras de Negócio do Usuário (Isolamento Legado Davi vs Novos Planos)
+  const isLegacyUser = Boolean(
+    user?.planId === 'LEGACY_DAVI' ||
+    user?.planId === 'LEGACY' ||
+    (user?.email && user.email.toLowerCase().includes('davi'))
+  );
+  const isAdmin = user?.role === 'ADMIN';
+  const canUseUpload = isLegacyUser || isAdmin;
+
+  // Obtenção de Leads no Modal de Campanha
+  const [leadSourceMode, setLeadSourceMode] = useState<'search' | 'upload'>('search');
+  const [searchSegment, setSearchSegment] = useState('');
+  const [searchLocation, setSearchLocation] = useState('');
+  const [searchCount, setSearchCount] = useState<number>(20);
 
   // Estados do Simulador de Mensagem (WhatsApp Web)
   const [messagePreviewTab, setMessagePreviewTab] = useState<'semSite' | 'comSite'>('semSite');
@@ -984,6 +1000,7 @@ export default function Dashboard() {
 
   // Abrir modal de Nova Campanha recuperando rascunho se disponível
   const openNewCampaignModal = () => {
+    setLeadSourceMode(isLegacyUser ? 'upload' : 'search');
     let loadedFromDraft = false;
     if (typeof window !== 'undefined') {
       try {
@@ -1070,14 +1087,25 @@ export default function Dashboard() {
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCampaign.file) {
-      addToast('error', 'Por favor, anexe o arquivo de leads (.json ou .csv).');
-      return;
+
+    const effectiveMode = canUseUpload ? leadSourceMode : 'search';
+
+    if (effectiveMode === 'upload') {
+      if (!newCampaign.file) {
+        addToast('error', 'Por favor, anexe o arquivo de leads (.json ou .csv).');
+        return;
+      }
+      if (importPreview.diagnostic && importPreview.diagnostic.validCount === 0) {
+        addToast('error', 'Nenhum lead apto para disparo neste arquivo. Corrija os contatos antes de prosseguir.');
+        return;
+      }
+    } else {
+      if (!searchSegment.trim() || !searchLocation.trim()) {
+        addToast('error', 'Informe o segmento e a localização para buscar as empresas.');
+        return;
+      }
     }
-    if (importPreview.diagnostic && importPreview.diagnostic.validCount === 0) {
-      addToast('error', 'Nenhum lead apto para disparo neste arquivo. Corrija os contatos antes de prosseguir.');
-      return;
-    }
+
     if (!newCampaign.messageSemSite.trim() && !newCampaign.messageComSite.trim()) {
       addToast('error', 'Por favor, escreva ao menos uma mensagem para a campanha (sem site, com site ou ambas).');
       return;
@@ -1096,18 +1124,30 @@ export default function Dashboard() {
       });
       createdCampaignId = res.data.id;
 
-      // 2. Upload leads
-      const formData = new FormData();
-      formData.append('file', newCampaign.file);
-      const importRes = await api.post(`/campaigns/${createdCampaignId}/leads/import`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      if (effectiveMode === 'upload' && newCampaign.file) {
+        // 2. Upload leads (Fluxo Legado Davi / Admin)
+        const formData = new FormData();
+        formData.append('file', newCampaign.file);
+        const importRes = await api.post(`/campaigns/${createdCampaignId}/leads/import`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
 
-      const alreadySent = importRes.data.alreadySentCount || 0;
-      if (alreadySent > 0) {
-        addToast('success', `Campanha criada! ${importRes.data.imported} leads importados. Atenção: ${alreadySent} já foram contatados anteriormente.`);
+        const alreadySent = importRes.data.alreadySentCount || 0;
+        if (alreadySent > 0) {
+          addToast('success', `Campanha criada! ${importRes.data.imported} leads importados. Atenção: ${alreadySent} já foram contatados anteriormente.`);
+        } else {
+          addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
+        }
       } else {
-        addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
+        // 2. Busca Integrada de Empresas (Novos Planos & Admin)
+        const searchRes = await api.post('/search', {
+          segment: searchSegment.trim(),
+          location: searchLocation.trim(),
+          requestedCount: Number(searchCount) || 20,
+          targetCampaignId: createdCampaignId
+        });
+
+        addToast('success', `Campanha criada! ${searchRes.data.usableCount} empresas adicionadas (${searchRes.data.creditsConsumed} créditos consumidos).`);
       }
 
       // Limpeza do rascunho com sucesso
@@ -1121,6 +1161,9 @@ export default function Dashboard() {
         delayMin: 90, 
         delayMax: 180,
       });
+      setSearchSegment('');
+      setSearchLocation('');
+      setSearchCount(20);
       setImportPreview({ loading: false, error: null, diagnostic: null });
       fetchCampaigns();
       fetchHistory(1, historySearch);
@@ -1129,7 +1172,10 @@ export default function Dashboard() {
       if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
         setIsSubscriptionModalOpen(true);
       }
-      // Se a campanha foi criada mas o upload de leads falhou, remove a campanha vazia órfã
+      if (axios.isAxiosError(err) && err.response?.data?.code === 'INSUFFICIENT_CREDITS') {
+        addToast('error', 'Créditos insuficientes para realizar esta busca. Adquira mais créditos ou reduza a quantidade.');
+      }
+      // Se a campanha foi criada mas o processamento de leads falhou, remove a campanha vazia órfã
       if (createdCampaignId) {
         try {
           await api.delete(`/campaigns/${createdCampaignId}`);
@@ -1368,6 +1414,26 @@ export default function Dashboard() {
 
             <button
               onClick={() => {
+                setActiveTab('search');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                activeTab === 'search'
+                  ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Building2 size={15} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
+                <span>Buscar Empresas</span>
+              </div>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                Apify
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
                 setActiveTab('history');
                 setIsMobileMenuOpen(false);
                 fetchHistory(1, historySearch);
@@ -1412,13 +1478,15 @@ export default function Dashboard() {
               </button>
             )}
 
-            <button
-              onClick={() => setIsTutorialOpen(true)}
-              className="w-full px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-            >
-              <BookOpen size={15} className="text-slate-500" />
-              <span>Tutorial Apify</span>
-            </button>
+            {canUseUpload && (
+              <button
+                onClick={() => setIsTutorialOpen(true)}
+                className="w-full px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <BookOpen size={15} className="text-slate-500" />
+                <span>Tutorial Apify</span>
+              </button>
+            )}
           </nav>
         </div>
 
@@ -1537,13 +1605,23 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <button 
-              onClick={() => setIsTutorialOpen(true)}
-              className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-            >
-              <HelpCircle size={14} className="text-emerald-400" />
-              <span>Como extrair leads</span>
-            </button>
+            {canUseUpload ? (
+              <button 
+                onClick={() => setIsTutorialOpen(true)}
+                className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <HelpCircle size={14} className="text-emerald-400" />
+                <span>Como extrair leads</span>
+              </button>
+            ) : (
+              <button 
+                onClick={() => setActiveTab('search')}
+                className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <Building2 size={14} className="text-emerald-400" />
+                <span>Buscar Empresas</span>
+              </button>
+            )}
             <button 
               onClick={openNewCampaignModal}
               className="dash-btn-primary px-4 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
@@ -1779,6 +1857,22 @@ export default function Dashboard() {
 
           <button
             type="button"
+            onClick={() => setActiveTab('search')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+              activeTab === 'search'
+                ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+            }`}
+          >
+            <Building2 size={14} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
+            <span>Buscar Empresas</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
+              Apify
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               setActiveTab('history');
               fetchHistory(1, historySearch);
@@ -1899,7 +1993,9 @@ export default function Dashboard() {
                   </div>
                   <h3 className="text-base font-semibold text-white mb-1">Nenhuma campanha criada ainda</h3>
                   <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
-                    Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.
+                    {canUseUpload
+                      ? 'Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.'
+                      : 'Encontre empresas pelo segmento e localização diretamente na plataforma, crie sua campanha e comece a disparar.'}
                   </p>
                   <button 
                     onClick={openNewCampaignModal}
@@ -2024,6 +2120,18 @@ export default function Dashboard() {
             </section>
           </>
         )}
+
+    {/* VISÃO: BUSCA INTEGRADA DE EMPRESAS (APIFY) */}
+    {activeTab === 'search' && (
+      <CompanySearchTab
+        campaigns={campaigns.map(c => ({ id: c.id, name: c.name, status: c.status }))}
+        onRefreshCampaigns={() => {
+          fetchCampaigns();
+          fetchStatus();
+        }}
+        addToast={addToast}
+      />
+    )}
 
     {/* VISÃO: HISTÓRICO DE EMPRESAS CONTATADAS */}
     {activeTab === 'history' && (
@@ -2293,7 +2401,9 @@ export default function Dashboard() {
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div>
                 <h2 className="text-base sm:text-lg font-semibold text-white">Criar Nova Campanha</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Importe seus leads e configure suas mensagens inteligentes.</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {canUseUpload ? 'Importe seus leads e configure suas mensagens inteligentes.' : 'Busque empresas qualificadas e configure suas mensagens inteligentes.'}
+                </p>
               </div>
               <button 
                 onClick={() => setIsModalOpen(false)}
@@ -2347,147 +2457,281 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Upload de Arquivo com Prévia em Tempo Real */}
-              <div className="dash-card p-4 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Arquivo de Leads (.JSON ou .CSV)
-                  </label>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsTutorialOpen(true)}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer"
+              {/* Seletor de Modo de Obtenção de Leads (Apenas Admin) */}
+              {isAdmin && (
+                <div className="flex p-1 bg-white/[0.04] border border-white/[0.08] rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setLeadSourceMode('search')}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      leadSourceMode === 'search'
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
                   >
-                    <HelpCircle size={13} /> Como gerar?
+                    <Building2 size={14} />
+                    <span>Busca Integrada (Apify)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeadSourceMode('upload')}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      leadSourceMode === 'upload'
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <FileJson size={14} />
+                    <span>Upload de Arquivo (Legado)</span>
                   </button>
                 </div>
-                
-                <input 
-                  type="file" 
-                  accept=".json,.csv,text/csv,application/json"
-                  required
-                  onChange={e => handleFileChange(e.target.files ? e.target.files[0] : null)}
-                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border file:border-white/10 file:text-xs file:font-semibold file:bg-white/[0.08] file:text-slate-200 hover:file:bg-white/[0.12] hover:file:border-emerald-500/30 file:transition-colors cursor-pointer"
-                />
-                
-                <p className="text-[10px] text-slate-500 font-mono">
-                  Compatível com exportações do Apify Google Maps Scraper (.JSON) e planilhas .CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
-                </p>
+              )}
 
-                {/* Carregando Prévia */}
-                {importPreview.loading && (
-                  <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2.5 text-xs text-slate-300">
-                    <RefreshCw size={14} className="animate-spin text-emerald-400" />
-                    <span>Analisando arquivo, validando números de WhatsApp e verificando histórico de recontato...</span>
+              {/* Modo Busca Integrada (Novos Planos & Admin) */}
+              {(canUseUpload ? leadSourceMode === 'search' : true) && (
+                <div className="dash-card p-4 sm:p-5 rounded-2xl space-y-4 border border-emerald-500/25 bg-emerald-950/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Building2 size={16} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-white">
+                          Obtenção de Empresas (Busca Integrada)
+                        </label>
+                        <p className="text-[11px] text-slate-400">
+                          Localize e extraia contatos qualificados diretamente pela plataforma.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
+                      1 crédito / lead
+                    </span>
                   </div>
-                )}
 
-                {/* Erro na Prévia */}
-                {importPreview.error && (
-                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2 text-xs text-red-300">
-                    <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
-                    <span>{importPreview.error}</span>
-                  </div>
-                )}
-
-                {/* Diagnóstico Completo da Prévia */}
-                {importPreview.diagnostic && (
-                  <div className="space-y-3 pt-2 border-t border-white/[0.06]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-                        <FileCheck size={14} className="text-emerald-400" />
-                        Diagnóstico da Lista ({importPreview.diagnostic.totalRows} registros lidos)
-                      </span>
-                      {importPreview.diagnostic.validCount > 0 ? (
-                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono tabular-nums">
-                          {importPreview.diagnostic.validCount} aptos para envio
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
-                          Nenhum lead apto
-                        </span>
-                      )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Segmento / Nicho
+                      </label>
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-3 text-slate-500" />
+                        <input
+                          type="text"
+                          required={canUseUpload ? leadSourceMode === 'search' : true}
+                          value={searchSegment}
+                          onChange={e => setSearchSegment(e.target.value)}
+                          placeholder="Ex: Clínicas Odontológicas"
+                          className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs"
+                        />
+                      </div>
                     </div>
 
-                    {/* 4 Cards de Categorias Mutuamente Exclusivas */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                        <span className="text-[10px] text-emerald-300 font-semibold block">Aptos p/ Disparo</span>
-                        <p className="text-base font-bold text-emerald-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.validCount}</p>
-                        {importPreview.diagnostic.alreadyContactedCount > 0 && (
-                          <span className="text-[9px] text-amber-300/90 block mt-0.5 font-mono tabular-nums">
-                            ({importPreview.diagnostic.alreadyContactedCount} com histórico)
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Localização (Cidade, UF)
+                      </label>
+                      <div className="relative">
+                        <MapPin size={14} className="absolute left-3 top-3 text-slate-500" />
+                        <input
+                          type="text"
+                          required={canUseUpload ? leadSourceMode === 'search' : true}
+                          value={searchLocation}
+                          onChange={e => setSearchLocation(e.target.value)}
+                          placeholder="Ex: Belo Horizonte, MG"
+                          className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">
+                        Quantidade de Empresas
+                      </label>
+                      <span className="text-[11px] text-emerald-400 font-mono font-bold">
+                        {searchCount} leads ({searchCount} créditos)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {[10, 20, 50, 100].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setSearchCount(val)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
+                            searchCount === val
+                              ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
+                              : 'bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:bg-white/[0.08]'
+                          }`}
+                        >
+                          {val}
+                        </button>
+                      ))}
+                      <input
+                        type="number"
+                        min={5}
+                        max={200}
+                        value={searchCount}
+                        onChange={e => setSearchCount(Math.min(200, Math.max(5, parseInt(e.target.value) || 5)))}
+                        className="w-20 px-2.5 py-1.5 dash-input rounded-lg text-xs font-mono text-center"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] text-[11px] text-slate-400 flex items-start gap-2">
+                    <ShieldCheck size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                    <span>
+                      Validação automática com DDD, deduplicação e filtro LGPD. Apenas contatos aptos serão importados e debitados da sua carteira de créditos.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Modo Upload de Arquivo com Prévia em Tempo Real (Apenas Davi e Admin quando selecionado) */}
+              {canUseUpload && leadSourceMode === 'upload' && (
+                <div className="dash-card p-4 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                      Arquivo de Leads (.JSON ou .CSV)
+                    </label>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsTutorialOpen(true)}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <HelpCircle size={13} /> Como gerar?
+                    </button>
+                  </div>
+                  
+                  <input 
+                    type="file" 
+                    accept=".json,.csv,text/csv,application/json"
+                    required
+                    onChange={e => handleFileChange(e.target.files ? e.target.files[0] : null)}
+                    className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border file:border-white/10 file:text-xs file:font-semibold file:bg-white/[0.08] file:text-slate-200 hover:file:bg-white/[0.12] hover:file:border-emerald-500/30 file:transition-colors cursor-pointer"
+                  />
+                  
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    Compatível com exportações do Apify Google Maps Scraper (.JSON) e planilhas .CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
+                  </p>
+
+                  {/* Carregando Prévia */}
+                  {importPreview.loading && (
+                    <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2.5 text-xs text-slate-300">
+                      <RefreshCw size={14} className="animate-spin text-emerald-400" />
+                      <span>Analisando arquivo, validando números de WhatsApp e verificando histórico de recontato...</span>
+                    </div>
+                  )}
+
+                  {/* Erro na Prévia */}
+                  {importPreview.error && (
+                    <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2 text-xs text-red-300">
+                      <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
+                      <span>{importPreview.error}</span>
+                    </div>
+                  )}
+
+                  {/* Diagnóstico Completo da Prévia */}
+                  {importPreview.diagnostic && (
+                    <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                          <FileCheck size={14} className="text-emerald-400" />
+                          Diagnóstico da Lista ({importPreview.diagnostic.totalRows} registros lidos)
+                        </span>
+                        {importPreview.diagnostic.validCount > 0 ? (
+                          <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono tabular-nums">
+                            {importPreview.diagnostic.validCount} aptos para envio
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                            Nenhum lead apto
                           </span>
                         )}
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                        <span className="text-[10px] text-amber-300 font-semibold block">Duplicados</span>
-                        <p className="text-base font-bold text-amber-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.duplicateCount}</p>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Ignorados auto</span>
+                      {/* 4 Cards de Categorias Mutuamente Exclusivas */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                          <span className="text-[10px] text-emerald-300 font-semibold block">Aptos p/ Disparo</span>
+                          <p className="text-base font-bold text-emerald-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.validCount}</p>
+                          {importPreview.diagnostic.alreadyContactedCount > 0 && (
+                            <span className="text-[9px] text-amber-300/90 block mt-0.5 font-mono tabular-nums">
+                              ({importPreview.diagnostic.alreadyContactedCount} com histórico)
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                          <span className="text-[10px] text-amber-300 font-semibold block">Duplicados</span>
+                          <p className="text-base font-bold text-amber-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.duplicateCount}</p>
+                          <span className="text-[9px] text-slate-400 block mt-0.5">Ignorados auto</span>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                          <span className="text-[10px] text-rose-300 font-semibold block">Inválidos / S/ Tel</span>
+                          <p className="text-base font-bold text-rose-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.invalidCount}</p>
+                          <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
+                        </div>
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                        <span className="text-[10px] text-rose-300 font-semibold block">Inválidos / S/ Tel</span>
-                        <p className="text-base font-bold text-rose-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.invalidCount}</p>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
-                      </div>
+                      {/* Amostra dos Primeiros Contatos Classificados */}
+                      {importPreview.diagnostic.sampleLeads && importPreview.diagnostic.sampleLeads.length > 0 && (
+                        <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.04] space-y-1.5">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                            Amostra de Leads Classificados (Primeiras Linhas)
+                          </span>
+                          <div className="space-y-1">
+                            {importPreview.diagnostic.sampleLeads.slice(0, 3).map((s, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-white/[0.02]">
+                                <div className="flex items-center gap-2 truncate max-w-[70%]">
+                                  <span className="font-semibold text-slate-200 truncate">{s.title}</span>
+                                  <span className="text-slate-400 font-mono text-[10px] tabular-nums">{s.phone}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {s.website ? (
+                                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20 font-medium">
+                                      Com Site
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.2 rounded bg-white/[0.05] text-slate-400 text-[9px]">
+                                      Sem Site
+                                    </span>
+                                  )}
+                                  {s.alreadyContacted && (
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20 font-medium" title="Contato com envio anterior">
+                                      Já Contatado
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Inconsistências identificadas */}
+                      {importPreview.diagnostic.issues && importPreview.diagnostic.issues.length > 0 && (
+                        <details className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px]">
+                          <summary className="font-semibold text-slate-300 cursor-pointer hover:text-white transition-colors">
+                            ⚠️ Ver inconsistências do arquivo ({importPreview.diagnostic.issues.length})
+                          </summary>
+                          <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
+                            {importPreview.diagnostic.issues.map((iss, i) => (
+                              <div key={i} className="text-[10px] p-1.5 rounded bg-black/30 border border-white/[0.03] flex items-start gap-2">
+                                <span className="font-mono text-emerald-400 shrink-0">Linha {iss.row}:</span>
+                                <span className="text-slate-300">{iss.reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
                     </div>
-
-                    {/* Amostra dos Primeiros Contatos Classificados */}
-                    {importPreview.diagnostic.sampleLeads && importPreview.diagnostic.sampleLeads.length > 0 && (
-                      <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.04] space-y-1.5">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Amostra de Leads Classificados (Primeiras Linhas)
-                        </span>
-                        <div className="space-y-1">
-                          {importPreview.diagnostic.sampleLeads.slice(0, 3).map((s, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-white/[0.02]">
-                              <div className="flex items-center gap-2 truncate max-w-[70%]">
-                                <span className="font-semibold text-slate-200 truncate">{s.title}</span>
-                                <span className="text-slate-400 font-mono text-[10px] tabular-nums">{s.phone}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {s.website ? (
-                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20 font-medium">
-                                    Com Site
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.2 rounded bg-white/[0.05] text-slate-400 text-[9px]">
-                                    Sem Site
-                                  </span>
-                                )}
-                                {s.alreadyContacted && (
-                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20 font-medium" title="Contato com envio anterior">
-                                    Já Contatado
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Inconsistências identificadas */}
-                    {importPreview.diagnostic.issues && importPreview.diagnostic.issues.length > 0 && (
-                      <details className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px]">
-                        <summary className="font-semibold text-slate-300 cursor-pointer hover:text-white transition-colors">
-                          ⚠️ Ver inconsistências do arquivo ({importPreview.diagnostic.issues.length})
-                        </summary>
-                        <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
-                          {importPreview.diagnostic.issues.map((iss, i) => (
-                            <div key={i} className="text-[10px] p-1.5 rounded bg-black/30 border border-white/[0.03] flex items-start gap-2">
-                              <span className="font-mono text-emerald-400 shrink-0">Linha {iss.row}:</span>
-                              <span className="text-slate-300">{iss.reason}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
               {/* Sugestões de Copys de Alta Conversão */}
               <div className="dash-card p-4 rounded-2xl border border-white/[0.08] space-y-2">

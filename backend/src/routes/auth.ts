@@ -162,6 +162,7 @@ router.post(
           role: user.role,
           subscriptionStatus: user.subscriptionStatus,
           subscriptionExpiresAt: user.subscriptionExpiresAt,
+          planId: user.planId,
           emailVerifiedAt: user.emailVerifiedAt,
           workspaceId
         }
@@ -227,6 +228,7 @@ router.post(
           role: user.role,
           subscriptionStatus: user.subscriptionStatus,
           subscriptionExpiresAt: user.subscriptionExpiresAt,
+          planId: user.planId,
           emailVerifiedAt: user.emailVerifiedAt,
           workspaceId
         } 
@@ -319,6 +321,7 @@ router.post('/verify-payment', authenticate, async (req: Request, res: Response)
         id: true,
         email: true,
         role: true,
+        planId: true,
         subscriptionStatus: true,
         subscriptionExpiresAt: true,
       }
@@ -345,6 +348,7 @@ router.post('/verify-payment', authenticate, async (req: Request, res: Response)
         id: user.id,
         email: user.email,
         role: user.role,
+        planId: user.planId,
         subscriptionStatus: user.subscriptionStatus,
         subscriptionExpiresAt: user.subscriptionExpiresAt,
       },

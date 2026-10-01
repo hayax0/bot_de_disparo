@@ -5,6 +5,7 @@ interface User {
   name?: string | null;
   email: string;
   role?: string | null;
+  planId?: string | null;
   subscriptionStatus?: string | null;
   subscriptionExpiresAt?: string | null;
   workspaceId?: string | null;
