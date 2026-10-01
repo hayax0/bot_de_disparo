@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import { Queue, Worker, QueueEvents } from 'bullmq';
+import IORedis from 'ioredis';
 import { prisma } from '../lib/prisma';
 import { AiCopyService, setTestAiProvider } from './AiCopyService';
 import { CreditWalletService } from './CreditWalletService';
@@ -1004,4 +1006,359 @@ test('Cenário 18: Falha de confirmação ao chamador após aceite do job não d
     setTestAiProvider(null);
   }
 });
+
+// 19. Repetição de geração individual com falha devolve erro sem prender créditos e permite nova chave
+test('Cenário 19: Repetição de geração individual com falha devolve erro sem prender créditos e permite nova chave', async () => {
+  let aiCallCount = 0;
+  let shouldFailAi = true;
+
+  setTestAiProvider(async (input) => {
+    aiCallCount++;
+    if (shouldFailAi) {
+      throw new Error('Falha temporária no provedor Gemini');
+    }
+    return `Olá ${input.leadTitle}, copy gerada com sucesso!`;
+  });
+
+  const { user, workspace, campaign, unique } = await createTestFixtures('c19');
+  const lead = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead C19', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+
+  const failKey = `idemp_fail_${unique}`;
+  const successKey = `idemp_success_${unique}`;
+
+  try {
+    // 1. Primeira chamada falha propositalmente
+    await assert.rejects(
+      async () => {
+        await AiCopyService.regenerateSingleLead({
+          userId: user.id,
+          workspaceId: workspace.id,
+          campaignId: campaign.id,
+          leadId: lead.id,
+          offerDescription: 'Proposta inicial com falha',
+          idempotencyKey: failKey,
+        });
+      },
+      (err: any) => {
+        assert.ok(err.message.includes('Falha temporária no provedor Gemini'));
+        return true;
+      }
+    );
+
+    // Confirma que a operação ficou FAILED no banco e a reserva inicial foi liberada
+    const op1 = await prisma.aiOperation.findUnique({ where: { idempotencyKey: failKey } });
+    assert.strictEqual(op1?.status, 'FAILED');
+
+    let summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 20, 'Saldo disponível deve ser 20 após a falha inicial');
+    assert.strictEqual(summary.reservedBalance, 0, 'Saldo reservado deve ser 0 após a falha inicial');
+    assert.strictEqual(aiCallCount, 1, 'Provedor deve ter sido chamado exatamente 1 vez');
+
+    // 2. Repetição com a MESMA chave de idempotência que falhou
+    await assert.rejects(
+      async () => {
+        await AiCopyService.regenerateSingleLead({
+          userId: user.id,
+          workspaceId: workspace.id,
+          campaignId: campaign.id,
+          leadId: lead.id,
+          offerDescription: 'Proposta inicial com falha',
+          idempotencyKey: failKey,
+        });
+      },
+      (err: any) => {
+        // Devolve o erro persistido sem nova chamada e sem nova reserva
+        assert.ok(
+          err.message.includes('Falha temporária no provedor Gemini') ||
+          err.message.includes('Falha persistida') ||
+          (err as any).code === 'OPERATION_FAILED'
+        );
+        return true;
+      }
+    );
+
+    // Validação estrita:
+    summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 20, 'Saldo disponível DEVE permanecer 20 após repetição da mesma chave');
+    assert.strictEqual(summary.reservedBalance, 0, 'Saldo reservado DEVE permanecer zero após repetição da mesma chave');
+    assert.strictEqual(aiCallCount, 1, 'Provedor NÃO deve ter sido chamado novamente (apenas 1 chamada mantida)');
+
+    // Nenhuma reserva órfã: verificar se há alguma reserva com status PENDING na carteira
+    const orphanReservations = await prisma.creditReservation.findMany({
+      where: { userId: user.id, status: 'PENDING' },
+    });
+    assert.strictEqual(orphanReservations.length, 0, 'Nenhuma reserva órfã ou ativa pendente');
+
+    // 3. Nova tentativa intencional com OUTRA chave continua funcionando
+    shouldFailAi = false;
+    const resSuccess = await AiCopyService.regenerateSingleLead({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      leadId: lead.id,
+      offerDescription: 'Proposta com nova chave',
+      idempotencyKey: successKey,
+    });
+
+    assert.ok(resSuccess.messageContent.includes('copy gerada com sucesso!'));
+    assert.strictEqual(aiCallCount, 2, 'Provedor chamado pela segunda vez para a nova chave');
+
+    summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 19, 'Saldo debitado corretamente em 1 crédito (20 -> 19)');
+    assert.strictEqual(summary.reservedBalance, 0, 'Saldo reservado permanece zero');
+
+    const leadFinal = await prisma.lead.findUnique({ where: { id: lead.id } });
+    assert.ok(leadFinal?.messageContent?.includes('copy gerada com sucesso!'));
+  } finally {
+    setTestAiProvider(null);
+  }
+});
+
+// 20. Recuperação e reativação real de jobs FAILED no BullMQ com Redis real
+test('Cenário 20: Integração BullMQ/Redis real reativa jobs FAILED, preserva textos parciais e impede duplicidade concorrente', async (t) => {
+  const redisHost = ENV.REDIS_HOST || '127.0.0.1';
+  const redisPort = Number(ENV.REDIS_PORT) || 6379;
+  const testRedisUrl = process.env.REDIS_URL || `redis://${redisHost}:${redisPort}`;
+
+  let isRedisAvailable = false;
+  try {
+    const probe = new IORedis(testRedisUrl, { maxRetriesPerRequest: 1, connectTimeout: 1500 });
+    await probe.ping();
+    await probe.quit();
+    isRedisAvailable = true;
+  } catch {
+    isRedisAvailable = false;
+  }
+
+  if (!isRedisAvailable) {
+    t.skip('Redis real não disponível no ambiente de teste local atual.');
+    return;
+  }
+
+  const unique = Date.now();
+  const testQueueName = `test-ai-queue-${unique}`;
+
+  const redisConnQueue = new IORedis(testRedisUrl, { maxRetriesPerRequest: null });
+  const redisConnWorker = new IORedis(testRedisUrl, { maxRetriesPerRequest: null });
+  const redisConnEvents = new IORedis(testRedisUrl, { maxRetriesPerRequest: null });
+
+  const testQueue = new Queue(testQueueName, { connection: redisConnQueue });
+  const testQueueEvents = new QueueEvents(testQueueName, { connection: redisConnEvents });
+
+  let worker: Worker | null = null;
+
+  t.after(async () => {
+    if (worker) {
+      await worker.close();
+    }
+    await testQueueEvents.close().catch(() => {});
+    await testQueue.obliterate({ force: true }).catch(() => {});
+    await testQueue.close().catch(() => {});
+    await redisConnQueue.quit().catch(() => {});
+    await redisConnWorker.quit().catch(() => {});
+    await redisConnEvents.quit().catch(() => {});
+    setTestAiProvider(null);
+  });
+
+  const { user, workspace, campaign } = await createTestFixtures(`c20_${unique}`);
+
+  const lead1 = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead 1 Persistido', phone: `551199${String(unique).slice(-7)}1`, status: 'PENDING' },
+  });
+  const lead2 = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead 2 Novo', phone: `551199${String(unique).slice(-7)}2`, status: 'PENDING' },
+  });
+
+  // Reserva 2 créditos para a operação
+  const reservation = await CreditWalletService.reserveCredits({
+    userId: user.id,
+    amount: 2,
+    sourceType: 'AI_ASSISTANT',
+    sourceId: campaign.id,
+    idempotencyKey: `idemp_batch_${unique}`,
+    description: 'Reserva para lote BullMQ',
+  });
+
+  // Cria a operação como PENDING
+  const op = await prisma.aiOperation.create({
+    data: {
+      workspaceId: workspace.id,
+      userId: user.id,
+      campaignId: campaign.id,
+      type: 'BATCH',
+      idempotencyKey: `idemp_batch_${unique}`,
+      status: 'PENDING',
+      reservationId: reservation.reservationId,
+      totalLeads: 2,
+      creditsReserved: 2,
+      creditsConsumed: 0,
+    },
+  });
+
+  // Lead 1 já foi gerado na tentativa anterior (texto persistido duravelmente no AiOperationLead)
+  await prisma.aiOperationLead.create({
+    data: {
+      operationId: op.id,
+      leadId: lead1.id,
+      status: 'GENERATED',
+      generatedContent: 'Texto já gerado e salvo para Lead 1',
+      isSettled: false,
+    },
+  });
+
+  // Lead 2 ainda está PENDING
+  await prisma.aiOperationLead.create({
+    data: {
+      operationId: op.id,
+      leadId: lead2.id,
+      status: 'PENDING',
+      isSettled: false,
+    },
+  });
+
+  const jobId = `ai_op_${op.id}`;
+
+  const produceFailedJob = async (operationId: string) => {
+    const jobKey = `ai_op_${operationId}`;
+    const conn = new IORedis(testRedisUrl, { maxRetriesPerRequest: null });
+    const failWorker = new Worker(
+      testQueueName,
+      async (j) => {
+        if (j.id === jobKey) {
+          throw new Error('Simulação de falha anterior mantida no Redis');
+        }
+      },
+      { connection: conn }
+    );
+
+    const j = await testQueue.add('process_ai_batch', { operationId }, { jobId: jobKey });
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const state = await j.getState();
+      if (state === 'failed') break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    await failWorker.close();
+    await conn.quit();
+    return j;
+  };
+
+  // 2. Produz um job FAILED mantido no Redis real do BullMQ
+  const initialJob = await produceFailedJob(op.id);
+
+  const stateBeforeRecovery = await initialJob.getState();
+  assert.strictEqual(stateBeforeRecovery, 'failed', 'O job deve estar comprovadamente em estado failed no Redis');
+
+  // Demonstração que queue.add com mesmo jobId NÃO reexecuta job FAILED no BullMQ:
+  const reAddedJob = await testQueue.add('process_ai_batch', { operationId: op.id }, { jobId });
+  const stateAfterAdd = await reAddedJob.getState();
+  assert.strictEqual(stateAfterAdd, 'failed', 'queue.add puro com mesmo jobId continua failed e não reexecuta no BullMQ');
+
+  // 3. Executa a recuperação implementada (reconcileAiBatchJob)
+  const reconcileResult = await AiCopyService.reconcileAiBatchJob(op.id, testQueue);
+  assert.strictEqual(reconcileResult.action, 'RETRIED');
+  assert.strictEqual(reconcileResult.state, 'failed');
+
+  const refreshedJob = await testQueue.getJob(jobId);
+  const stateAfterRetry = await refreshedJob?.getState();
+  assert.strictEqual(stateAfterRetry, 'waiting', 'Após a recuperação o job transiciona para waiting no BullMQ');
+
+  // 4. Confirma que o worker volta a executar e a operação avança
+  let aiCallsForLead1 = 0;
+  let aiCallsForLead2 = 0;
+
+  setTestAiProvider(async (input) => {
+    if (input.leadTitle === 'Lead 1 Persistido') {
+      aiCallsForLead1++;
+      return 'Texto indevido';
+    }
+    if (input.leadTitle === 'Lead 2 Novo') {
+      aiCallsForLead2++;
+      return 'Texto novo gerado para Lead 2';
+    }
+    return 'OK';
+  });
+
+  // Inicia o worker na fila real de teste
+  worker = new Worker(
+    testQueueName,
+    async (job) => {
+      await AiCopyService.processOperationJob(job.data.operationId);
+    },
+    { connection: redisConnWorker }
+  );
+
+  // Aguarda a conclusão do processamento pelo worker
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const opCheck = await prisma.aiOperation.findUnique({ where: { id: op.id } });
+    if (opCheck?.status === 'COMPLETED' || opCheck?.status === 'FAILED') break;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+
+  // 5. Confirmações de avanço, ausência de duplicidade e atomicidade da cobrança:
+  const finishedOp = await prisma.aiOperation.findUnique({ where: { id: op.id } });
+  assert.strictEqual(finishedOp?.status, 'COMPLETED', 'Operação avançou para COMPLETED no banco');
+  assert.strictEqual(finishedOp?.completedLeads, 2);
+  assert.strictEqual(finishedOp?.creditsConsumed, 2);
+
+  // Confirma ausência de nova geração para itens já persistidos:
+  assert.strictEqual(aiCallsForLead1, 0, 'Lead 1 já persistido NÃO deve chamar o provedor de IA');
+  assert.strictEqual(aiCallsForLead2, 1, 'Lead 2 pendente deve ser gerado exatamente 1 vez');
+
+  // Mensagens aplicadas nos leads:
+  const l1 = await prisma.lead.findUnique({ where: { id: lead1.id } });
+  const l2 = await prisma.lead.findUnique({ where: { id: lead2.id } });
+  assert.strictEqual(l1?.messageContent, 'Texto já gerado e salvo para Lead 1');
+  assert.strictEqual(l2?.messageContent, 'Texto novo gerado para Lead 2');
+
+  // Confirma ausência de cobrança duplicada: exatamente 2 créditos debitados (20 -> 18)
+  const summary = await CreditWalletService.getWalletSummary(user.id);
+  assert.strictEqual(summary.monthlyBalance, 18, 'Saldo debitado exatamente em 2 créditos (de 20 para 18)');
+  assert.strictEqual(summary.reservedBalance, 0, 'Saldo reservado zerado');
+
+  // 6. Confirma que recuperações concorrentes não duplicam o processamento
+  // Se chamada para operação já COMPLETED no banco:
+  const concurrentCalls = await Promise.all([
+    AiCopyService.reconcileAiBatchJob(op.id, testQueue),
+    AiCopyService.reconcileAiBatchJob(op.id, testQueue),
+    AiCopyService.reconcileAiBatchJob(op.id, testQueue),
+  ]);
+  for (const call of concurrentCalls) {
+    assert.strictEqual(call.action, 'ALREADY_COMPLETED', 'Operação já concluída não é reprocessada em recuperações concorrentes');
+  }
+
+  // E para uma nova operação com concorrência antes da conclusão:
+  if (worker) {
+    await worker.close();
+    worker = null;
+  }
+
+  const op2 = await prisma.aiOperation.create({
+    data: {
+      workspaceId: workspace.id,
+      userId: user.id,
+      campaignId: campaign.id,
+      type: 'BATCH',
+      idempotencyKey: `idemp_conc_${unique}`,
+      status: 'PENDING',
+      totalLeads: 1,
+    },
+  });
+  await produceFailedJob(op2.id);
+
+  const concReconcile = await Promise.all([
+    AiCopyService.reconcileAiBatchJob(op2.id, testQueue),
+    AiCopyService.reconcileAiBatchJob(op2.id, testQueue),
+    AiCopyService.reconcileAiBatchJob(op2.id, testQueue),
+  ]);
+
+  const retriedCount = concReconcile.filter((c) => c.action === 'RETRIED').length;
+  const preservedCount = concReconcile.filter((c) => c.action === 'PRESERVED').length;
+  assert.strictEqual(retriedCount, 1, 'Exatamente uma chamada fez o RETRIED do job');
+  assert.strictEqual(preservedCount, 2, 'As chamadas concorrentes encontraram o job já esperando e preservaram');
+});
+
 

@@ -28,6 +28,7 @@ export interface BatchGenerationParams {
   leadIds?: string[] | undefined;
   idempotencyKey?: string | undefined;
   processSyncForTest?: boolean | undefined;
+  customQueue?: any | undefined;
 }
 
 export interface SingleLeadRegenParams {
@@ -238,6 +239,8 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     const payloadHash = computePayloadHash({ offerDescription, toneStyle, leadIds });
     const idempotencyKey = params.idempotencyKey?.trim() || `ai_batch_${campaignId}_${randomUUID()}`;
 
+    const targetQueue = params.customQueue || aiGenerationQueue;
+
     // 3. Verificação de idempotência durável no banco
     const existingOp = await prisma.aiOperation.findUnique({
       where: { idempotencyKey },
@@ -271,22 +274,11 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         };
       }
 
-      // Se a operação estiver PENDING (ex: falha de enfileiramento anterior no Redis):
-      // Recupera duravelmente enfileirando com o jobId determinístico
-      const isSyncReplay = params.processSyncForTest !== undefined ? Boolean(params.processSyncForTest) : (process.env.NODE_ENV === 'test');
+      // Se a operação estiver PENDING ou PROCESSING:
+      // Reconcilia conforme o estado real do job no BullMQ (ou executa síncrono em teste se solicitado)
+      const isSyncReplay = params.processSyncForTest !== undefined ? Boolean(params.processSyncForTest) : (params.customQueue ? false : process.env.NODE_ENV === 'test');
       if (!isSyncReplay) {
-        const jobId = `ai_op_${existingOp.id}`;
-        const existingJob = await aiGenerationQueue.getJob(jobId).catch(() => null);
-        const jobState = existingJob ? await existingJob.getState() : null;
-        if (!existingJob || jobState === 'failed') {
-          await aiGenerationQueue.add(
-            'process_ai_batch',
-            { operationId: existingOp.id },
-            { jobId, removeOnComplete: 100, removeOnFail: 100 }
-          ).catch((qErr: any) => {
-            console.warn(`[AI RETRY ENQUEUE WARN] Operação ${existingOp.id}:`, qErr?.message);
-          });
-        }
+        await this.reconcileAiBatchJob(existingOp.id, targetQueue);
       } else if (params.processSyncForTest) {
         await this.processOperationJob(existingOp.id);
         const finishedOp = await prisma.aiOperation.findUnique({ where: { id: existingOp.id } });
@@ -432,10 +424,10 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     }
 
     // 7. Enfileira o processamento em segundo plano no BullMQ com jobId determinístico
-    const isSync = params.processSyncForTest !== undefined ? Boolean(params.processSyncForTest) : (process.env.NODE_ENV === 'test');
+    const isSync = params.processSyncForTest !== undefined ? Boolean(params.processSyncForTest) : (params.customQueue ? false : process.env.NODE_ENV === 'test');
     if (!isSync) {
       try {
-        await aiGenerationQueue.add(
+        await targetQueue.add(
           'process_ai_batch',
           { operationId: op.id },
           { jobId: `ai_op_${op.id}`, removeOnComplete: 100, removeOnFail: 100 }
@@ -794,10 +786,121 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
   }
 
   /**
-   * Recupera no boot do backend operações de IA em lote órfãs ou interrompidas
-   * que ficaram PENDING ou PROCESSING sem job ativo na fila BullMQ.
+   * Reconcilia duravelmente o estado de um job BullMQ com a operação no banco.
+   * - Operações já COMPLETED ou PARTIAL no banco não são reprocessadas.
+   * - Job inexistente: enfileira novo job.
+   * - Job FAILED: utiliza o mecanismo de retry nativo do BullMQ (job.retry('failed')),
+   *   com fallback para remove + add caso o job esteja corrompido no Redis.
+   * - Job active, waiting ou delayed: preservado sem duplicar.
+   * - Divergência: job completed na fila mas operação ainda pendente no banco -> remove e reenfileira.
+   * - Proteção contra concorrência: serializado via pg_advisory_xact_lock.
    */
-  public static async recoverOrphanedAiOperations() {
+  public static async reconcileAiBatchJob(operationId: string, customQueue?: any): Promise<{
+    action: 'ALREADY_COMPLETED' | 'ENQUEUED' | 'RETRIED' | 'PRESERVED' | 'RECREATED_FROM_DIVERGENCE' | 'SKIPPED_NOT_FOUND';
+    state?: string | null;
+  }> {
+    const queue = customQueue || aiGenerationQueue;
+    const jobId = `ai_op_${operationId}`;
+
+    return await prisma.$transaction(async (tx) => {
+      // 1. Serializa recuperações concorrentes da mesma operação através de advisory lock
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ai_op_recovery:${operationId}`}))`;
+
+      // 2. Operações concluídas no banco não devem ser reprocessadas
+      const freshOp = await tx.aiOperation.findUnique({
+        where: { id: operationId },
+      });
+
+      if (!freshOp) {
+        return { action: 'SKIPPED_NOT_FOUND' };
+      }
+
+      if (freshOp.status === 'COMPLETED' || freshOp.status === 'PARTIAL') {
+        return { action: 'ALREADY_COMPLETED' };
+      }
+
+      // 3. Consulta o estado real do job no BullMQ/Redis
+      let job: any = null;
+      try {
+        job = await queue.getJob(jobId);
+      } catch (err: any) {
+        console.warn(`[AI RECONCILE] Falha ao consultar job ${jobId} na fila:`, err?.message);
+      }
+
+      // Caso 1: Job inexistente -> enfileirar
+      if (!job) {
+        await queue.add(
+          'process_ai_batch',
+          { operationId },
+          { jobId, removeOnComplete: 100, removeOnFail: 100 }
+        );
+        return { action: 'ENQUEUED', state: 'nonexistent' };
+      }
+
+      const state = await job.getState();
+
+      // Caso 2: Job active, waiting ou delayed -> preservar sem duplicar
+      if (state === 'active' || state === 'waiting' || state === 'delayed') {
+        return { action: 'PRESERVED', state };
+      }
+
+      // Caso 3: Job FAILED recuperável -> utilizar o mecanismo correto de retry do BullMQ
+      if (state === 'failed') {
+        try {
+          if (typeof job.retry === 'function') {
+            await job.retry('failed');
+          } else {
+            await job.remove().catch(() => {});
+            await queue.add(
+              'process_ai_batch',
+              { operationId },
+              { jobId, removeOnComplete: 100, removeOnFail: 100 }
+            );
+          }
+        } catch (retryErr: any) {
+          console.warn(`[AI RECONCILE RETRY WARN] Falha ao executar job.retry(${jobId}), fallback para remove+add:`, retryErr?.message);
+          await job.remove().catch(() => {});
+          await queue.add(
+            'process_ai_batch',
+            { operationId },
+            { jobId, removeOnComplete: 100, removeOnFail: 100 }
+          );
+        }
+        return { action: 'RETRIED', state: 'failed' };
+      }
+
+      // Caso 4: Divergência explícita entre job completed e operação ainda pendente no banco
+      if (state === 'completed') {
+        console.warn(`[AI RECONCILE DIVERGENCE] Operação ${operationId} pendente no banco (${freshOp.status}), mas job ${jobId} consta como completed na fila. Reenfileirando...`);
+        try {
+          await job.remove();
+        } catch {}
+        await queue.add(
+          'process_ai_batch',
+          { operationId },
+          { jobId, removeOnComplete: 100, removeOnFail: 100 }
+        );
+        return { action: 'RECREATED_FROM_DIVERGENCE', state: 'completed' };
+      }
+
+      // Caso 5: Outro estado qualquer não executando -> recria com segurança
+      try {
+        await job.remove();
+      } catch {}
+      await queue.add(
+        'process_ai_batch',
+        { operationId },
+        { jobId, removeOnComplete: 100, removeOnFail: 100 }
+      );
+      return { action: 'ENQUEUED', state };
+    });
+  }
+
+  /**
+   * Recupera no boot do backend ou sob demanda operações de IA em lote órfãs ou interrompidas
+   * que ficaram PENDING ou PROCESSING, reconciliando conforme o estado real do job no BullMQ.
+   */
+  public static async recoverOrphanedAiOperations(customQueue?: any) {
     try {
       const pendingOps = await prisma.aiOperation.findMany({
         where: {
@@ -806,35 +909,19 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         },
       });
 
-      if (pendingOps.length === 0) return;
+      if (pendingOps.length === 0) return [];
 
-      console.log(`[AI RECOVERY] Verificando ${pendingOps.length} operações de IA pendentes/interrompidas...`);
+      console.log(`[AI RECOVERY] Reconciliando ${pendingOps.length} operações de IA pendentes/interrompidas...`);
 
+      const results = [];
       for (const op of pendingOps) {
-        const jobId = `ai_op_${op.id}`;
-        let job = null;
-        try {
-          job = await aiGenerationQueue.getJob(jobId);
-        } catch {
-          // Ignora erro de conexão
-        }
-
-        const state = job ? await job.getState() : null;
-        const isJobRunningOrWaiting = state === 'active' || state === 'waiting' || state === 'delayed';
-
-        if (!isJobRunningOrWaiting) {
-          console.log(`[AI RECOVERY] Reenfileirando operação órfã ${op.id} (status=${op.status}, jobId=${jobId})...`);
-          await aiGenerationQueue.add(
-            'process_ai_batch',
-            { operationId: op.id },
-            { jobId, removeOnComplete: 100, removeOnFail: 100 }
-          ).catch((err: any) => {
-            console.error(`[AI RECOVERY] Falha ao reenfileirar operação ${op.id}:`, err?.message);
-          });
-        }
+        const result = await this.reconcileAiBatchJob(op.id, customQueue);
+        results.push({ operationId: op.id, ...result });
       }
+      return results;
     } catch (err) {
       console.error('[AI RECOVERY ERROR] Erro ao recuperar operações órfãs de IA:', err);
+      return [];
     }
   }
 
@@ -990,6 +1077,13 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         };
       }
 
+      if (existingOp.status === 'FAILED') {
+        const err = new Error(existingOp.errorMessage || 'Falha persistida na geração da mensagem para esta chave de idempotência.');
+        (err as any).code = 'OPERATION_FAILED';
+        (err as any).statusCode = 422;
+        throw err;
+      }
+
       if (existingOp.status === 'PROCESSING') {
         return await this.waitForSingleLeadCompletion(existingOp.id, leadId);
       }
@@ -1035,29 +1129,23 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         });
 
         if (concurrentlyCreated) {
-          // Validação rigorosa de payload divergente na corrida concorrente
-          if (
-            concurrentlyCreated.userId !== userId ||
-            concurrentlyCreated.leadId !== leadId ||
-            (concurrentlyCreated.payloadHash && concurrentlyCreated.payloadHash !== payloadHash)
-          ) {
-            if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
-              await CreditWalletService.releaseReservation({
-                reservationId: reservation.reservationId,
-                reason: 'Operação concorrente com payload divergente',
-              }).catch(() => {});
-            }
-            const conflictErr = new Error('Chave de idempotência já utilizada com outros parâmetros ou usuário.');
-            (conflictErr as any).statusCode = 409;
-            throw conflictErr;
-          }
-
           // Se a reserva gerada for diferente, libera a reserva secundária redundante
           if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
             await CreditWalletService.releaseReservation({
               reservationId: reservation.reservationId,
               reason: 'Operação concorrente com mesma chave detectada',
             }).catch(() => {});
+          }
+
+          // Validação rigorosa de payload divergente na corrida concorrente
+          if (
+            concurrentlyCreated.userId !== userId ||
+            concurrentlyCreated.leadId !== leadId ||
+            (concurrentlyCreated.payloadHash && concurrentlyCreated.payloadHash !== payloadHash)
+          ) {
+            const conflictErr = new Error('Chave de idempotência já utilizada com outros parâmetros ou usuário.');
+            (conflictErr as any).statusCode = 409;
+            throw conflictErr;
           }
 
           if (concurrentlyCreated.status === 'COMPLETED') {
@@ -1069,9 +1157,22 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
             };
           }
 
+          if (concurrentlyCreated.status === 'FAILED') {
+            const failErr = new Error(concurrentlyCreated.errorMessage || 'Falha persistida na geração da mensagem para esta chave de idempotência.');
+            (failErr as any).code = 'OPERATION_FAILED';
+            (failErr as any).statusCode = 422;
+            throw failErr;
+          }
+
           // Aguarda a operação vencedora concluir sem chamar o Gemini novamente
           return await this.waitForSingleLeadCompletion(concurrentlyCreated.id, leadId);
         }
+      }
+      if (reservation.reservationId) {
+        await CreditWalletService.releaseReservation({
+          reservationId: reservation.reservationId,
+          reason: 'Falha ao registrar operação de IA',
+        }).catch(() => {});
       }
       throw createErr;
     }
