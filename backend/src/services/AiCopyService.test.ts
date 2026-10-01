@@ -40,7 +40,7 @@ test('AiCopyService: buildPrompts identifica ausência de website próprio', () 
 });
 
 test('AiCopyService: generateDevelopmentFallback gera mensagem amigável sem chave configurada', async () => {
-  const copyComSite = await AiCopyService.callOpenAiApi({
+  const copyComSite = await AiCopyService.callGeminiApi({
     leadTitle: 'Padaria Estrela',
     phone: '5511977776666',
     website: 'https://padariaestrela.com.br',

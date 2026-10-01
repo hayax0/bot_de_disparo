@@ -82,19 +82,19 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
   }
 
   /**
-   * Executa a chamada à OpenAI ou ao mock de testes / desenvolvimento.
+   * Executa a chamada à API do Google Gemini (gemini-1.5-flash) ou ao mock de testes / desenvolvimento.
    */
-  public static async callOpenAiApi(input: GenerateCopyInput): Promise<string> {
+  public static async callGeminiApi(input: GenerateCopyInput): Promise<string> {
     if (process.env.NODE_ENV === 'test' && testAiProvider) {
       return await testAiProvider(input);
     }
 
-    const apiKey = (ENV.OPENAI_API_KEY || '').trim();
+    const apiKey = (ENV.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '').trim();
 
     // Fallback inteligente em desenvolvimento quando a chave ainda não foi informada
     if (!apiKey) {
       if (ENV.NODE_ENV === 'production') {
-        throw new Error('Chave de API da OpenAI (OPENAI_API_KEY) não configurada no servidor.');
+        throw new Error('Chave de API do Gemini (GEMINI_API_KEY) não configurada no servidor.');
       }
       return this.generateDevelopmentFallback(input);
     }
@@ -102,43 +102,61 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     const { systemPrompt, userPrompt } = this.buildPrompts(input);
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          temperature: 0.7,
-          max_tokens: 350,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemPrompt }],
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: userPrompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 350,
+            },
+          }),
+          signal: AbortSignal.timeout(30000),
+        }
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        console.error('[OPENAI API ERROR]', response.status, errorText);
-        throw new Error(`Falha na API da OpenAI (HTTP ${response.status}): ${errorText.slice(0, 150)}`);
+        console.error('[GEMINI API ERROR]', response.status, errorText);
+        throw new Error(`Falha na API do Gemini (HTTP ${response.status}): ${errorText.slice(0, 150)}`);
       }
 
       const data: any = await response.json();
-      const content = data.choices?.[0]?.message?.content?.trim();
+      let content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
       if (!content) {
-        throw new Error('A OpenAI retornou uma resposta sem conteúdo.');
+        throw new Error('O Gemini retornou uma resposta sem conteúdo.');
       }
+
+      // Remove eventuais blocos de markdown ``` se o modelo envelopar a resposta
+      content = content.replace(/^```(?:markdown)?\n?/i, '').replace(/\n?```$/i, '').trim();
 
       return content;
     } catch (err: any) {
       if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {
-        throw new Error('Tempo limite excedido na comunicação com o assistente de IA.');
+        throw new Error('Tempo limite excedido na comunicação com o assistente Gemini.');
       }
       throw err;
     }
+  }
+
+  /**
+   * Alias de compatibilidade para callGeminiApi.
+   */
+  public static async callOpenAiApi(input: GenerateCopyInput): Promise<string> {
+    return this.callGeminiApi(input);
   }
 
   /**
@@ -239,7 +257,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         await Promise.all(
           chunk.map(async (lead) => {
             try {
-              const copy = await this.callOpenAiApi({
+              const copy = await this.callGeminiApi({
                 leadTitle: lead.title,
                 phone: lead.phone,
                 website: lead.website,
@@ -369,7 +387,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     });
 
     try {
-      const copy = await this.callOpenAiApi({
+      const copy = await this.callGeminiApi({
         leadTitle: lead.title,
         phone: lead.phone,
         website: lead.website,
