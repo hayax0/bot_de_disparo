@@ -392,57 +392,62 @@ test('Cenário 6: Reinício/retry recupera o progresso sem duplicar cobrança', 
 
 // 7. Edição/regeneração de lead já enviado é bloqueada
 test('Cenário 7: Edição/regeneração de lead já enviado é bloqueada', async () => {
-  const { user, workspace, campaign, unique } = await createTestFixtures('c7');
+  setTestAiProvider(async () => 'Mensagem Mock Isolada');
+  try {
+    const { user, workspace, campaign, unique } = await createTestFixtures('c7');
 
-  const leadEnviado = await prisma.lead.create({
-    data: {
-      campaignId: campaign.id,
-      title: 'Cliente Fiel',
-      phone: `551199${unique.slice(-7)}1`,
-      status: 'SENT',
-      sendStartedAt: new Date(Date.now() - 3600000),
-      sentAt: new Date(Date.now() - 3500000),
-      messageContent: 'Mensagem real enviada que não pode ser alterada',
-    },
-  });
-
-  // Tentar editar manualmente deve lançar erro
-  await assert.rejects(
-    async () => {
-      await AiCopyService.updateLeadMessage({
-        userId: user.id,
-        workspaceId: workspace.id,
+    const leadEnviado = await prisma.lead.create({
+      data: {
         campaignId: campaign.id,
-        leadId: leadEnviado.id,
-        messageContent: 'Texto modificado indevidamente',
-      });
-    },
-    (err: any) => {
-      assert.ok(err.message.includes('já foi enviado'));
-      return true;
-    }
-  );
+        title: 'Cliente Fiel',
+        phone: `551199${unique.slice(-7)}1`,
+        status: 'SENT',
+        sendStartedAt: new Date(Date.now() - 3600000),
+        sentAt: new Date(Date.now() - 3500000),
+        messageContent: 'Mensagem real enviada que não pode ser alterada',
+      },
+    });
 
-  // Tentar regenerar com IA deve lançar erro
-  await assert.rejects(
-    async () => {
-      await AiCopyService.regenerateSingleLead({
-        userId: user.id,
-        workspaceId: workspace.id,
-        campaignId: campaign.id,
-        leadId: leadEnviado.id,
-        offerDescription: 'Nova oferta',
-      });
-    },
-    (err: any) => {
-      assert.ok(err.message.includes('já foi enviado'));
-      return true;
-    }
-  );
+    // Tentar editar manualmente deve lançar erro
+    await assert.rejects(
+      async () => {
+        await AiCopyService.updateLeadMessage({
+          userId: user.id,
+          workspaceId: workspace.id,
+          campaignId: campaign.id,
+          leadId: leadEnviado.id,
+          messageContent: 'Texto modificado indevidamente',
+        });
+      },
+      (err: any) => {
+        assert.ok(err.message.includes('já foi enviado'));
+        return true;
+      }
+    );
 
-  // Confirma integridade no banco
-  const leadAtual = await prisma.lead.findUnique({ where: { id: leadEnviado.id } });
-  assert.strictEqual(leadAtual?.messageContent, 'Mensagem real enviada que não pode ser alterada');
+    // Tentar regenerar com IA deve lançar erro
+    await assert.rejects(
+      async () => {
+        await AiCopyService.regenerateSingleLead({
+          userId: user.id,
+          workspaceId: workspace.id,
+          campaignId: campaign.id,
+          leadId: leadEnviado.id,
+          offerDescription: 'Nova oferta',
+        });
+      },
+      (err: any) => {
+        assert.ok(err.message.includes('já foi enviado'));
+        return true;
+      }
+    );
+
+    // Confirma integridade no banco
+    const leadAtual = await prisma.lead.findUnique({ where: { id: leadEnviado.id } });
+    assert.strictEqual(leadAtual?.messageContent, 'Mensagem real enviada que não pode ser alterada');
+  } finally {
+    setTestAiProvider(null);
+  }
 });
 
 // 8. Lead que começa a ser enviado durante a geração mantém seu histórico intacto
@@ -667,3 +672,336 @@ test('Cenário 12: Dados inválidos ou excessivamente grandes são rejeitados an
     setTestAiProvider(null);
   }
 });
+
+// 13. Falha de liquidação do lote: não deixa mensagem entregue sem cobrança nem reserva abandonada
+test('Cenário 13: Falha de liquidação do lote não deixa mensagem entregue sem cobrança nem reserva abandonada', async () => {
+  setTestAiProvider(async () => 'Mensagem Nova de Lote');
+  const { user, workspace, campaign, unique } = await createTestFixtures('c13');
+
+  const lead1 = await prisma.lead.create({
+    data: {
+      campaignId: campaign.id,
+      title: 'Lead Lote 1',
+      phone: `551199${unique.slice(-7)}1`,
+      status: 'PENDING',
+      messageContent: 'Mensagem Original Preservada 1',
+    },
+  });
+  const lead2 = await prisma.lead.create({
+    data: {
+      campaignId: campaign.id,
+      title: 'Lead Lote 2',
+      phone: `551199${unique.slice(-7)}2`,
+      status: 'PENDING',
+      messageContent: 'Mensagem Original Preservada 2',
+    },
+  });
+
+  const originalSettle = CreditWalletService.settleReservation;
+  CreditWalletService.settleReservation = async () => {
+    throw new Error('Falha forçada na liquidação da reserva de lote');
+  };
+
+  try {
+    await assert.rejects(
+      async () => {
+        await AiCopyService.initiateBatchGeneration({
+          userId: user.id,
+          workspaceId: workspace.id,
+          campaignId: campaign.id,
+          offerDescription: 'Oferta de automação comercial',
+          processSyncForTest: true,
+        });
+      },
+      (err: any) => {
+        assert.ok(err.message.includes('Falha forçada na liquidação'));
+        return true;
+      }
+    );
+
+    // Leads reais mantêm suas mensagens originais intactas pelo rollback atômico
+    const l1 = await prisma.lead.findUnique({ where: { id: lead1.id } });
+    const l2 = await prisma.lead.findUnique({ where: { id: lead2.id } });
+    assert.strictEqual(l1?.messageContent, 'Mensagem Original Preservada 1');
+    assert.strictEqual(l2?.messageContent, 'Mensagem Original Preservada 2');
+
+    // Operação no banco NÃO marca COMPLETED nem consumo fictício
+    const op = await prisma.aiOperation.findFirst({
+      where: { campaignId: campaign.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    assert.strictEqual(op?.status, 'FAILED');
+    assert.strictEqual(op?.creditsConsumed, 0);
+
+    // Reserva não fica presa/abandonada: carteira mantém saldo e reservedBalance zerado
+    const summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 20);
+    assert.strictEqual(summary.reservedBalance, 0);
+  } finally {
+    CreditWalletService.settleReservation = originalSettle;
+    setTestAiProvider(null);
+  }
+});
+
+// 14. Duas regenerações individuais simultâneas com a mesma chave: uma chamada ao provedor e um débito
+test('Cenário 14: Duas regenerações individuais simultâneas com a mesma chave executam uma chamada e um débito', async () => {
+  let aiCallCount = 0;
+  setTestAiProvider(async (input) => {
+    aiCallCount++;
+    await new Promise((r) => setTimeout(r, 60)); // Simula latência
+    return `Olá ${input.leadTitle}, copy individual única!`;
+  });
+
+  const { user, workspace, campaign, unique } = await createTestFixtures('c14');
+  const lead = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead Individual', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+
+  const idempotencyKey = `idemp_single_${unique}`;
+
+  try {
+    const [res1, res2] = await Promise.all([
+      AiCopyService.regenerateSingleLead({
+        userId: user.id,
+        workspaceId: workspace.id,
+        campaignId: campaign.id,
+        leadId: lead.id,
+        offerDescription: 'Consultoria de vendas B2B',
+        idempotencyKey,
+      }),
+      AiCopyService.regenerateSingleLead({
+        userId: user.id,
+        workspaceId: workspace.id,
+        campaignId: campaign.id,
+        leadId: lead.id,
+        offerDescription: 'Consultoria de vendas B2B',
+        idempotencyKey,
+      }),
+    ]);
+
+    // Ambas retornam o mesmo conteúdo gerado
+    assert.strictEqual(res1.messageContent, res2.messageContent);
+    assert.ok(res1.messageContent.includes('copy individual única'));
+
+    // Exatamente uma chamada ao Gemini
+    assert.strictEqual(aiCallCount, 1);
+
+    // Exatamente 1 débito na carteira (de 20 para 19)
+    const summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 19);
+    assert.strictEqual(summary.reservedBalance, 0);
+  } finally {
+    setTestAiProvider(null);
+  }
+});
+
+// 15. Mesma chave com payload divergente em concorrência: rejeição correta (409)
+test('Cenário 15: Mesma chave com payload divergente em concorrência é rejeitada com 409', async () => {
+  setTestAiProvider(async () => 'Copy Gerada');
+  const { user, workspace, campaign, unique } = await createTestFixtures('c15');
+  const lead = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead C15', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+
+  const idempotencyKey = `idemp_diverge_${unique}`;
+
+  try {
+    const results = await Promise.allSettled([
+      AiCopyService.regenerateSingleLead({
+        userId: user.id,
+        workspaceId: workspace.id,
+        campaignId: campaign.id,
+        leadId: lead.id,
+        offerDescription: 'Proposta Original Versão A',
+        idempotencyKey,
+      }),
+      AiCopyService.regenerateSingleLead({
+        userId: user.id,
+        workspaceId: workspace.id,
+        campaignId: campaign.id,
+        leadId: lead.id,
+        offerDescription: 'Proposta Totalmente Diferente Versão B',
+        idempotencyKey,
+      }),
+    ]);
+
+    const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    assert.ok(rejected, 'Deveria ter havido pelo menos uma rejeição por conflito de payload');
+    assert.strictEqual((rejected.reason as any).statusCode, 409);
+    assert.ok((rejected.reason as any).message.includes('outros parâmetros'));
+  } finally {
+    setTestAiProvider(null);
+  }
+});
+
+// 16. Interrupção após concluir parte do lote: retomada somente dos leads restantes
+test('Cenário 16: Interrupção após concluir parte do lote retoma somente os leads restantes sem regerar os anteriores', async () => {
+  const callsPerLead: Record<string, number> = {};
+
+  setTestAiProvider(async (input) => {
+    callsPerLead[input.leadTitle] = (callsPerLead[input.leadTitle] || 0) + 1;
+    return `Nova mensagem para ${input.leadTitle}`;
+  });
+
+  const { user, workspace, campaign, unique } = await createTestFixtures('c16');
+  const leadA = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead Alpha', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+  const leadB = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead Beta', phone: `551199${unique.slice(-7)}2`, status: 'PENDING' },
+  });
+
+  // Cria a operação com os dois leads
+  const op = await prisma.aiOperation.create({
+    data: {
+      workspaceId: workspace.id,
+      userId: user.id,
+      campaignId: campaign.id,
+      type: 'BATCH',
+      idempotencyKey: `idemp_interrupted_${unique}`,
+      status: 'PROCESSING',
+      totalLeads: 2,
+    },
+  });
+
+  // Simula que Lead Alpha já foi gerado com sucesso antes da interrupção (salvo em AiOperationLead)
+  await prisma.aiOperationLead.create({
+    data: {
+      operationId: op.id,
+      leadId: leadA.id,
+      status: 'GENERATED',
+      generatedContent: 'Mensagem Alpha persistida antes do crash',
+      isSettled: false,
+    },
+  });
+
+  // Lead Beta estava pendente
+  await prisma.aiOperationLead.create({
+    data: {
+      operationId: op.id,
+      leadId: leadB.id,
+      status: 'PENDING',
+      isSettled: false,
+    },
+  });
+
+  try {
+    // Executa a recuperação / retry da operação interrompida
+    await AiCopyService.processOperationJob(op.id);
+
+    // O provedor de IA só deve ter sido chamado para o Lead Beta, NÃO para o Lead Alpha!
+    assert.strictEqual(callsPerLead['Lead Alpha'] || 0, 0);
+    assert.strictEqual(callsPerLead['Lead Beta'], 1);
+
+    // O Lead Alpha manteve a mensagem que já havia sido gerada
+    const refreshedA = await prisma.lead.findUnique({ where: { id: leadA.id } });
+    const refreshedB = await prisma.lead.findUnique({ where: { id: leadB.id } });
+
+    assert.strictEqual(refreshedA?.messageContent, 'Mensagem Alpha persistida antes do crash');
+    assert.strictEqual(refreshedB?.messageContent, 'Nova mensagem para Lead Beta');
+
+    const finishedOp = await prisma.aiOperation.findUnique({ where: { id: op.id } });
+    assert.strictEqual(finishedOp?.status, 'COMPLETED');
+    assert.strictEqual(finishedOp?.completedLeads, 2);
+  } finally {
+    setTestAiProvider(null);
+  }
+});
+
+// 17. Falha ao enfileirar: repetição/recuperação faz a operação avançar sem prender ou duplicar créditos
+test('Cenário 17: Falha ao enfileirar permite que repetição/recuperação avance a operação sem prender créditos', async () => {
+  setTestAiProvider(async (input) => `Copy para ${input.leadTitle}`);
+  const { user, workspace, campaign, unique } = await createTestFixtures('c17');
+  await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead C17', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+
+  const idempotencyKey = `idemp_queue_fail_${unique}`;
+
+  try {
+    // Primeira tentativa cria a operação e os itens
+    const res1 = await AiCopyService.initiateBatchGeneration({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      offerDescription: 'Proposta inicial',
+      idempotencyKey,
+      processSyncForTest: false, // Fica PENDING simulando que o worker ainda não pegou
+    });
+
+    assert.strictEqual(res1.status, 'PENDING');
+
+    // Repetir a mesma requisição com processSyncForTest processa a operação pendente
+    const res2 = await AiCopyService.initiateBatchGeneration({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      offerDescription: 'Proposta inicial',
+      idempotencyKey,
+      processSyncForTest: true,
+    });
+
+    assert.strictEqual(res2.operationId, res1.operationId);
+    assert.strictEqual(res2.status, 'COMPLETED');
+    assert.strictEqual(res2.completedLeads, 1);
+
+    // Saldo debitou apenas 1 crédito (20 para 19) e reserva zerada
+    const summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 19);
+    assert.strictEqual(summary.reservedBalance, 0);
+  } finally {
+    setTestAiProvider(null);
+  }
+});
+
+// 18. Falha após o job ser aceito, mas antes da confirmação ao chamador: recuperação sem duplicar execução
+test('Cenário 18: Falha de confirmação ao chamador após aceite do job não duplica execução nem débito', async () => {
+  let executionCount = 0;
+  setTestAiProvider(async () => {
+    executionCount++;
+    return 'Mensagem Final';
+  });
+
+  const { user, workspace, campaign, unique } = await createTestFixtures('c18');
+  await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead C18', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+
+  const idempotencyKey = `idemp_ack_fail_${unique}`;
+
+  try {
+    // Primeira execução conclui com sucesso no backend
+    const res1 = await AiCopyService.initiateBatchGeneration({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      offerDescription: 'Oferta estável',
+      idempotencyKey,
+      processSyncForTest: true,
+    });
+    assert.strictEqual(res1.status, 'COMPLETED');
+    assert.strictEqual(executionCount, 1);
+
+    // Replay pelo chamador que perdeu a resposta HTTP original
+    const res2 = await AiCopyService.initiateBatchGeneration({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      offerDescription: 'Oferta estável',
+      idempotencyKey,
+      processSyncForTest: true,
+    });
+
+    assert.strictEqual(res2.operationId, res1.operationId);
+    assert.strictEqual(res2.status, 'COMPLETED');
+    // Não executou o provedor de IA novamente
+    assert.strictEqual(executionCount, 1);
+
+    // Carteira debitou apenas 1 crédito no total
+    const summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 19);
+  } finally {
+    setTestAiProvider(null);
+  }
+});
+

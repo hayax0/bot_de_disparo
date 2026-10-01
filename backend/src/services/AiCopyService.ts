@@ -256,7 +256,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       }
 
       // Se a operação já foi finalizada, devolve o resultado sem gerar nem cobrar novamente
-      if (existingOp.status === 'COMPLETED') {
+      if (existingOp.status === 'COMPLETED' || existingOp.status === 'PARTIAL') {
         return {
           operationId: existingOp.id,
           status: existingOp.status,
@@ -271,7 +271,39 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         };
       }
 
-      // Se estiver em andamento (PENDING ou PROCESSING), devolve status atual sem duplicar
+      // Se a operação estiver PENDING (ex: falha de enfileiramento anterior no Redis):
+      // Recupera duravelmente enfileirando com o jobId determinístico
+      const isSyncReplay = params.processSyncForTest !== undefined ? Boolean(params.processSyncForTest) : (process.env.NODE_ENV === 'test');
+      if (!isSyncReplay) {
+        const jobId = `ai_op_${existingOp.id}`;
+        const existingJob = await aiGenerationQueue.getJob(jobId).catch(() => null);
+        const jobState = existingJob ? await existingJob.getState() : null;
+        if (!existingJob || jobState === 'failed') {
+          await aiGenerationQueue.add(
+            'process_ai_batch',
+            { operationId: existingOp.id },
+            { jobId, removeOnComplete: 100, removeOnFail: 100 }
+          ).catch((qErr: any) => {
+            console.warn(`[AI RETRY ENQUEUE WARN] Operação ${existingOp.id}:`, qErr?.message);
+          });
+        }
+      } else if (params.processSyncForTest) {
+        await this.processOperationJob(existingOp.id);
+        const finishedOp = await prisma.aiOperation.findUnique({ where: { id: existingOp.id } });
+        return {
+          operationId: existingOp.id,
+          status: finishedOp?.status || 'COMPLETED',
+          totalLeads: finishedOp?.totalLeads || existingOp.totalLeads,
+          completedLeads: finishedOp?.completedLeads || 0,
+          failedLeads: finishedOp?.failedLeads || 0,
+          creditsConsumed: finishedOp?.creditsConsumed || 0,
+          totalRequested: finishedOp?.totalLeads || existingOp.totalLeads,
+          generatedCount: finishedOp?.completedLeads || 0,
+          failedCount: finishedOp?.failedLeads || 0,
+          isExisting: true,
+        };
+      }
+
       return {
         operationId: existingOp.id,
         status: existingOp.status,
@@ -318,26 +350,40 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       description: `Geração de abordagens IA: ${totalLeads} leads na campanha "${campaign.name}"`,
     });
 
-    // 6. Persiste a operação no banco com status PENDING (com tratamento para concorrência simultânea)
+    // 6. Persiste a operação no banco com status PENDING e os itens vinculados (AiOperationLead)
     let op;
     try {
-      op = await prisma.aiOperation.create({
-        data: {
-          workspaceId,
-          userId,
-          campaignId,
-          type: 'BATCH',
-          idempotencyKey,
-          payloadHash,
-          offerDescription,
-          toneStyle,
-          status: 'PENDING',
-          reservationId: reservation.reservationId || null,
-          totalLeads,
-          creditsReserved: totalLeads,
-          creditsConsumed: 0,
-          resultSummary: JSON.stringify({ requestedLeadIds: eligibleLeads.map((l) => l.id) }),
-        },
+      op = await prisma.$transaction(async (tx) => {
+        const createdOp = await tx.aiOperation.create({
+          data: {
+            workspaceId,
+            userId,
+            campaignId,
+            type: 'BATCH',
+            idempotencyKey,
+            payloadHash,
+            offerDescription,
+            toneStyle,
+            status: 'PENDING',
+            reservationId: reservation.reservationId || null,
+            totalLeads,
+            creditsReserved: totalLeads,
+            creditsConsumed: 0,
+            resultSummary: JSON.stringify({ requestedLeadIds: eligibleLeads.map((l) => l.id) }),
+          },
+        });
+
+        // Persiste duravelmente a seleção original de leads em AiOperationLead
+        await tx.aiOperationLead.createMany({
+          data: eligibleLeads.map((l) => ({
+            operationId: createdOp.id,
+            leadId: l.id,
+            status: 'PENDING',
+            isSettled: false,
+          })),
+        });
+
+        return createdOp;
       });
     } catch (createErr: any) {
       if (createErr?.code === 'P2002' || createErr?.message?.includes('Unique constraint failed')) {
@@ -351,6 +397,23 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
               reason: 'Operação concorrente com a mesma chave detectada',
             }).catch(() => {});
           }
+
+          if (params.processSyncForTest) {
+            const finished = await this.waitForBatchCompletion(concurrentlyCreated.id);
+            return {
+              operationId: concurrentlyCreated.id,
+              status: finished?.status || 'COMPLETED',
+              totalLeads: concurrentlyCreated.totalLeads,
+              completedLeads: finished?.completedLeads || 0,
+              failedLeads: finished?.failedLeads || 0,
+              creditsConsumed: finished?.creditsConsumed || 0,
+              totalRequested: concurrentlyCreated.totalLeads,
+              generatedCount: finished?.completedLeads || 0,
+              failedCount: finished?.failedLeads || 0,
+              isExisting: true,
+            };
+          }
+
           return {
             operationId: concurrentlyCreated.id,
             status: concurrentlyCreated.status,
@@ -368,16 +431,19 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       throw createErr;
     }
 
-    // 7. Enfileira o processamento em segundo plano no BullMQ
-    const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(params.processSyncForTest);
-    if (!isTestEnv) {
-      await aiGenerationQueue.add(
-        'process_ai_batch',
-        { operationId: op.id },
-        { jobId: `ai_op_${op.id}`, removeOnComplete: 100, removeOnFail: 100 }
-      );
+    // 7. Enfileira o processamento em segundo plano no BullMQ com jobId determinístico
+    const isSync = params.processSyncForTest !== undefined ? Boolean(params.processSyncForTest) : (process.env.NODE_ENV === 'test');
+    if (!isSync) {
+      try {
+        await aiGenerationQueue.add(
+          'process_ai_batch',
+          { operationId: op.id },
+          { jobId: `ai_op_${op.id}`, removeOnComplete: 100, removeOnFail: 100 }
+        );
+      } catch (queueErr: any) {
+        console.warn(`[AI BATCH QUEUE ADD FAILED] Operação ${op.id} salva como PENDING, será recuperada:`, queueErr?.message);
+      }
     } else {
-      // Em testes unitários que pedirem sincronia ou ambiente de teste sem worker
       await this.processOperationJob(op.id);
       const finishedOp = await prisma.aiOperation.findUnique({ where: { id: op.id } });
       const completed = finishedOp?.completedLeads || 0;
@@ -410,7 +476,8 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
 
   /**
    * Processamento durável do job de IA pelo worker BullMQ.
-   * Executa chamadas fora da transação, revalida elegibilidade e liquida atomicamente.
+   * Executa chamadas ao Gemini fora da transação, persiste progresso por lead em AiOperationLead,
+   * e garante que aplicação no lead e liquidação financeira sejam 100% atômicas.
    */
   public static async processOperationJob(operationId: string) {
     const op = await prisma.aiOperation.findUnique({
@@ -435,32 +502,54 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       data: { status: 'PROCESSING' },
     });
 
-    let requestedLeadIds: string[] = [];
-    try {
-      if (op.resultSummary) {
-        const parsed = JSON.parse(op.resultSummary);
-        if (Array.isArray(parsed.requestedLeadIds)) {
-          requestedLeadIds = parsed.requestedLeadIds;
-        }
-      }
-    } catch {
-      // Ignora erro de parsing
-    }
-
-    const whereClause: any = {
-      campaignId: op.campaignId,
-      status: 'PENDING',
-      sendStartedAt: null,
-    };
-    if (requestedLeadIds.length > 0) {
-      whereClause.id = { in: requestedLeadIds };
-    }
-
-    const leads = await prisma.lead.findMany({
-      where: whereClause,
-      select: { id: true, title: true, phone: true, website: true, neighborhood: true },
-      take: 200,
+    // 1. Carrega ou inicializa os itens da operação vinculados duravelmente (AiOperationLead)
+    let opLeads = await prisma.aiOperationLead.findMany({
+      where: { operationId: op.id },
+      include: { lead: true },
     });
+
+    if (opLeads.length === 0) {
+      let requestedLeadIds: string[] = [];
+      try {
+        if (op.resultSummary) {
+          const parsed = JSON.parse(op.resultSummary);
+          if (Array.isArray(parsed.requestedLeadIds)) {
+            requestedLeadIds = parsed.requestedLeadIds;
+          }
+        }
+      } catch {}
+
+      const whereClause: any = {
+        campaignId: op.campaignId,
+        status: 'PENDING',
+        sendStartedAt: null,
+      };
+      if (requestedLeadIds.length > 0) {
+        whereClause.id = { in: requestedLeadIds };
+      }
+
+      const initialLeads = await prisma.lead.findMany({
+        where: whereClause,
+        select: { id: true },
+        take: 200,
+      });
+
+      if (initialLeads.length > 0) {
+        await prisma.aiOperationLead.createMany({
+          data: initialLeads.map((l) => ({
+            operationId: op.id,
+            leadId: l.id,
+            status: 'PENDING',
+            isSettled: false,
+          })),
+        });
+
+        opLeads = await prisma.aiOperationLead.findMany({
+          where: { operationId: op.id },
+          include: { lead: true },
+        });
+      }
+    }
 
     const user = op.campaign.workspace.user;
     const senderName = user.name || op.campaign.workspace.name || 'Especialista';
@@ -468,115 +557,284 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     const offerDescription = op.offerDescription || '';
     const toneStyle = (op.toneStyle as AiToneStyle) || 'CONSULTATIVE';
 
-    let successCount = 0;
-    let failCount = 0;
-    const completedLeadIds: string[] = [];
+    // 2. Filtra os itens que precisam de geração externa pela IA
+    // Se o item já tem generatedContent salvo (interrupção anterior após geração), NÃO chama o Gemini de novo!
+    const toGenerate = opLeads.filter(
+      (item) => item.status !== 'COMPLETED' && !item.isSettled && (!item.generatedContent || item.status === 'PENDING' || item.status === 'GENERATING')
+    );
 
-    // Processamento com concorrência calibrada (3 simultâneas por vez)
+    // Processamento da IA com concorrência calibrada (3 simultâneas por vez)
     const CHUNK_SIZE = 3;
-    for (let i = 0; i < leads.length; i += CHUNK_SIZE) {
-      const chunk = leads.slice(i, i + CHUNK_SIZE);
+    for (let i = 0; i < toGenerate.length; i += CHUNK_SIZE) {
+      const chunk = toGenerate.slice(i, i + CHUNK_SIZE);
 
       await Promise.all(
-        chunk.map(async (lead) => {
+        chunk.map(async (item) => {
           try {
             // Revalidação antes da chamada externa
             const currentLead = await prisma.lead.findUnique({
-              where: { id: lead.id },
-              select: { status: true, sendStartedAt: true },
+              where: { id: item.leadId },
+              select: { status: true, sendStartedAt: true, title: true, phone: true, website: true, neighborhood: true },
             });
 
             if (!currentLead || currentLead.status !== 'PENDING' || currentLead.sendStartedAt !== null) {
-              failCount++;
+              await prisma.aiOperationLead.update({
+                where: { id: item.id },
+                data: { status: 'SKIPPED', errorMessage: 'Lead não elegível antes da chamada de IA' },
+              });
               return;
             }
 
-            // Chamada externa à IA fora de qualquer transação do banco
+            // Marca status GENERATING (chamada iniciada / estado incerto)
+            await prisma.aiOperationLead.update({
+              where: { id: item.id },
+              data: { status: 'GENERATING' },
+            });
+
+            // Chamada externa ao Gemini FORA de qualquer transação do banco
             const copy = await this.callGeminiApi({
-              leadTitle: lead.title,
-              phone: lead.phone,
-              website: lead.website,
-              neighborhood: lead.neighborhood,
+              leadTitle: currentLead.title,
+              phone: currentLead.phone,
+              website: currentLead.website,
+              neighborhood: currentLead.neighborhood,
               senderName,
               senderCompany,
               offerDescription,
               toneStyle,
             });
 
-            // Persistência condicional atômica: se o lead começou a ser enviado durante a chamada, descarte
-            const saved = await prisma.$transaction(async (tx) => {
-              const updated = await tx.lead.updateMany({
-                where: {
-                  id: lead.id,
-                  campaignId: op.campaignId,
-                  status: 'PENDING',
-                  sendStartedAt: null,
-                },
-                data: {
-                  messageContent: copy,
-                  aiGenerated: true,
-                  aiGeneratedAt: new Date(),
-                } as any,
-              });
-              return updated.count > 0;
+            // Persiste duravelmente o texto gerado no item da operação
+            await prisma.aiOperationLead.update({
+              where: { id: item.id },
+              data: {
+                generatedContent: copy,
+                status: 'GENERATED',
+              },
             });
-
-            if (saved) {
-              successCount++;
-              completedLeadIds.push(lead.id);
-            } else {
-              failCount++;
-            }
-          } catch (leadError) {
-            console.warn(`[AI LEAD GENERATION FAILED] Lead ${lead.id}:`, leadError);
-            failCount++;
+          } catch (leadError: any) {
+            console.warn(`[AI LEAD GENERATION FAILED] Item ${item.id} / Lead ${item.leadId}:`, leadError?.message);
+            await prisma.aiOperationLead.update({
+              where: { id: item.id },
+              data: {
+                status: 'FAILED',
+                errorMessage: leadError?.message || 'Falha na geração com IA',
+              },
+            }).catch(() => {});
           }
         })
       );
     }
 
-    // Liquidação estrita atômica da reserva de créditos
-    if (op.reservationId) {
-      try {
-        if (successCount > 0) {
-          await CreditWalletService.settleReservation({
-            reservationId: op.reservationId,
-            actualConsumedAmount: successCount,
-            description: `Geração de abordagens IA concluída: ${successCount} mensagens geradas (${successCount} créditos debitados)`,
-          });
-        } else {
-          await CreditWalletService.releaseReservation({
-            reservationId: op.reservationId,
-            reason: 'Nenhuma mensagem foi gerada com sucesso ou leads não estavam mais elegíveis',
-          });
-        }
-      } catch (settleError) {
-        console.error('[AI SETTLE RESERVATION ERROR]', settleError);
-      }
-    }
-
-    // Atualiza estado final da operação
-    const finalStatus = successCount === op.totalLeads ? 'COMPLETED' : (successCount > 0 ? 'PARTIAL' : 'FAILED');
-    await prisma.aiOperation.update({
-      where: { id: op.id },
-      data: {
-        status: finalStatus,
-        completedLeads: successCount,
-        failedLeads: failCount,
-        creditsConsumed: successCount,
-        resultSummary: JSON.stringify({ completedLeadIds }),
-      },
+    // 3. Recarrega o estado atualizado de todos os itens da operação
+    const refreshedOpLeads = await prisma.aiOperationLead.findMany({
+      where: { operationId: op.id },
     });
 
-    // Persiste preferências na campanha
-    if (successCount > 0) {
+    // Identifica itens que já estavam liquidados (de execuções parciais anteriores)
+    const alreadySettledCount = refreshedOpLeads.filter((i) => i.isSettled).length;
+    const alreadySettledLeadIds = refreshedOpLeads.filter((i) => i.isSettled).map((i) => i.leadId);
+
+    // Itens que possuem texto gerado com sucesso e ainda não foram liquidados
+    const newlyGeneratedItems = refreshedOpLeads.filter(
+      (i) => !i.isSettled && (i.status === 'GENERATED' || i.generatedContent)
+    );
+
+    // 4. TRANSAÇÃO ATÔMICA: Aplicação das mensagens utilizáveis nos leads e liquidação da reserva
+    try {
+      await prisma.$transaction(async (tx) => {
+        const newlyAppliedLeadIds: string[] = [];
+
+        for (const item of newlyGeneratedItems) {
+          // Revalida atomicamente se o lead ainda está PENDING e sem envio iniciado
+          const updated = await tx.lead.updateMany({
+            where: {
+              id: item.leadId,
+              campaignId: op.campaignId,
+              status: 'PENDING',
+              sendStartedAt: null,
+            },
+            data: {
+              messageContent: item.generatedContent,
+              aiGenerated: true,
+              aiGeneratedAt: new Date(),
+            } as any,
+          });
+
+          if (updated.count > 0) {
+            newlyAppliedLeadIds.push(item.leadId);
+            await tx.aiOperationLead.update({
+              where: { id: item.id },
+              data: { status: 'COMPLETED', isSettled: true },
+            });
+          } else {
+            // O lead começou a ser enviado antes da finalização: não altera mensagem nem cobra
+            await tx.aiOperationLead.update({
+              where: { id: item.id },
+              data: { status: 'SKIPPED', errorMessage: 'Lead iniciou envio antes da liquidação' },
+            });
+          }
+        }
+
+        const totalSettledNow = alreadySettledCount + newlyAppliedLeadIds.length;
+
+        // Liquidação atômica vinculada estritamente à mesma transação
+        if (op.reservationId) {
+          if (totalSettledNow > 0) {
+            await CreditWalletService.settleReservation(
+              {
+                reservationId: op.reservationId,
+                actualConsumedAmount: totalSettledNow,
+                description: `Geração de abordagens IA: ${totalSettledNow} mensagens aplicadas (${totalSettledNow} créditos debitados)`,
+              },
+              tx
+            );
+          } else {
+            await CreditWalletService.releaseReservation(
+              {
+                reservationId: op.reservationId,
+                reason: 'Nenhuma mensagem aplicada ou leads tornaram-se inelegíveis',
+              },
+              tx
+            );
+          }
+        }
+
+        const finalStatus = totalSettledNow === op.totalLeads ? 'COMPLETED' : (totalSettledNow > 0 ? 'PARTIAL' : 'FAILED');
+        await tx.aiOperation.update({
+          where: { id: op.id },
+          data: {
+            status: finalStatus,
+            completedLeads: totalSettledNow,
+            failedLeads: op.totalLeads - totalSettledNow,
+            creditsConsumed: totalSettledNow,
+            resultSummary: JSON.stringify({ completedLeadIds: [...alreadySettledLeadIds, ...newlyAppliedLeadIds] }),
+          },
+        });
+      });
+    } catch (settleOrApplyError: any) {
+      console.error('[AI ATOMIC SETTLE ERROR] Transação de liquidação revertida:', settleOrApplyError?.message);
+
+      // Em caso de falha na liquidação (ex: settleReservation falhou), a transação sofre ROLLBACK.
+      // Nenhum lead permanece com a nova mensagem sem débito!
+      await prisma.aiOperation.update({
+        where: { id: op.id },
+        data: {
+          status: 'FAILED',
+          completedLeads: alreadySettledCount,
+          failedLeads: op.totalLeads - alreadySettledCount,
+          creditsConsumed: alreadySettledCount,
+          errorMessage: `Falha na liquidação financeira: ${settleOrApplyError?.message || 'Erro contábil'}`,
+        },
+      });
+
+      // Libera a reserva pendente para não prender créditos do usuário
+      if (op.reservationId && alreadySettledCount === 0) {
+        await CreditWalletService.releaseReservation({
+          reservationId: op.reservationId,
+          reason: `Falha na liquidação atômica: ${settleOrApplyError?.message}`,
+        }).catch(() => {});
+      }
+
+      throw settleOrApplyError;
+    }
+
+    // 5. Persiste preferências de tom e proposta na campanha se houve sucesso
+    const finalOp = await prisma.aiOperation.findUnique({ where: { id: op.id } });
+    if (finalOp && finalOp.creditsConsumed > 0) {
       await prisma.campaign.update({
         where: { id: op.campaignId },
         data: {
           aiOfferDescription: offerDescription,
           aiToneStyle: toneStyle,
         } as any,
+      }).catch(() => {});
+    }
+  }
+
+  /**
+   * Helper que aguarda a conclusão de uma operação de regeneração individual concorrente em andamento.
+   */
+  private static async waitForSingleLeadCompletion(operationId: string, leadId: string) {
+    for (let attempt = 0; attempt < 35; attempt++) {
+      await new Promise((r) => setTimeout(r, 150));
+      const op = await prisma.aiOperation.findUnique({ where: { id: operationId } });
+      if (op?.status === 'COMPLETED') {
+        const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+        return {
+          leadId,
+          messageContent: lead?.messageContent || '',
+          isExisting: true,
+        };
+      }
+      if (op?.status === 'FAILED') {
+        throw new Error(op.errorMessage || 'Falha na geração concorrente da mensagem.');
+      }
+    }
+
+    const currentLead = await prisma.lead.findUnique({ where: { id: leadId } });
+    return {
+      leadId,
+      messageContent: currentLead?.messageContent || '',
+      isExisting: true,
+    };
+  }
+
+  /**
+   * Helper que aguarda a conclusão de uma operação de lote concorrente em andamento.
+   */
+  private static async waitForBatchCompletion(operationId: string) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const op = await prisma.aiOperation.findUnique({ where: { id: operationId } });
+      if (op && op.status !== 'PENDING' && op.status !== 'PROCESSING') {
+        return op;
+      }
+    }
+    return await prisma.aiOperation.findUnique({ where: { id: operationId } });
+  }
+
+  /**
+   * Recupera no boot do backend operações de IA em lote órfãs ou interrompidas
+   * que ficaram PENDING ou PROCESSING sem job ativo na fila BullMQ.
+   */
+  public static async recoverOrphanedAiOperations() {
+    try {
+      const pendingOps = await prisma.aiOperation.findMany({
+        where: {
+          type: 'BATCH',
+          status: { in: ['PENDING', 'PROCESSING'] },
+        },
       });
+
+      if (pendingOps.length === 0) return;
+
+      console.log(`[AI RECOVERY] Verificando ${pendingOps.length} operações de IA pendentes/interrompidas...`);
+
+      for (const op of pendingOps) {
+        const jobId = `ai_op_${op.id}`;
+        let job = null;
+        try {
+          job = await aiGenerationQueue.getJob(jobId);
+        } catch {
+          // Ignora erro de conexão
+        }
+
+        const state = job ? await job.getState() : null;
+        const isJobRunningOrWaiting = state === 'active' || state === 'waiting' || state === 'delayed';
+
+        if (!isJobRunningOrWaiting) {
+          console.log(`[AI RECOVERY] Reenfileirando operação órfã ${op.id} (status=${op.status}, jobId=${jobId})...`);
+          await aiGenerationQueue.add(
+            'process_ai_batch',
+            { operationId: op.id },
+            { jobId, removeOnComplete: 100, removeOnFail: 100 }
+          ).catch((err: any) => {
+            console.error(`[AI RECOVERY] Falha ao reenfileirar operação ${op.id}:`, err?.message);
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[AI RECOVERY ERROR] Erro ao recuperar operações órfãs de IA:', err);
     }
   }
 
@@ -650,14 +908,11 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
 
   /**
    * Regera a mensagem de um lead individual de forma atômica e idempotente.
-   * Se a liquidação da reserva falhar, a mensagem no lead sobre rollback automático.
+   * Persiste e reivindica a operação ANTES da chamada ao Gemini para evitar duplicação em corridas concorrentes.
+   * A chamada externa ocorre fora de transação do banco, e a gravação/liquidação é estritamente atômica.
    */
   public static async regenerateSingleLead(params: SingleLeadRegenParams) {
     const { userId, workspaceId, campaignId, leadId } = params;
-
-    if (!this.isAvailable()) {
-      throw new Error('O assistente de IA está indisponível no momento. Configure a GEMINI_API_KEY no servidor.');
-    }
 
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, workspaceId, workspace: { userId } },
@@ -689,8 +944,13 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     }
 
     // Regra estrita: não regenerar leads cujo envio já começou ou foi concluído
+    // (Verificação prévia para garantir proteção do histórico independentemente de chave externa)
     if (lead.status !== 'PENDING' || lead.sendStartedAt !== null) {
       throw new Error(`Não é possível personalizar um lead que já foi enviado ou está em processamento de envio (status atual: ${lead.status}).`);
+    }
+
+    if (!this.isAvailable()) {
+      throw new Error('O assistente de IA está indisponível no momento. Configure a GEMINI_API_KEY no servidor.');
     }
 
     const campaignOffer = (campaign as any).aiOfferDescription;
@@ -705,7 +965,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     const payloadHash = computePayloadHash({ offerDescription, toneStyle, leadIds: [leadId] });
     const idempotencyKey = params.idempotencyKey?.trim() || `ai_single_${leadId}_${randomUUID()}`;
 
-    // Verificação de idempotência para regeneração individual
+    // 1. Verificação prévia de idempotência
     const existingOp = await prisma.aiOperation.findUnique({
       where: { idempotencyKey },
     });
@@ -729,9 +989,13 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
           isExisting: true,
         };
       }
+
+      if (existingOp.status === 'PROCESSING') {
+        return await this.waitForSingleLeadCompletion(existingOp.id, leadId);
+      }
     }
 
-    // Reserva 1 crédito na carteira
+    // 2. Reserva 1 crédito na carteira
     const reservation = await CreditWalletService.reserveCredits({
       userId,
       amount: 1,
@@ -741,8 +1005,79 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       description: `Regeneração IA para lead: ${lead.title}`,
     });
 
+    // 3. PERSISTE e REIVINDICA a operação como PROCESSING ANTES de chamar o Gemini
+    let op;
     try {
-      // Chamada externa ao Gemini FORA de qualquer transação do banco
+      op = await prisma.aiOperation.create({
+        data: {
+          workspaceId,
+          userId,
+          campaignId,
+          leadId,
+          type: 'SINGLE_LEAD',
+          idempotencyKey,
+          payloadHash,
+          offerDescription,
+          toneStyle,
+          status: 'PROCESSING',
+          reservationId: reservation.reservationId || null,
+          totalLeads: 1,
+          completedLeads: 0,
+          failedLeads: 0,
+          creditsReserved: 1,
+          creditsConsumed: 0,
+        },
+      });
+    } catch (createErr: any) {
+      if (createErr?.code === 'P2002' || createErr?.message?.includes('Unique constraint failed')) {
+        const concurrentlyCreated = await prisma.aiOperation.findUnique({
+          where: { idempotencyKey },
+        });
+
+        if (concurrentlyCreated) {
+          // Validação rigorosa de payload divergente na corrida concorrente
+          if (
+            concurrentlyCreated.userId !== userId ||
+            concurrentlyCreated.leadId !== leadId ||
+            (concurrentlyCreated.payloadHash && concurrentlyCreated.payloadHash !== payloadHash)
+          ) {
+            if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
+              await CreditWalletService.releaseReservation({
+                reservationId: reservation.reservationId,
+                reason: 'Operação concorrente com payload divergente',
+              }).catch(() => {});
+            }
+            const conflictErr = new Error('Chave de idempotência já utilizada com outros parâmetros ou usuário.');
+            (conflictErr as any).statusCode = 409;
+            throw conflictErr;
+          }
+
+          // Se a reserva gerada for diferente, libera a reserva secundária redundante
+          if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
+            await CreditWalletService.releaseReservation({
+              reservationId: reservation.reservationId,
+              reason: 'Operação concorrente com mesma chave detectada',
+            }).catch(() => {});
+          }
+
+          if (concurrentlyCreated.status === 'COMPLETED') {
+            const currentLead = await prisma.lead.findUnique({ where: { id: leadId } });
+            return {
+              leadId,
+              messageContent: currentLead?.messageContent || '',
+              isExisting: true,
+            };
+          }
+
+          // Aguarda a operação vencedora concluir sem chamar o Gemini novamente
+          return await this.waitForSingleLeadCompletion(concurrentlyCreated.id, leadId);
+        }
+      }
+      throw createErr;
+    }
+
+    try {
+      // 4. Chamada externa ao Gemini FORA de qualquer transação do banco (apenas a execução vencedora executa)
       const copy = await this.callGeminiApi({
         leadTitle: lead.title,
         phone: lead.phone,
@@ -754,7 +1089,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         toneStyle,
       });
 
-      // Persistência do texto no lead e liquidação da reserva dentro da MESMA transação
+      // 5. Persistência do texto no lead e liquidação da reserva dentro da MESMA transação
       await prisma.$transaction(async (tx) => {
         // Revalida atomicamente elegibilidade no momento de salvar
         const updateResult = await tx.lead.updateMany({
@@ -787,28 +1122,10 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
           );
         }
 
-        // Registra operação de IA como concluída
-        await tx.aiOperation.upsert({
-          where: { idempotencyKey },
-          create: {
-            workspaceId,
-            userId,
-            campaignId,
-            type: 'SINGLE_LEAD',
-            leadId,
-            idempotencyKey,
-            payloadHash,
-            offerDescription,
-            toneStyle,
-            status: 'COMPLETED',
-            reservationId: reservation.reservationId || null,
-            totalLeads: 1,
-            completedLeads: 1,
-            failedLeads: 0,
-            creditsReserved: 1,
-            creditsConsumed: 1,
-          },
-          update: {
+        // Atualiza a operação para COMPLETED
+        await tx.aiOperation.update({
+          where: { id: op.id },
+          data: {
             status: 'COMPLETED',
             completedLeads: 1,
             creditsConsumed: 1,
@@ -818,6 +1135,14 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
 
       return { leadId: lead.id, messageContent: copy };
     } catch (err: any) {
+      await prisma.aiOperation.update({
+        where: { id: op.id },
+        data: {
+          status: 'FAILED',
+          errorMessage: err?.message || 'Falha na regeneração individual',
+        },
+      }).catch(() => {});
+
       if (reservation.reservationId) {
         await CreditWalletService.releaseReservation({
           reservationId: reservation.reservationId,

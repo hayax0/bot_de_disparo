@@ -42,6 +42,7 @@ import { messageQueue, queueEvents, aiGenerationQueue, aiGenerationQueueEvents }
 import { WhatsappManager } from './services/WhatsappManager';
 import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
 import { startAiGenerationWorker, aiGenerationWorker } from './workers/aiGenerationWorker';
+import { AiCopyService } from './services/AiCopyService';
 
 const app = express();
 
@@ -210,6 +211,8 @@ const server = app.listen(ENV.PORT, async () => {
   startCompanySearchWorker();
   // Inicializa worker de geração durável de mensagens por IA via BullMQ
   startAiGenerationWorker();
+  // Recupera operações de IA que ficaram pendentes/interrompidas sem job ativo
+  await AiCopyService.recoverOrphanedAiOperations();
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
 });

@@ -195,6 +195,7 @@ model Lead {
   updatedAt      DateTime  @updatedAt
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  aiOperationLeads AiOperationLead[]
 
   @@unique([campaignId, phone])
   @@index([wppMessageId])
@@ -484,8 +485,29 @@ model AiOperation {
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign         Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  leads            AiOperationLead[]
 
   @@index([userId, status])
   @@index([campaignId, status])
   @@index([workspaceId])
 }
+
+model AiOperationLead {
+  id               String      @id @default(uuid())
+  operationId      String
+  leadId           String
+  status           String      @default("PENDING") // PENDING, GENERATING, GENERATED, COMPLETED, FAILED, SKIPPED
+  generatedContent String?     @db.Text
+  isSettled        Boolean     @default(false)
+  errorMessage     String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  operation        AiOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  lead             Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([operationId, leadId])
+  @@index([operationId, status])
+  @@index([leadId])
+}
+
