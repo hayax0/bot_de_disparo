@@ -29,6 +29,15 @@ model User {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  planId                String?   // START, PRO, SCALE, LEGACY_DAVI, ADMIN_LIFETIME
+  monthlyDispatchQuota  Int       @default(0) // 0 = sem restrição por plano ou administrado
+  dispatchesUsedInCycle Int       @default(0)
+  cycleResetAt          DateTime?
+  wallet                CreditWallet?
+  purchaseOrders        CreditPurchaseOrder[]
+  companySearches       CompanySearch[]
+  aiConversations       AiConversation[]
+
   workspaces            Workspace[]
   notifications         SubscriptionNotification[]
   passwordResetTokens   PasswordResetToken[]
@@ -61,6 +70,8 @@ model Workspace {
   whatsapp         WhatsappSession?
   blacklist        Blacklist[]
   auditLogs        AuditLog[]
+  companySearches  CompanySearch[]
+  aiConversations  AiConversation[]
 }
 
 model Blacklist {
@@ -218,3 +229,148 @@ model SubscriptionNotification {
   @@index([userId])
   @@index([recipientEmail])
 }
+
+model CreditWallet {
+  id               String              @id @default(uuid())
+  userId           String              @unique
+  monthlyBalance   Int                 @default(0) // Consumido primeiro; expira no ciclo
+  purchasedBalance Int                 @default(0) // Consumido depois; acumula sem expirar
+  reservedBalance  Int                 @default(0) // Hold ativo em operações pendentes
+  monthlyExpiresAt DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions     CreditTransaction[]
+}
+
+model CreditTransaction {
+  id              String        @id @default(uuid())
+  walletId        String
+  userId          String
+  amount          Int           // Positivo (crédito) ou negativo (débito)
+  type            String        // MONTHLY_GRANT, PURCHASE_GRANT, RESERVATION_HOLD, RESERVATION_RELEASE, CONSUMPTION, EXPIRATION, ADMIN_ADJUSTMENT, REFUND_REVOCATION
+  balanceType     String        // MONTHLY, PURCHASED, MIXED, NONE
+  monthlyAmount   Int           @default(0)
+  purchasedAmount Int           @default(0)
+  sourceType      String        // COMPANY_SEARCH, AI_ASSISTANT, SUBSCRIPTION_RENEWAL, CREDIT_PURCHASE, ADMIN_MANUAL
+  sourceId        String?
+  idempotencyKey  String?       @unique
+  description     String
+  metadata        String?       @db.Text
+  createdAt       DateTime      @default(now())
+
+  wallet          CreditWallet  @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([walletId])
+  @@index([sourceType, sourceId])
+}
+
+model CreditPurchaseOrder {
+  id              String    @id @default(uuid())
+  userId          String
+  packageId       String    // PACKAGE_SMALL, PACKAGE_MEDIUM, PACKAGE_LARGE
+  credits         Int
+  priceCents      Int
+  currency        String    @default("BRL")
+  status          String    @default("PENDING") // PENDING, PAID, CANCELED, REFUNDED
+  paymentProvider String    @default("cakto")
+  caktoOrderId    String?
+  caktoPaymentUrl String?
+  idempotencyKey  String?   @unique
+  paidAt          DateTime?
+  refundedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([caktoOrderId])
+}
+
+model CompanySearch {
+  id              String                @id @default(uuid())
+  workspaceId     String
+  userId          String
+  query           String
+  segment         String?
+  location        String?
+  requestedCount  Int
+  foundCount      Int                   @default(0)
+  usableCount     Int                   @default(0)
+  discardedCount  Int                   @default(0)
+  creditsReserved Int                   @default(0)
+  creditsConsumed Int                   @default(0)
+  status          String                @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELED
+  errorMessage    String?
+  apifyRunId      String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  results         CompanySearchResult[]
+
+  @@index([workspaceId, createdAt])
+  @@index([userId])
+}
+
+model CompanySearchResult {
+  id             String        @id @default(uuid())
+  searchId       String
+  workspaceId    String
+  name           String
+  phone          String?
+  website        String?
+  address        String?
+  neighborhood   String?
+  city           String?
+  category       String?
+  rating         Float?
+  reviewsCount   Int?
+  isUsable       Boolean       @default(false)
+  discardReason  String?       // NO_PHONE, DUPLICATE, BLACKLISTED, INVALID_PHONE
+  importedLeadId String?
+  createdAt      DateTime      @default(now())
+
+  search         CompanySearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
+
+  @@index([searchId])
+  @@index([workspaceId, phone])
+}
+
+model AiConversation {
+  id          String      @id @default(uuid())
+  userId      String
+  workspaceId String
+  title       String      @default("Nova conversa")
+  creditsUsed Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages    AiMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([workspaceId])
+}
+
+model AiMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  role           String         // user, assistant, system, tool
+  content        String         @db.Text
+  toolCalls      String?        @db.Text
+  toolResult     String?        @db.Text
+  tokensUsed     Int            @default(0)
+  creditsCharged Int            @default(0)
+  createdAt      DateTime       @default(now())
+
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+

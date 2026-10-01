@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Queue } from 'bullmq';
+import { QuotaService } from './QuotaService';
 
 export class CampaignStartError extends Error {
   constructor(message: string, public status = 500) { super(message); }
@@ -12,6 +13,16 @@ export async function startCampaign(db: PrismaClient, queue: Queue, id: string, 
   if (['RUNNING', 'STARTING'].includes(campaign.status)) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
   const session = await db.whatsappSession.findUnique({ where: { workspaceId } });
   if (session?.status !== 'CONNECTED') throw new CampaignStartError('O WhatsApp não está conectado. Conecte seu aparelho antes de iniciar os envios.', 400);
+
+  if (db.workspace?.findUnique) {
+    const workspace = await db.workspace.findUnique({ where: { id: workspaceId }, select: { userId: true } });
+    if (workspace?.userId) {
+      const quota = await QuotaService.canDispatch(workspace.userId);
+      if (!quota.allowed) {
+        throw new CampaignStartError(quota.reason || 'Franquia mensal de disparos atingida.', 403);
+      }
+    }
+  }
   const leads = await db.lead.findMany({
     where: { campaignId: id, status: { in: ['PENDING', 'QUEUED'] } }, orderBy: { createdAt: 'asc' },
   });
