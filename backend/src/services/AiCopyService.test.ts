@@ -137,11 +137,11 @@ test('AiCopyService: fluxo em lote gera mensagens, atualiza leads e debita créd
     const updatedLead2 = await prisma.lead.findUnique({ where: { id: lead2.id } });
 
     assert.ok(updatedLead1?.messageContent?.includes('Sorriso 1'));
-    assert.strictEqual(updatedLead1?.aiGenerated, true);
-    assert.ok(updatedLead1?.aiGeneratedAt);
+    assert.strictEqual((updatedLead1 as any)?.aiGenerated, true);
+    assert.ok((updatedLead1 as any)?.aiGeneratedAt);
 
     assert.ok(updatedLead2?.messageContent?.includes('Sorriso 2'));
-    assert.strictEqual(updatedLead2?.aiGenerated, true);
+    assert.strictEqual((updatedLead2 as any)?.aiGenerated, true);
 
     // 5. Valida que a carteira debitou exatamente 2 créditos (saldo restante = 8, reserved = 0)
     const summary = await CreditWalletService.getWalletSummary(user.id);

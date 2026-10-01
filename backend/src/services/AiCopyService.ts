@@ -256,7 +256,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
                   messageContent: copy,
                   aiGenerated: true,
                   aiGeneratedAt: new Date(),
-                },
+                } as any,
               });
 
               successCount++;
@@ -285,7 +285,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         data: {
           aiOfferDescription: offerDescription,
           aiToneStyle: toneStyle,
-        },
+        } as any,
       });
 
       return {
@@ -348,12 +348,14 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       throw new Error('Lead não encontrado nesta campanha.');
     }
 
-    const offerDescription = (params.offerDescription || campaign.aiOfferDescription || '').trim();
+    const campaignOffer = (campaign as any).aiOfferDescription;
+    const campaignTone = (campaign as any).aiToneStyle;
+    const offerDescription = (params.offerDescription || campaignOffer || '').trim();
     if (offerDescription.length < 5) {
       throw new Error('Informe a proposta/oferta com pelo menos 5 caracteres.');
     }
 
-    const toneStyle: AiToneStyle = params.toneStyle || (campaign.aiToneStyle as AiToneStyle) || 'CONSULTATIVE';
+    const toneStyle: AiToneStyle = params.toneStyle || (campaignTone as AiToneStyle) || 'CONSULTATIVE';
 
     // Reserva 1 crédito
     const idempotencyKey = `ai_single_${leadId}_${randomUUID()}`;
@@ -384,7 +386,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
           messageContent: copy,
           aiGenerated: true,
           aiGeneratedAt: new Date(),
-        },
+        } as any,
       });
 
       if (reservation.reservationId) {
