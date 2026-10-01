@@ -99,11 +99,12 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       return this.generateDevelopmentFallback(input);
     }
 
+    const model = (ENV.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').trim();
     const { systemPrompt, userPrompt } = this.buildPrompts(input);
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: {
@@ -131,6 +132,9 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
         console.error('[GEMINI API ERROR]', response.status, errorText);
+        if (response.status === 404) {
+          throw new Error(`Modelo "${model}" não disponível no Gemini. Configure GEMINI_MODEL no .env com um modelo ativo da sua conta (ex: gemini-3.1-flash-lite ou gemini-3.5-flash).`);
+        }
         throw new Error(`Falha na API do Gemini (HTTP ${response.status}): ${errorText.slice(0, 150)}`);
       }
 

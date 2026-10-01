@@ -53,4 +53,5 @@ export const ENV = {
   APIFY_API_TOKEN: process.env.APIFY_API_TOKEN || '',
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
 };
