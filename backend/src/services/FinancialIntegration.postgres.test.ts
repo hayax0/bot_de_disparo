@@ -1,3 +1,4 @@
+import { ApifyCredentialService, encryptApifyToken, decryptApifyToken } from './ApifyCredentialService';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma as testPrisma, resolvePrismaDatabaseUrl } from '../lib/prisma';
@@ -76,6 +77,72 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
   t.after(async () => {
     await testPrisma.$disconnect();
     setTestPlacesProvider(null);
+  });
+
+  await t.test('BYOK: isolamento, criptografia, saldo zero, concorrência e recuperação sem créditos', async () => {
+    const oldKey = process.env.INTEGRATION_ENCRYPTION_KEY;
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'ab'.repeat(32);
+    const originalAdd = companySearchQueue.add;
+    const originalFetch = global.fetch;
+    const user = await testPrisma.user.create({ data: { email: 'byok@test.local', password: 'hash', planId: 'START', subscriptionStatus: 'ACTIVE' } });
+    const other = await testPrisma.user.create({ data: { email: 'byok-other@test.local', password: 'hash', planId: 'START', subscriptionStatus: 'ACTIVE' } });
+    const workspace = await testPrisma.workspace.create({ data: { name: 'BYOK', userId: user.id } });
+    const otherWorkspace = await testPrisma.workspace.create({ data: { name: 'Outro', userId: other.id } });
+    const input = { userId: user.id, workspaceId: workspace.id, segment: 'Clínicas', location: 'Rio', requestedCount: 5, idempotencyKey: 'byok-one' };
+    try {
+      await assert.rejects(CompanySearchService.initiateSearch(input), /Conecte/);
+      global.fetch = (async (_url: any, options: any) => {
+        assert.equal(options.headers.Authorization, 'Bearer personal-test-token');
+        return new Response(JSON.stringify({ data: { username: 'test-personal' } }), { status: 200 });
+      }) as typeof fetch;
+      const status = await ApifyCredentialService.save(user.id, 'personal-test-token');
+      assert.equal(status.configured, true);
+      assert.equal(JSON.stringify(status).includes('personal-test-token'), false);
+      const stored = await testPrisma.apifyCredential.findUniqueOrThrow({ where: { userId: user.id } });
+      assert.ok(!stored.ciphertext.includes('personal-test-token'));
+      assert.equal(decryptApifyToken(stored.ciphertext, user.id), 'personal-test-token');
+      assert.throws(() => decryptApifyToken(stored.ciphertext, other.id));
+      assert.equal((await ApifyCredentialService.status(other.id)).configured, false);
+      await assert.rejects(ApifyCredentialService.token(other.id), /Conecte/);
+      await assert.rejects(CompanySearchService.initiateSearch({ ...input, userId: other.id }), /Workspace/);
+      await assert.rejects(CompanySearchService.initiateSearch({ ...input, userId: other.id, workspaceId: otherWorkspace.id }), /Conecte/);
+      (companySearchQueue as any).add = async () => { throw new Error('Redis temporariamente indisponível'); };
+      await assert.rejects(CompanySearchService.initiateSearch(input), /Redis/);
+      assert.equal(await testPrisma.creditReservation.count({ where: { userId: user.id } }), 0);
+      (companySearchQueue as any).add = async () => ({ id: 'mock-job' });
+      const [a, b] = await Promise.all([CompanySearchService.initiateSearch(input), CompanySearchService.initiateSearch(input)]);
+      assert.equal(a.id, b.id);
+      assert.equal(a.billingMode, 'PERSONAL_APIFY');
+      assert.equal(a.creditsReserved, 0);
+      await assert.rejects(ApifyCredentialService.remove(user.id), /Aguarde/);
+      await assert.rejects(ApifyCredentialService.save(user.id, 'personal-test-token'), /Aguarde/);
+      await assert.rejects(CompanySearchService.initiateSearch({ ...input, segment: 'Outro' }), /idempotência/);
+      setTestPlacesProvider(null);
+      const headers: string[] = [];
+      global.fetch = (async (url: any, options: any) => {
+        assert.ok(!String(url).includes('token='));
+        headers.push(options.headers.Authorization);
+        if (String(url).includes('/datasets/')) return new Response(JSON.stringify([{ title: 'Clínica', phone: '5521999997777', website: 'https://example.com' }]));
+        if (options.method === 'POST') return new Response(JSON.stringify({ data: { id: 'byok-run', defaultDatasetId: 'byok-data' } }));
+        if (String(url).includes('/actor-runs/')) return new Response(JSON.stringify({ data: { status: 'SUCCEEDED', defaultDatasetId: 'byok-data' } }));
+        return new Response(JSON.stringify({ data: { items: [] } }));
+      }) as typeof fetch;
+      const completed = await CompanySearchService.processSearchJob(a.id);
+      assert.equal(completed?.status, 'COMPLETED');
+      assert.equal(completed?.creditsConsumed, 0);
+      assert.equal(completed?.usableCount, 1);
+      assert.ok(headers.length > 0 && headers.every(value => value === 'Bearer personal-test-token'));
+      assert.equal(await testPrisma.creditTransaction.count({ where: { userId: user.id } }), 0);
+      assert.equal(await testPrisma.creditReservation.count({ where: { userId: user.id } }), 0);
+      await ApifyCredentialService.remove(user.id);
+      assert.equal((await ApifyCredentialService.status(user.id)).configured, false);
+      assert.equal((await CompanySearchService.initiateSearch(input)).id, a.id);
+    } finally {
+      companySearchQueue.add = originalAdd;
+      global.fetch = originalFetch;
+      if (oldKey === undefined) delete process.env.INTEGRATION_ENCRYPTION_KEY; else process.env.INTEGRATION_ENCRYPTION_KEY = oldKey;
+      setTestPlacesProvider(null);
+    }
   });
 
   // =========================================================================
@@ -297,7 +364,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     // Duas buscas simultâneas com a MESMA chave disparam juntas em paralelo
     const [searchA, searchB] = await Promise.all([
-      CompanySearchService.initiateSearch({
+      CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Pizzaria',
@@ -306,7 +373,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
         idempotencyKey: sharedKey,
         targetCampaignId: campaign1.id
       }),
-      CompanySearchService.initiateSearch({
+      CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Pizzaria',
@@ -332,7 +399,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     // Validação de targetCampaignId: tentar reutilizar a mesma chave com campaign2 deve ser REJEITADO
     await assert.rejects(
       async () => {
-        await CompanySearchService.initiateSearch({
+        await CompanySearchService.initiateLegacySearch({
           userId: user.id,
           workspaceId: workspace.id,
           segment: 'Pizzaria',
@@ -647,6 +714,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       // POST para criar novo run na Apify
       if (urlStr.includes('/acts/compass~crawler-google-places/runs') && init?.method === 'POST') {
         const body = JSON.parse(init.body);
+        assert.equal(body.countryCode, 'br', 'Apify exige countryCode em minúsculas para aceitar a busca');
         const runId = `run_${body.customData?.segment || 'search'}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         const datasetId = `dataset_${runId}`;
 
@@ -726,7 +794,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     try {
       // 1. Inicia Busca A: "Restaurantes" em "Sao Paulo"
-      const searchA = await CompanySearchService.initiateSearch({
+      const searchA = await CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Restaurantes',
@@ -741,7 +809,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
       // 2. Imediatamente após, inicia Busca B: "Dentistas" em "Curitiba"
       // Quando a Busca B roda, a lista de runs recentes da Apify contém o run da Busca A (recente e concluído)
-      const searchB = await CompanySearchService.initiateSearch({
+      const searchB = await CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Dentistas',
@@ -915,7 +983,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     // 2. Chama initiateSearch novamente com a MESMA chave (repetição ou re-enfileiramento)
     // O sistema DEVE recuperar a reserva, gerando uma nova reserva PENDING e liquidando com sucesso!
-    const completedSearch = await CompanySearchService.initiateSearch({
+    const completedSearch = await CompanySearchService.initiateLegacySearch({
       userId: user.id,
       workspaceId: workspace.id,
       segment: 'Auto Eletrica',
@@ -941,7 +1009,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     // Tenta usar a mesma chave de idempotência com parâmetros diferentes
     await assert.rejects(
       async () => {
-        await CompanySearchService.initiateSearch({
+        await CompanySearchService.initiateLegacySearch({
           userId: user.id,
           workspaceId: workspace.id,
           segment: 'Padarias', // Segmento diferente!
@@ -983,7 +1051,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     const summaryBeforeFailedRetry = await CreditWalletService.getWalletSummary(user.id);
 
-    const retryFailedResult = await CompanySearchService.initiateSearch({
+    const retryFailedResult = await CompanySearchService.initiateLegacySearch({
       userId: user.id,
       workspaceId: workspace.id,
       segment: 'Oficinas',
@@ -1034,7 +1102,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     // Dispara duas recuperações simultâneas em paralelo
     const [recovA, recovB] = await Promise.all([
-      CompanySearchService.initiateSearch({
+      CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Clinicas',
@@ -1042,7 +1110,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
         requestedCount: 10,
         idempotencyKey: concurrentKey
       }),
-      CompanySearchService.initiateSearch({
+      CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Clinicas',
@@ -1108,7 +1176,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     try {
       await assert.rejects(
         async () => {
-          await CompanySearchService.initiateSearch({
+          await CompanySearchService.initiateLegacySearch({
             userId: user.id,
             workspaceId: workspace.id,
             segment: 'Academias',
@@ -1142,7 +1210,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     );
 
     // Repete a mesma solicitação com a fila restaurada: deve criar a reserva gen_2 e concluir a busca com sucesso
-    const retryCompletedSearch = await CompanySearchService.initiateSearch({
+    const retryCompletedSearch = await CompanySearchService.initiateLegacySearch({
       userId: user.id,
       workspaceId: workspace.id,
       segment: 'Academias',
@@ -1218,7 +1286,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     try {
       await assert.rejects(
         async () => {
-          await CompanySearchService.initiateSearch({
+          await CompanySearchService.initiateLegacySearch({
             userId: user.id,
             workspaceId: workspace.id,
             segment: 'Pilates',
@@ -1238,7 +1306,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     // Com a fila restaurada, dispara duas solicitações simultâneas para a mesma busca
     const [simulResA, simulResB] = await Promise.all([
-      CompanySearchService.initiateSearch({
+      CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Pilates',
@@ -1246,7 +1314,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
         requestedCount: 10,
         idempotencyKey: concurrentAfterFailKey
       }),
-      CompanySearchService.initiateSearch({
+      CompanySearchService.initiateLegacySearch({
         userId: user.id,
         workspaceId: workspace.id,
         segment: 'Pilates',

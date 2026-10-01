@@ -1,0 +1,8 @@
+ALTER TABLE "CompanySearch" ADD COLUMN "billingMode" TEXT NOT NULL DEFAULT 'PLATFORM_LEGACY';
+CREATE TABLE "ApifyCredential" (
+ "userId" TEXT NOT NULL PRIMARY KEY,
+ "ciphertext" TEXT NOT NULL,
+ "accountName" TEXT NOT NULL,
+ "updatedAt" TIMESTAMP(3) NOT NULL,
+ CONSTRAINT "ApifyCredential_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);

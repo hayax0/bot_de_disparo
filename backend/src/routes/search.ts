@@ -1,7 +1,8 @@
+import { temWebsiteValido } from '../services/ProposalEngine';
 import { Router, Request, Response } from 'express';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { CompanySearchService } from '../services/CompanySearchService';
-import { CreditWalletService } from '../services/CreditWalletService';
+import { IntegrationError } from '../services/ApifyCredentialService';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
@@ -15,7 +16,7 @@ router.use(requireActiveSubscription);
 const searchSchema = z.object({
   segment: z.string().min(2, 'O segmento/nicho deve ter ao menos 2 caracteres.'),
   location: z.string().min(2, 'A localização/cidade deve ter ao menos 2 caracteres.'),
-  requestedCount: z.coerce.number().min(5, 'Mínimo de 5 empresas por busca.').max(200, 'Máximo de 200 empresas por busca.').default(20),
+  requestedCount: z.coerce.number().int().min(5, 'Mínimo de 5 empresas por busca.').max(200, 'Máximo de 200 empresas por busca.').default(20),
   targetCampaignId: z.string().uuid().optional(),
   idempotencyKey: z.string().optional(),
 });
@@ -60,6 +61,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
 
     res.status(202).json(searchResult);
   } catch (error: any) {
+    if (error instanceof IntegrationError) return res.status(error.status).json({ error: error.message });
     if (error.name === 'InsufficientCreditsError') {
       return res.status(402).json({
         error: error.message,
@@ -111,23 +113,9 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
 /**
  * Consulta estimativa de créditos para uma quantidade de empresas.
  */
-router.get('/estimate', async (req: Request, res: Response): Promise<any> => {
-  const userId = req.user!.userId;
-  const count = Math.min(200, Math.max(5, parseInt(String(req.query.count || '20'), 10)));
-
-  try {
-    const wallet = await CreditWalletService.getWalletSummary(userId);
-    res.json({
-      requestedCount: count,
-      estimatedCredits: count * 1, // 1 crédito por empresa aproveitável
-      costPerCredit: 1,
-      availableBalance: wallet.availableBalance,
-      isUnlimited: wallet.isUnlimited,
-      hasEnoughBalance: wallet.isUnlimited || wallet.availableBalance >= count
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Erro ao estimar créditos.' });
-  }
+router.get('/estimate', (req: Request, res: Response) => {
+  res.json({ estimatedCredits: 0, costPerCredit: 0, hasEnoughBalance: true,
+    billingMode: 'PERSONAL_APIFY', message: 'Busca cobrada diretamente na sua conta Apify. Não utiliza créditos de IA.' });
 });
 
 /**
@@ -151,7 +139,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'Busca não encontrada.' });
     }
 
-    res.json(search);
+    res.json({ ...search, results: search.results.map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
   } catch (error: any) {
     console.error('Erro ao buscar detalhes:', error);
     res.status(500).json({ error: 'Erro ao carregar detalhes da busca.' });

@@ -1,3 +1,5 @@
+import { ApifyCredentialService, IntegrationError } from './ApifyCredentialService';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { ENV } from '../config/env';
@@ -64,11 +66,56 @@ export function setTestPlacesProvider(fn: ((segment: string, location: string, c
 }
 
 export class CompanySearchService {
+  /** Todas as buscas novas usam a conta pessoal. Nenhuma reserva de créditos de IA. */
+  static async initiateSearch(params: {
+    userId: string; workspaceId: string; segment: string; location: string;
+    requestedCount: number; targetCampaignId?: string | undefined; idempotencyKey?: string | undefined;
+  }) {
+    const { userId, workspaceId, targetCampaignId } = params;
+    const segment = params.segment.trim();
+    const location = params.location.trim();
+    const count = params.requestedCount;
+    if (segment.length < 2 || location.length < 2 || !Number.isInteger(count) || count < 5 || count > 200) {
+      throw new IntegrationError('Informe segmento, localização e quantidade entre 5 e 200.');
+    }
+    const key = params.idempotencyKey || `search_${randomUUID()}`;
+    const search = await prisma.$transaction(async tx => {
+      // Mesma trava usada ao trocar/remover chave: impede troca de conta durante uma execução.
+      await ApifyCredentialService.lock(tx, userId);
+      if (!await tx.workspace.findFirst({ where: { id: workspaceId, userId } })) throw new IntegrationError('Workspace não autorizado.', 403);
+      if (targetCampaignId && !await tx.campaign.findFirst({ where: { id: targetCampaignId, workspaceId } })) throw new IntegrationError('Campanha não autorizada.', 403);
+      const existing = await tx.companySearch.findUnique({ where: { idempotencyKey: key }, include: { results: true } });
+      if (existing) {
+        if (existing.userId !== userId || existing.workspaceId !== workspaceId || existing.segment !== segment || existing.location !== location || existing.requestedCount !== count || (existing.targetCampaignId || null) !== (targetCampaignId || null)) {
+          throw new IntegrationError('Chave de idempotência já utilizada com outros parâmetros.', 409);
+        }
+        return existing;
+      }
+      const credential = await tx.apifyCredential.findUnique({ where: { userId }, select: { userId: true } });
+      if (!credential) throw new IntegrationError('Conecte sua conta Apify antes de buscar empresas.');
+      return tx.companySearch.create({ data: {
+        userId, workspaceId, segment, location, query: `${segment} em ${location}`,
+        requestedCount: count, targetCampaignId: targetCampaignId || null,
+        idempotencyKey: key, billingMode: 'PERSONAL_APIFY', creditsReserved: 0, creditsConsumed: 0,
+      } });
+    });
+    if (search.status !== 'PENDING') return search;
+    // Busca anterior ao modelo pessoal não é reiniciada com outra conta/provedor.
+    if (search.billingMode !== 'PERSONAL_APIFY') return search;
+    // BullMQ mantém jobId estável. Se Redis falhar, repetir a requisição recupera o PENDING.
+    await companySearchQueue.add('execute-company-search', { searchId: search.id }, {
+      jobId: `search_${search.id}`, attempts: 2,
+      backoff: { type: 'exponential', delay: 10000 }, removeOnComplete: true, removeOnFail: false,
+    });
+    return search;
+  }
+
+  /** Compatibilidade contábil para testes de buscas históricas. Não expor em rotas novas. */
   /**
    * Inicia uma busca de empresas com validação prévia de campanha,
    * reserva atômica de créditos e agendamento durável.
    */
-  static async initiateSearch(params: {
+  static async initiateLegacySearch(params: {
     userId: string;
     workspaceId: string;
     segment: string;
@@ -832,14 +879,14 @@ export class CompanySearchService {
   const { runId, defaultKeyValueStoreId, searchId, apifyToken } = params;
   try {
     let input: any = null;
-    const inputRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/input?token=${apifyToken}`, {
-      signal: AbortSignal.timeout(10000)
+    const inputRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/input`, {
+      headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(10000)
     });
     if (inputRes.ok) {
       input = await inputRes.json();
     } else if (defaultKeyValueStoreId) {
-      const kvRes = await fetch(`https://api.apify.com/v2/key-value-stores/${defaultKeyValueStoreId}/records/INPUT?token=${apifyToken}`, {
-        signal: AbortSignal.timeout(10000)
+      const kvRes = await fetch(`https://api.apify.com/v2/key-value-stores/${defaultKeyValueStoreId}/records/INPUT`, {
+        headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(10000)
       });
       if (kvRes.ok) {
         input = await kvRes.json();
@@ -870,11 +917,14 @@ export class CompanySearchService {
     const { searchId, segment, location, requestedCount, existingRunId } = params;
 
     // Se houver um provider mock configurado para testes unitários isolados
-    if (testPlacesProvider) {
+    if (process.env.NODE_ENV === 'test' && testPlacesProvider) {
       return await testPlacesProvider(segment, location, requestedCount);
     }
 
-    const apifyToken = ENV.APIFY_API_TOKEN;
+    const search = await prisma.companySearch.findUnique({ where: { id: searchId } });
+    const apifyToken = search?.billingMode === 'PERSONAL_APIFY'
+      ? await ApifyCredentialService.token(search.userId)
+      : ENV.APIFY_API_TOKEN; // Exclusivamente execuções históricas anteriores à migração.
 
     if (!apifyToken || apifyToken.trim() === '') {
       throw new Error('Integração com Apify não configurada no servidor (APIFY_API_TOKEN ausente).');
@@ -887,8 +937,8 @@ export class CompanySearchService {
     if (runId) {
       console.log(`[APIFY RECONNECT] Reconectando ao run existente ${runId} para a busca ${searchId}...`);
       try {
-        const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`, {
-          signal: AbortSignal.timeout(45000)
+        const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
+          headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(45000)
         });
         if (runRes.ok) {
           const runJson: any = await runRes.json();
@@ -906,8 +956,8 @@ export class CompanySearchService {
       // Checa se já existe um run recente na Apify vinculado inequivocamente a esta busca específica (searchId)
       try {
         const recentRes = await fetch(
-          `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=10&desc=1`,
-          { signal: AbortSignal.timeout(15000) }
+          `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?limit=10&desc=1`,
+          { headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(15000) }
         );
         if (recentRes.ok) {
           const recentJson: any = await recentRes.json();
@@ -942,15 +992,15 @@ export class CompanySearchService {
         let startRes: Response;
         try {
           startRes = await fetch(
-            `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}`,
+            `https://api.apify.com/v2/acts/compass~crawler-google-places/runs`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apifyToken}` },
               body: JSON.stringify({
                 searchStringsArray: [searchString],
                 maxCrawledPlacesPerSearch: requestedCount,
                 language: 'pt-BR',
-                countryCode: 'BR',
+                countryCode: 'br',
                 skipClosedPlaces: true,
                 customData: {
                   searchId,
@@ -967,8 +1017,8 @@ export class CompanySearchService {
           console.warn('[APIFY POST WARNING] Timeout/erro na criação externa. Verificando estado incerto...', postErr?.message);
           try {
             const checkRes = await fetch(
-              `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=5&desc=1`,
-              { signal: AbortSignal.timeout(15000) }
+              `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?limit=5&desc=1`,
+              { headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(15000) }
             );
             if (checkRes.ok) {
               const checkJson: any = await checkRes.json();
@@ -998,7 +1048,7 @@ export class CompanySearchService {
         if (!runId && startRes!) {
           if (!startRes.ok) {
             const errText = await startRes.text().catch(() => '');
-            throw new Error(`Falha na API da Apify ao iniciar run (HTTP ${startRes.status}): ${errText.slice(0, 200)}`);
+            throw new Error(`Falha na API da Apify ao iniciar run (HTTP ${startRes.status}). Verifique saldo e permissões na sua conta Apify.`);
           }
 
           const startJson: any = await startRes.json();
@@ -1027,13 +1077,13 @@ export class CompanySearchService {
     let status = 'RUNNING';
 
     while (Date.now() - startTime < maxWaitMs) {
-      const pollRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`, {
-        signal: AbortSignal.timeout(45000)
+      const pollRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
+        headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(45000)
       });
 
       if (!pollRes.ok) {
         const errText = await pollRes.text().catch(() => '');
-        throw new Error(`Falha ao verificar status do run na Apify (HTTP ${pollRes.status}): ${errText.slice(0, 200)}`);
+        throw new Error(`Falha ao verificar status do run na Apify (HTTP ${pollRes.status}). Verifique saldo e permissões na sua conta Apify.`);
       }
 
       const pollJson: any = await pollRes.json();
@@ -1061,13 +1111,13 @@ export class CompanySearchService {
 
     // 4. Obtém os dados extraídos do dataset
     const datasetRes = await fetch(
-      `https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${apifyToken}&clean=true`,
-      { signal: AbortSignal.timeout(45000) }
+      `https://api.apify.com/v2/datasets/${defaultDatasetId}/items?clean=true`,
+      { headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(45000) }
     );
 
     if (!datasetRes.ok) {
       const errText = await datasetRes.text().catch(() => '');
-      throw new Error(`Falha ao obter itens do dataset Apify (HTTP ${datasetRes.status}): ${errText.slice(0, 200)}`);
+      throw new Error(`Falha ao obter itens do dataset Apify (HTTP ${datasetRes.status}). Verifique saldo e permissões na sua conta Apify.`);
     }
 
     const items: any = await datasetRes.json();

@@ -52,7 +52,8 @@ import {
 } from 'lucide-react';
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 import { AdminTab } from '@/components/dashboard/AdminTab';
-import { CompanySearchTab } from '@/components/dashboard/CompanySearchTab';
+import { AiWallet } from '@/components/dashboard/AiWallet';
+import { CompanySearchTab, type SearchCampaignSelection } from '@/components/dashboard/CompanySearchTab';
 
 interface Campaign {
   id: string;
@@ -294,9 +295,9 @@ export default function Dashboard() {
 
   // Obtenção de Leads no Modal de Campanha
   const [leadSourceMode, setLeadSourceMode] = useState<'search' | 'upload'>('search');
-  const [searchSegment, setSearchSegment] = useState('');
-  const [searchLocation, setSearchLocation] = useState('');
-  const [searchCount, setSearchCount] = useState<number>(20);
+  const [searchSelection, setSearchSelection] = useState<SearchCampaignSelection | null>(null);
+  const campaignCreationId = useRef<string | null>(null);
+  const creatingCampaign = useRef(false);
 
   // Estados do Simulador de Mensagem (WhatsApp Web)
   const [messagePreviewTab, setMessagePreviewTab] = useState<'semSite' | 'comSite'>('semSite');
@@ -998,8 +999,15 @@ export default function Dashboard() {
   }, [isModalOpen, saveDraftNow]);
 
   // Abrir modal de Nova Campanha recuperando rascunho se disponível
-  const openNewCampaignModal = () => {
-    setLeadSourceMode(isLegacyUser ? 'upload' : 'search');
+  const openNewCampaignModal = (selection?: SearchCampaignSelection) => {
+    if (!selection && !canUseUpload) {
+      setActiveTab('search');
+      addToast('info', 'Selecione empresas em uma busca e clique em Criar campanha com selecionadas.');
+      return;
+    }
+    campaignCreationId.current = null;
+    setSearchSelection(selection || null);
+    setLeadSourceMode(selection ? 'search' : 'upload');
     let loadedFromDraft = false;
     if (typeof window !== 'undefined') {
       try {
@@ -1087,6 +1095,7 @@ export default function Dashboard() {
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (creatingCampaign.current) return;
     const effectiveMode = canUseUpload ? leadSourceMode : 'search';
 
     if (effectiveMode === 'upload') {
@@ -1099,8 +1108,8 @@ export default function Dashboard() {
         return;
       }
     } else {
-      if (!searchSegment.trim() || !searchLocation.trim()) {
-        addToast('error', 'Informe o segmento e a localização para buscar as empresas.');
+      if (!searchSelection?.resultIds.length) {
+        addToast('error', 'Selecione as empresas na aba Buscar Empresas antes de criar a campanha.');
         return;
       }
     }
@@ -1110,10 +1119,12 @@ export default function Dashboard() {
       return;
     }
 
+    creatingCampaign.current = true;
     setIsSubmitting(true);
-    let createdCampaignId: string | null = null;
+    let createdCampaignId: string | null = campaignCreationId.current;
     try {
       // 1. Criar campanha
+      if (!createdCampaignId) {
       const res = await api.post('/campaigns', {
         name: newCampaign.name,
         messageComSite: newCampaign.messageComSite.trim() || null,
@@ -1122,6 +1133,8 @@ export default function Dashboard() {
         delayMax: newCampaign.delayMax,
       });
       createdCampaignId = res.data.id;
+      campaignCreationId.current = createdCampaignId;
+      }
 
       if (effectiveMode === 'upload' && newCampaign.file) {
         // 2. Upload leads (Fluxo Legado Davi / Admin)
@@ -1138,19 +1151,11 @@ export default function Dashboard() {
           addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
         }
       } else {
-        // 2. Busca Integrada de Empresas (Novos Planos & Admin)
-        const searchRes = await api.post('/search', {
-          segment: searchSegment.trim(),
-          location: searchLocation.trim(),
-          requestedCount: Number(searchCount) || 20,
-          targetCampaignId: createdCampaignId
+        const result = await api.post(`/search/${searchSelection!.searchId}/add-to-campaign`, {
+          campaignId: createdCampaignId,
+          companyResultIds: searchSelection!.resultIds,
         });
-
-        if (searchRes.data?.status === 'COMPLETED') {
-          addToast('success', `Campanha criada! ${searchRes.data.usableCount || 0} empresas adicionadas (${searchRes.data.creditsConsumed || 0} créditos consumidos).`);
-        } else {
-          addToast('success', `Campanha criada! A busca de empresas foi iniciada em segundo plano e os contatos serão adicionados automaticamente.`);
-        }
+        addToast('success', `Campanha criada! ${result.data.addedCount} empresas adicionadas, sem nova cobrança de busca.`);
       }
 
       // Limpeza do rascunho com sucesso
@@ -1164,9 +1169,8 @@ export default function Dashboard() {
         delayMin: 90, 
         delayMax: 180,
       });
-      setSearchSegment('');
-      setSearchLocation('');
-      setSearchCount(20);
+      setSearchSelection(null);
+      campaignCreationId.current = null;
       setImportPreview({ loading: false, error: null, diagnostic: null });
       fetchCampaigns();
       fetchHistory(1, historySearch);
@@ -1182,6 +1186,7 @@ export default function Dashboard() {
       if (createdCampaignId && effectiveMode === 'upload') {
         try {
           await api.delete(`/campaigns/${createdCampaignId}`);
+          campaignCreationId.current = null;
         } catch {
           // limpeza silenciosa
         }
@@ -1192,6 +1197,7 @@ export default function Dashboard() {
       }
       addToast('error', msg);
     } finally {
+      creatingCampaign.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1628,7 +1634,7 @@ export default function Dashboard() {
               </button>
             )}
             <button 
-              onClick={openNewCampaignModal}
+              onClick={() => openNewCampaignModal()}
               className="dash-btn-primary px-4 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <Plus size={15} />
@@ -1637,6 +1643,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {!isLegacyUser && <AiWallet />}
         {/* Status do WhatsApp Minimalista com LED */}
         <section className="dash-card rounded-2xl p-5 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2005,7 +2012,7 @@ export default function Dashboard() {
                       : 'Encontre empresas pelo segmento e localização diretamente na plataforma, crie sua campanha e comece a disparar.'}
                   </p>
                   <button 
-                    onClick={openNewCampaignModal}
+                    onClick={() => openNewCampaignModal()}
                     className="dash-btn-primary px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-2"
                   >
                     <Plus size={15} />
@@ -2131,6 +2138,7 @@ export default function Dashboard() {
     {/* VISÃO: BUSCA INTEGRADA DE EMPRESAS (APIFY) */}
     {activeTab === 'search' && (
       <CompanySearchTab
+        onOpenCreateCampaignWithLeads={selection => openNewCampaignModal(selection)}
         campaigns={campaigns.map(c => ({ id: c.id, name: c.name, status: c.status }))}
         onRefreshCampaigns={() => {
           fetchCampaigns();
@@ -2409,7 +2417,7 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-base sm:text-lg font-semibold text-white">Criar Nova Campanha</h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {canUseUpload ? 'Importe seus leads e configure suas mensagens inteligentes.' : 'Busque empresas qualificadas e configure suas mensagens inteligentes.'}
+                  {canUseUpload ? 'Importe seus leads e configure suas mensagens inteligentes.' : 'Configure as mensagens para as empresas selecionadas.'}
                 </p>
               </div>
               <button 
@@ -2464,136 +2472,19 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Seletor de Modo de Obtenção de Leads (Apenas Admin) */}
-              {isAdmin && (
-                <div className="flex p-1 bg-white/[0.04] border border-white/[0.08] rounded-2xl">
-                  <button
-                    type="button"
-                    onClick={() => setLeadSourceMode('search')}
-                    className={`flex-1 py-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      leadSourceMode === 'search'
-                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <Building2 size={14} />
-                    <span>Busca Integrada (Apify)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLeadSourceMode('upload')}
-                    className={`flex-1 py-2 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      leadSourceMode === 'upload'
-                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <FileJson size={14} />
-                    <span>Upload de Arquivo (Legado)</span>
-                  </button>
+              {leadSourceMode === 'search' && searchSelection && (
+                <div className="dash-card p-5 rounded-2xl space-y-2 border border-emerald-500/25">
+                  <h3 className="text-sm font-semibold text-white">{searchSelection.resultIds.length} empresas selecionadas</h3>
+                  <p className="text-sm text-slate-300">{searchSelection.query}</p>
+                  <p className="text-xs text-slate-400">{searchSelection.withWebsite} com site · {searchSelection.withoutWebsite} sem site informado</p>
+                  <p className="text-xs text-emerald-400">Contatos da busca já realizada. Nenhuma nova busca ou cobrança de créditos.</p>
                 </div>
               )}
 
-              {/* Modo Busca Integrada (Novos Planos & Admin) */}
-              {(canUseSearch && (canUseUpload ? leadSourceMode === 'search' : true)) && (
-                <div className="dash-card p-4 sm:p-5 rounded-2xl space-y-4 border border-emerald-500/25 bg-emerald-950/10">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 shrink-0">
-                        <Building2 size={16} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-white">
-                          Obtenção de Empresas (Busca Integrada)
-                        </label>
-                        <p className="text-[11px] text-slate-400">
-                          Localize e extraia contatos qualificados diretamente pela plataforma.
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
-                      1 crédito / lead
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Segmento / Nicho
-                      </label>
-                      <div className="relative">
-                        <Search size={14} className="absolute left-3 top-3 text-slate-500" />
-                        <input
-                          type="text"
-                          required={canUseUpload ? leadSourceMode === 'search' : true}
-                          value={searchSegment}
-                          onChange={e => setSearchSegment(e.target.value)}
-                          placeholder="Ex: Clínicas Odontológicas"
-                          className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Localização (Cidade, UF)
-                      </label>
-                      <div className="relative">
-                        <MapPin size={14} className="absolute left-3 top-3 text-slate-500" />
-                        <input
-                          type="text"
-                          required={canUseUpload ? leadSourceMode === 'search' : true}
-                          value={searchLocation}
-                          onChange={e => setSearchLocation(e.target.value)}
-                          placeholder="Ex: Belo Horizonte, MG"
-                          className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">
-                        Quantidade de Empresas
-                      </label>
-                      <span className="text-[11px] text-emerald-400 font-mono font-bold">
-                        {searchCount} leads ({searchCount} créditos)
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {[10, 20, 50, 100].map(val => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => setSearchCount(val)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
-                            searchCount === val
-                              ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
-                              : 'bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:bg-white/[0.08]'
-                          }`}
-                        >
-                          {val}
-                        </button>
-                      ))}
-                      <input
-                        type="number"
-                        min={5}
-                        max={200}
-                        value={searchCount}
-                        onChange={e => setSearchCount(Math.min(200, Math.max(5, parseInt(e.target.value) || 5)))}
-                        className="w-20 px-2.5 py-1.5 dash-input rounded-lg text-xs font-mono text-center"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] text-[11px] text-slate-400 flex items-start gap-2">
-                    <ShieldCheck size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                    <span>
-                      Validação automática com DDD, deduplicação e filtro LGPD. Apenas contatos aptos serão importados e debitados da sua carteira de créditos.
-                    </span>
-                  </div>
-                </div>
+              {canUseSearch && leadSourceMode === 'upload' && (
+                <button type="button" className="text-sm text-emerald-400" onClick={() => { setIsModalOpen(false); setActiveTab('search'); }}>
+                  Escolher empresas de uma busca existente
+                </button>
               )}
 
               {/* Modo Upload de Arquivo com Prévia em Tempo Real (Apenas Davi e Admin quando selecionado) */}
@@ -3020,7 +2911,7 @@ export default function Dashboard() {
                 </button>
                 <button 
                   type="submit" 
-                  disabled={isSubmitting || (importPreview.diagnostic?.validCount === 0)}
+                  disabled={isSubmitting || (leadSourceMode === 'upload' && importPreview.diagnostic?.validCount === 0)}
                   className="dash-btn-primary px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting 

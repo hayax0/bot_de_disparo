@@ -33,6 +33,7 @@ model User {
   monthlyDispatchQuota  Int       @default(0) // 0 = sem restrição por plano ou administrado
   dispatchesUsedInCycle Int       @default(0)
   cycleResetAt          DateTime?
+  apifyCredential       ApifyCredential?
   wallet                CreditWallet?
   creditReservations    CreditReservation[]
   dispatchReservations  DispatchReservation[]
@@ -343,6 +344,7 @@ model CompanySearch {
   errorMessage    String?
   apifyRunId      String?
   apifyActorId    String?
+  billingMode     String                @default("PLATFORM_LEGACY")
   providerCost    Float?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -439,4 +441,12 @@ model DeliveredWorkspaceContact {
 
   @@unique([workspaceId, phone])
   @@index([workspaceId])
+}
+
+model ApifyCredential {
+  userId String @id
+  ciphertext String @db.Text
+  accountName String
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

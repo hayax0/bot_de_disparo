@@ -17,7 +17,7 @@ export interface PlanDefinition {
   priceCents: number; // em centavos (ex: 2799 = R$ 27,99)
   priceFormatted: string;
   monthlyDispatches: number; // Franquia mensal de disparos no WhatsApp
-  monthlyCredits: number; // Créditos mensais para buscas e IA (carteira única)
+  monthlyCredits: number; // Créditos mensais exclusivos para IA
   maxWhatsappConnections: number;
   isPopular?: boolean;
   isLegacy?: boolean;
@@ -38,7 +38,7 @@ export interface CreditPackageDefinition {
 }
 
 export const OPERATION_CREDIT_COSTS = {
-  COMPANY_SEARCH_USABLE_LEAD: 1, // 1 crédito por empresa nova e aproveitável entregue
+  COMPANY_SEARCH_USABLE_LEAD: 0, // Busca paga na conta Apify pessoal
   AI_ASSISTANT_QUERY: 1,         // 1 crédito por consulta/geração com IA
 } as const;
 
@@ -54,7 +54,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     description: 'Ideal para profissionais autônomos e pequenos negócios iniciando a prospecção.',
     features: [
       '1.500 disparos mensais no WhatsApp (~50/dia)',
-      '150 créditos mensais para Busca de Empresas & IA',
+      '150 créditos mensais para IA',
       '1 Conexão WhatsApp ativa via QR Code',
       'Motor Spintax e cadência anti-bloqueio',
       'Histórico persistente e filtro anti-recontato',
@@ -73,7 +73,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     description: 'Para empresas em crescimento que precisam de fluxo diário consistente de leads.',
     features: [
       '5.000 disparos mensais no WhatsApp (~170/dia)',
-      '400 créditos mensais para Busca de Empresas & IA',
+      '400 créditos mensais para IA',
       '1 Conexão WhatsApp ativa com reconexão automática',
       'Assistente de IA para geração de copies personalizadas',
       'Filtros inteligentes por categoria e região na busca',
@@ -92,7 +92,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     description: 'Para operações comerciais ativas com alto volume de prospecção consultiva.',
     features: [
       '15.000 disparos mensais no WhatsApp (~500/dia)',
-      '1.000 créditos mensais para Busca de Empresas & IA',
+      '1.000 créditos mensais para IA',
       'Até 2 Conexões WhatsApp ativas',
       'Assistente de IA avançado para campanhas completas',
       'Prioridade na fila de buscas assíncronas',
@@ -130,7 +130,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     features: [
       'Acesso vitalício incondicional',
       'Disparos ilimitados sem franquia comercial',
-      'Créditos ilimitados para buscas e IA',
+      'Créditos ilimitados para IA',
       'Todas as funcionalidades liberadas',
     ],
   },
@@ -144,7 +144,7 @@ export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
     priceCents: 1990,
     priceFormatted: '19,90',
     pricePerCreditFormatted: 'R$ 0,099',
-    description: 'Ideal para testes rápidos, enriquecimento pontual de listas e refinamento de copies com IA.',
+    description: 'Ideal para testes rápidos, geração e refinamento de mensagens com IA.',
   },
   PACKAGE_MEDIUM: {
     id: 'PACKAGE_MEDIUM',
@@ -163,7 +163,7 @@ export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
     priceCents: 9990,
     priceFormatted: '99,90',
     pricePerCreditFormatted: 'R$ 0,066',
-    description: 'Máximo desconto por crédito para operações intensivas de busca e geração de mensagens.',
+    description: 'Máximo desconto por crédito para geração de mensagens com IA.',
   },
 };
 

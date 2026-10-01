@@ -54,7 +54,7 @@ test('CompanySearchService: valida campanha de destino ANTES de qualquer reserva
 
   await assert.rejects(
     async () => {
-      await CompanySearchService.initiateSearch({
+      await CompanySearchService.initiateLegacySearch({
         userId: 'u-1',
         workspaceId: 'w-1',
         segment: 'Dentistas',
@@ -112,7 +112,7 @@ test('CompanySearchService: resposta vazia conclui com zero resultados e zero cr
     return fn(tx);
   });
 
-  const res = await CompanySearchService.initiateSearch({
+  const res = await CompanySearchService.initiateLegacySearch({
     userId: 'u-1',
     workspaceId: 'w-1',
     segment: 'Aeroespacial',
@@ -160,7 +160,7 @@ test('CompanySearchService: erro na Apify lança exceção controlada, libera re
 
   await assert.rejects(
     async () => {
-      await CompanySearchService.initiateSearch({
+      await CompanySearchService.initiateLegacySearch({
         userId: 'u-1',
         workspaceId: 'w-1',
         segment: 'Restaurantes',
@@ -259,7 +259,7 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
     return fn(tx);
   });
 
-  const res = await CompanySearchService.initiateSearch({
+  const res = await CompanySearchService.initiateLegacySearch({
     userId: 'u-1',
     workspaceId: 'w-1',
     segment: 'Padarias',
