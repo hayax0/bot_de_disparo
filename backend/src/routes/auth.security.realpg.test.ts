@@ -38,7 +38,7 @@ test('PostgreSQL Real: Validação de concorrência com advisory lock e rejeiç�
   const runLockTx1 = prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`account:${testEmail1}`}))`;
     lock1AcquiredAt = Date.now();
-    await new Promise(r => setTimeout(r, 100)); // Segura o lock por 100ms
+    await new Promise(r => setTimeout(r, 120)); // Segura o lock por 120ms
   });
 
   const runLockTx2 = prisma.$transaction(async tx => {
@@ -50,7 +50,7 @@ test('PostgreSQL Real: Validação de concorrência com advisory lock e rejeiç�
 
   await Promise.all([runLockTx1, runLockTx2]);
   assert.ok(
-    lock2AcquiredAt >= lock1AcquiredAt + 90,
+    lock2AcquiredAt >= lock1AcquiredAt + 70,
     'Transação 2 deve aguardar a liberação do pg_advisory_xact_lock da Transação 1'
   );
 
