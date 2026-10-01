@@ -161,6 +161,8 @@ model Campaign {
   scheduleDays        String   @default("1,2,3,4,5,6") // Dias da semana: 0=Dom, 1=Seg..6=Sab
   scheduleTimezone    String   @default("America/Sao_Paulo")
   recontactAfterDays  Int      @default(30)
+  aiOfferDescription  String?  @db.Text
+  aiToneStyle         String?  @default("CONSULTATIVE")
   createdAt           DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -177,6 +179,8 @@ model Lead {
   status         String    @default("PENDING") // PENDING, QUEUED, SENDING, SENT, DELIVERED, READ, REPLIED, ERROR, IGNORED
   errorMessage   String?
   messageContent String?
+  aiGenerated    Boolean   @default(false)
+  aiGeneratedAt  DateTime?
   attempts       Int       @default(0)
   sentAt         DateTime?
   deliveredAt    DateTime?

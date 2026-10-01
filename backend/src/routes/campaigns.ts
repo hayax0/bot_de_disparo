@@ -12,6 +12,8 @@ import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
 import { isLegacyPlan, getUserCapabilities } from '../config/plans';
+import { AiCopyService, AiToneStyle } from '../services/AiCopyService';
+import { InsufficientCreditsError, WalletSuspendedError } from '../services/CreditWalletService';
 
 const requireUploadPermission = async (req: Request, res: Response, next: Function): Promise<any> => {
   try {
@@ -669,6 +671,99 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
   } catch (error) {
     console.error('Erro ao excluir campanha:', error);
     res.status(500).json({ error: 'Erro ao excluir campanha.' });
+  }
+});
+
+// Geração em lote com IA para os leads da campanha
+router.post('/:id/ai-generate', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+  const { offerDescription, toneStyle, leadIds, idempotencyKey } = req.body || {};
+
+  try {
+    const result = await AiCopyService.generateBatchForCampaign({
+      userId,
+      workspaceId,
+      campaignId,
+      offerDescription,
+      toneStyle: toneStyle as AiToneStyle,
+      leadIds,
+      idempotencyKey,
+    });
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    if (error.code === 'AI_NOT_ALLOWED') {
+      return res.status(403).json({ error: error.message, code: error.code });
+    }
+    if (error instanceof InsufficientCreditsError) {
+      return res.status(402).json({ error: error.message, code: 'INSUFFICIENT_CREDITS' });
+    }
+    if (error instanceof WalletSuspendedError) {
+      return res.status(403).json({ error: error.message, code: 'WALLET_SUSPENDED' });
+    }
+    console.error('[AI GENERATE ROUTE ERROR]', error);
+    res.status(400).json({ error: error.message || 'Erro ao gerar abordagens com IA.' });
+  }
+});
+
+// Regeneração de mensagem para lead individual
+router.post('/:id/leads/:leadId/ai-regenerate', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const leadId = req.params.leadId as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+  const { offerDescription, toneStyle } = req.body || {};
+
+  try {
+    const result = await AiCopyService.regenerateSingleLead({
+      userId,
+      workspaceId,
+      campaignId,
+      leadId,
+      offerDescription,
+      toneStyle: toneStyle as AiToneStyle,
+    });
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    if (error.code === 'AI_NOT_ALLOWED') {
+      return res.status(403).json({ error: error.message, code: error.code });
+    }
+    if (error instanceof InsufficientCreditsError) {
+      return res.status(402).json({ error: error.message, code: 'INSUFFICIENT_CREDITS' });
+    }
+    if (error instanceof WalletSuspendedError) {
+      return res.status(403).json({ error: error.message, code: 'WALLET_SUSPENDED' });
+    }
+    console.error('[AI REGENERATE ROUTE ERROR]', error);
+    res.status(400).json({ error: error.message || 'Erro ao regenerar abordagem com IA.' });
+  }
+});
+
+// Edição manual de mensagem do lead
+router.put('/:id/leads/:leadId/message', async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const leadId = req.params.leadId as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+  const { messageContent } = req.body || {};
+
+  if (typeof messageContent !== 'string') {
+    return res.status(400).json({ error: 'Conteúdo da mensagem inválido.' });
+  }
+
+  try {
+    const lead = await AiCopyService.updateLeadMessage({
+      userId,
+      workspaceId,
+      campaignId,
+      leadId,
+      messageContent,
+    });
+    res.json({ success: true, leadId: lead.id, messageContent: lead.messageContent });
+  } catch (error: any) {
+    console.error('[UPDATE LEAD MESSAGE ERROR]', error);
+    res.status(400).json({ error: error.message || 'Erro ao atualizar mensagem do lead.' });
   }
 });
 

@@ -54,6 +54,7 @@ import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 import { AdminTab } from '@/components/dashboard/AdminTab';
 import { AiWallet } from '@/components/dashboard/AiWallet';
 import { CompanySearchTab, type SearchCampaignSelection } from '@/components/dashboard/CompanySearchTab';
+import { AiGenerateModal, LeadMessageModal } from '@/components/dashboard/AiCampaignAssistant';
 
 interface Campaign {
   id: string;
@@ -61,6 +62,8 @@ interface Campaign {
   status: string;
   messageComSite?: string | null;
   messageSemSite?: string | null;
+  aiOfferDescription?: string | null;
+  aiToneStyle?: string | null;
   delayMin: number;
   delayMax: number;
   createdAt: string;
@@ -78,6 +81,9 @@ interface Lead {
   neighborhood?: string | null;
   status: 'PENDING' | 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'ERROR' | 'IGNORED';
   errorMessage?: string | null;
+  messageContent?: string | null;
+  aiGenerated?: boolean;
+  aiGeneratedAt?: string | null;
   sentAt?: string | null;
   deliveredAt?: string | null;
   readAt?: string | null;
@@ -249,6 +255,9 @@ export default function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [isAiBatchModalOpen, setIsAiBatchModalOpen] = useState(false);
+  const [selectedLeadForMessage, setSelectedLeadForMessage] = useState<Lead | null>(null);
+  const [userAvailableCredits, setUserAvailableCredits] = useState<number>(0);
   const [campaignDetails, setCampaignDetails] = useState<CampaignDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [leadFilterStatus, setLeadFilterStatus] = useState<string>('ALL');
@@ -850,6 +859,11 @@ export default function Dashboard() {
         api.get(`/campaigns/${campaignId}/stats`),
         api.get(`/campaigns/${campaignId}/queue-health`)
       ]);
+
+      // Atualiza saldo de IA em background para o assistente
+      api.get('/integrations/ai-wallet')
+        .then(r => setUserAvailableCredits(r.data?.isUnlimited ? 999999 : (r.data?.availableBalance || 0)))
+        .catch(() => {});
 
       if (selectedCampaignIdRef.current !== campaignId) return;
 
@@ -3008,6 +3022,29 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {/* Banner do Assistente de IA */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-500/5 to-transparent border border-emerald-500/20">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm shrink-0">
+                      <Sparkles size={16} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-white">Assistente de Abordagens com IA</p>
+                      <p className="text-[11px] text-slate-400">Analisa se o lead tem site, nicho e localização para redigir cópias únicas de alta conversão.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsAiBatchModalOpen(true)}
+                      className="dash-btn-primary px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow-emerald-500/10"
+                    >
+                      <Sparkles size={13} />
+                      Personalizar com IA ({campaignDetails?.counts.pending || 0} pendentes)
+                    </button>
+                  </div>
+                </div>
+
                 {/* Filtros e Busca */}
                 <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between pt-2">
                   <div className="relative w-full sm:w-64">
@@ -3063,13 +3100,14 @@ export default function Dashboard() {
                           <th className="p-3">Telefone</th>
                           <th className="p-3">Site / Bairro</th>
                           <th className="p-3">Status</th>
+                          <th className="p-3">Abordagem / IA</th>
                           <th className="p-3">Envio / Detalhes</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/[0.04]">
                         {pagedLeads.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="p-8 text-center text-slate-500">
+                            <td colSpan={6} className="p-8 text-center text-slate-500">
                               Nenhum lead encontrado com os filtros atuais.
                             </td>
                           </tr>
@@ -3164,6 +3202,30 @@ export default function Dashboard() {
                                     : lead.status}
                                 </span>
                               </td>
+                              <td className="p-3 whitespace-nowrap">
+                                {lead.messageContent ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLeadForMessage(lead)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/25"
+                                    title="Clique para ler ou editar a mensagem deste lead"
+                                  >
+                                    <Sparkles size={11} className="text-emerald-400" />
+                                    <span>{lead.aiGenerated ? 'IA Personalizada' : 'Personalizada'}</span>
+                                    <Edit2 size={10} className="text-emerald-400/70 ml-0.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLeadForMessage(lead)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 border border-white/[0.08]"
+                                    title="Clique para ver ou definir mensagem com IA"
+                                  >
+                                    <span>Template Padrão</span>
+                                    <Edit2 size={10} className="text-slate-500 ml-0.5" />
+                                  </button>
+                                )}
+                              </td>
                               <td
                                 className="p-3 text-slate-500 text-[11px] max-w-[200px] truncate font-mono tabular-nums"
                                 title={lead.errorMessage || undefined}
@@ -3255,6 +3317,48 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+
+          {/* Modais do Assistente de IA */}
+          {isAiBatchModalOpen && campaignDetails && (
+            <AiGenerateModal
+              campaignId={campaignDetails.campaign.id}
+              campaignName={campaignDetails.campaign.name}
+              pendingLeadsCount={campaignDetails.counts.pending || 0}
+              availableCredits={userAvailableCredits}
+              initialOffer={campaignDetails.campaign.aiOfferDescription}
+              initialTone={campaignDetails.campaign.aiToneStyle}
+              onSuccess={() => {
+                fetchLeadsForCampaign(campaignDetails.campaign.id, leadPage, leadFilterStatus, debouncedLeadSearchTerm)
+                  .then(res => setCampaignDetails(res.data))
+                  .catch(() => {});
+                api.get('/integrations/ai-wallet')
+                  .then(r => setUserAvailableCredits(r.data?.isUnlimited ? 999999 : (r.data?.availableBalance || 0)))
+                  .catch(() => {});
+              }}
+              onClose={() => setIsAiBatchModalOpen(false)}
+              addToast={addToast}
+            />
+          )}
+
+          {selectedLeadForMessage && campaignDetails && (
+            <LeadMessageModal
+              campaignId={campaignDetails.campaign.id}
+              lead={selectedLeadForMessage}
+              availableCredits={userAvailableCredits}
+              onSave={(leadId, newContent) => {
+                setCampaignDetails(prev => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    leads: prev.leads.map(l => l.id === leadId ? { ...l, messageContent: newContent } : l)
+                  };
+                });
+                setSelectedLeadForMessage(prev => prev ? { ...prev, messageContent: newContent } : null);
+              }}
+              onClose={() => setSelectedLeadForMessage(null)}
+              addToast={addToast}
+            />
+          )}
         </div>
       )}
 

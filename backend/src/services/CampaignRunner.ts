@@ -140,7 +140,10 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     minhaEmpresa: campaign.workspace?.name || ''
   };
 
-  const message = gerarProposta(lead, campaign, senderInfo);
+  // Prioriza mensagem personalizada da IA se já tiver sido gerada; caso contrário, usa o template da campanha
+  const message = (lead.messageContent && lead.messageContent.trim())
+    ? lead.messageContent.trim()
+    : gerarProposta(lead, campaign, senderInfo);
   if (!message) {
     await prisma.lead.update({
       where: { id: leadId },
