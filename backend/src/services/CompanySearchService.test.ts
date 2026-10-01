@@ -239,6 +239,10 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
   let resultsSaved: any[] = [];
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
+      $queryRaw: async () => [{ id: 'deliv-1' }],
+      deliveredWorkspaceContact: {
+        create: async () => ({ id: 'deliv-1' })
+      },
       companySearchResult: {
         create: async ({ data }: any) => {
           resultsSaved.push(data);

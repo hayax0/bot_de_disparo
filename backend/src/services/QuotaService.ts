@@ -1,6 +1,14 @@
 import { prisma } from '../lib/prisma';
 import { isUserUnlimited, isLegacyPlan, getPlanById } from '../config/plans';
 
+function getCycleKey(user: { cycleResetAt?: Date | null; createdAt?: Date }): string {
+  if (user.cycleResetAt) {
+    return user.cycleResetAt.toISOString();
+  }
+  const d = user.createdAt || new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 export class QuotaService {
   /**
    * Consulta se o usuário possui franquia de disparos disponível no ciclo atual.
@@ -77,12 +85,9 @@ export class QuotaService {
     };
   }
 
-  // Rastreador em memória por envio/ciclo para garantir idempotência em retries
-  private static dispatchTracker = new Map<string, { status: 'RESERVED' | 'CONFIRMED'; userId: string; timestamp: number }>();
-
   /**
-   * Reserva e consome 1 disparo na franquia mensal de forma ATÔMICA no banco de dados.
-   * Suporta dispatchKey idempotente para evitar consumo duplicado em retries do worker.
+   * Reserva e consome 1 disparo na franquia mensal de forma ATÔMICA e PERSISTIDA no banco de dados.
+   * Suporta dispatchKey e cycleKey para garantir idempotência estrita entre reinícios e múltiplos processos.
    */
   static async tryConsumeDispatchQuota(userOrParams: string | {
     userId: string;
@@ -98,108 +103,193 @@ export class QuotaService {
     const userId = typeof userOrParams === 'string' ? userOrParams : userOrParams.userId;
     const dispatchKey = typeof userOrParams === 'string' ? undefined : userOrParams.dispatchKey;
 
-    // Se houver dispatchKey e já foi consumido/confirmado para este envio, retorna idempotente sem re-debitar
-    if (dispatchKey && this.dispatchTracker.has(dispatchKey)) {
-      const existing = this.dispatchTracker.get(dispatchKey)!;
-      if (existing.userId === userId) {
+    return await prisma.$transaction(async (tx) => {
+      // 1. Lock consultivo exclusivo por usuário no escopo da transação
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dispatch_quota:${userId}`}))`;
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+          planId: true,
+          subscriptionStatus: true,
+          monthlyDispatchQuota: true,
+          dispatchesUsedInCycle: true,
+          cycleResetAt: true,
+          createdAt: true
+        }
+      });
+
+      if (!user) {
+        return { allowed: false, reason: 'Usuário não encontrado.' };
+      }
+
+      const cycleKey = getCycleKey(user);
+
+      // 2. Se houver dispatchKey, checa idempotência persistida no PostgreSQL por envio/ciclo
+      if (dispatchKey) {
+        const existing = await tx.dispatchReservation.findUnique({
+          where: {
+            userId_cycleKey_dispatchKey: {
+              userId,
+              cycleKey,
+              dispatchKey
+            }
+          }
+        });
+
+        if (existing) {
+          if (existing.status === 'CONFIRMED' || existing.status === 'RESERVED') {
+            return {
+              allowed: true,
+              isIdempotent: true,
+              used: user.dispatchesUsedInCycle,
+              isUnlimited: isUserUnlimited(user) || isLegacyPlan(user.planId)
+            };
+          }
+        }
+      }
+
+      // 3. Administradores e Legado Davi possuem envio irrestrito sem bloqueio por cota
+      if (isUserUnlimited(user) || isLegacyPlan(user.planId)) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { dispatchesUsedInCycle: { increment: 1 } }
+        });
+
+        if (dispatchKey) {
+          await tx.dispatchReservation.upsert({
+            where: {
+              userId_cycleKey_dispatchKey: {
+                userId,
+                cycleKey,
+                dispatchKey
+              }
+            },
+            create: {
+              userId,
+              cycleKey,
+              dispatchKey,
+              status: 'CONFIRMED'
+            },
+            update: {
+              status: 'CONFIRMED'
+            }
+          });
+        }
+
+        return { allowed: true, isUnlimited: true };
+      }
+
+      const plan = getPlanById(user.planId);
+      const quota = (user.monthlyDispatchQuota && user.monthlyDispatchQuota > 0)
+        ? user.monthlyDispatchQuota
+        : (plan ? plan.monthlyDispatches : 1500);
+
+      // 4. Incremento condicional atômico: só incrementa se used < quota
+      const updatedRows: Array<{ dispatchesUsedInCycle: number; monthlyDispatchQuota: number }> =
+        await tx.$queryRaw`
+          UPDATE "User"
+          SET "dispatchesUsedInCycle" = "dispatchesUsedInCycle" + 1
+          WHERE "id" = ${userId}
+            AND (${quota} = 0 OR "dispatchesUsedInCycle" < ${quota})
+          RETURNING "dispatchesUsedInCycle", "monthlyDispatchQuota"
+        `;
+
+      if (!updatedRows || updatedRows.length === 0) {
         return {
-          allowed: true,
-          isIdempotent: true
+          allowed: false,
+          quota,
+          used: user.dispatchesUsedInCycle,
+          reason: `Franquia mensal de disparos (${quota}) atingida no ciclo atual. Faça upgrade de plano ou aguarde a renovação.`
         };
       }
-    }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        role: true,
-        planId: true,
-        subscriptionStatus: true,
-        monthlyDispatchQuota: true,
-        dispatchesUsedInCycle: true
-      }
-    });
-
-    if (!user) {
-      return { allowed: false, reason: 'Usuário não encontrado.' };
-    }
-
-    // Administradores e Legado Davi possuem envio irrestrito sem bloqueio por cota
-    if (isUserUnlimited(user) || isLegacyPlan(user.planId)) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { dispatchesUsedInCycle: { increment: 1 } }
-      }).catch(() => {});
-
+      // 5. Persiste a reserva de disparo no banco com status RESERVED
       if (dispatchKey) {
-        this.dispatchTracker.set(dispatchKey, { status: 'CONFIRMED', userId, timestamp: Date.now() });
+        await tx.dispatchReservation.upsert({
+          where: {
+            userId_cycleKey_dispatchKey: {
+              userId,
+              cycleKey,
+              dispatchKey
+            }
+          },
+          create: {
+            userId,
+            cycleKey,
+            dispatchKey,
+            status: 'RESERVED'
+          },
+          update: {
+            status: 'RESERVED'
+          }
+        });
       }
 
-      return { allowed: true, isUnlimited: true };
-    }
-
-    const plan = getPlanById(user.planId);
-    const quota = (user.monthlyDispatchQuota && user.monthlyDispatchQuota > 0)
-      ? user.monthlyDispatchQuota
-      : (plan ? plan.monthlyDispatches : 1500);
-
-    // Incremento condicional atômico: só incrementa se used < quota
-    const updatedRows: Array<{ dispatchesUsedInCycle: number; monthlyDispatchQuota: number }> =
-      await prisma.$queryRaw`
-        UPDATE "User"
-        SET "dispatchesUsedInCycle" = "dispatchesUsedInCycle" + 1
-        WHERE "id" = ${userId}
-          AND (${quota} = 0 OR "dispatchesUsedInCycle" < ${quota})
-        RETURNING "dispatchesUsedInCycle", "monthlyDispatchQuota"
-      `;
-
-    if (!updatedRows || updatedRows.length === 0) {
       return {
-        allowed: false,
-        quota,
-        used: user.dispatchesUsedInCycle,
-        reason: `Franquia mensal de disparos (${quota}) atingida no ciclo atual. Faça upgrade de plano ou aguarde a renovação.`
+        allowed: true,
+        used: updatedRows[0].dispatchesUsedInCycle,
+        quota
       };
-    }
-
-    if (dispatchKey) {
-      this.dispatchTracker.set(dispatchKey, { status: 'RESERVED', userId, timestamp: Date.now() });
-    }
-
-    return {
-      allowed: true,
-      used: updatedRows[0].dispatchesUsedInCycle,
-      quota
-    };
+    }, { timeout: 15000 });
   }
 
   /**
    * Confirma definitivamente o consumo do disparo quando a transmissão é iniciada.
-   * Preserva a proteção contra reenvio incerto se houver timeout posterior.
+   * Transição atômica persistida no PostgreSQL. Preserva a proteção contra reenvio incerto.
    */
-  static confirmDispatchQuota(params: { userId: string; dispatchKey?: string }): void {
+  static async confirmDispatchQuota(params: { userId: string; dispatchKey?: string }): Promise<void> {
     const { userId, dispatchKey } = params;
-    if (dispatchKey) {
-      this.dispatchTracker.set(dispatchKey, { status: 'CONFIRMED', userId, timestamp: Date.now() });
-    }
+    if (!dispatchKey) return;
+
+    await prisma.dispatchReservation.updateMany({
+      where: {
+        userId,
+        dispatchKey,
+        status: 'RESERVED'
+      },
+      data: {
+        status: 'CONFIRMED'
+      }
+    });
   }
 
   /**
-   * Libera a cota reservada caso o envio seja abortado antes de qualquer transmissão efetiva
-   * (ex: mensagem vazia, validação de blacklist ou erro pré-transmissão).
+   * Libera atomicamente a cota reservada caso o envio seja abortado antes de qualquer transmissão efetiva.
+   * Totalmente idempotente: liberação repetida não estorna duas vezes.
    */
   static async releaseDispatchQuota(params: { userId: string; dispatchKey?: string }): Promise<void> {
     const { userId, dispatchKey } = params;
-    if (dispatchKey) {
-      const tracked = this.dispatchTracker.get(dispatchKey);
-      if (tracked && tracked.status === 'CONFIRMED') {
-        // Já confirmado como transmitido: não estorna para preservar proteção contra reenvio incerto
-        return;
-      }
-      this.dispatchTracker.delete(dispatchKey);
+
+    if (!dispatchKey) {
+      await this.refundDispatchQuota(userId);
+      return;
     }
-    await this.refundDispatchQuota(userId);
+
+    await prisma.$transaction(async (tx) => {
+      // Transição atômica condicional: só transiciona de RESERVED para RELEASED
+      const updateResult = await tx.dispatchReservation.updateMany({
+        where: {
+          userId,
+          dispatchKey,
+          status: 'RESERVED'
+        },
+        data: {
+          status: 'RELEASED'
+        }
+      });
+
+      // Se atualizou 1 linha, estorna 1 disparo da cota do usuário
+      if (updateResult.count > 0) {
+        await tx.$executeRaw`
+          UPDATE "User"
+          SET "dispatchesUsedInCycle" = GREATEST(0, "dispatchesUsedInCycle" - 1)
+          WHERE "id" = ${userId}
+        `;
+      }
+    }, { timeout: 15000 });
   }
 
   /**

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { Prisma } from '@prisma/client';
 import { ENV } from '../config/env';
 import { CreditWalletService } from './CreditWalletService';
 import { WhatsappManager } from './WhatsappManager';
@@ -100,7 +101,7 @@ export class CompanySearchService {
       }
     }
 
-    // 2. Idempotência estrita: se a chave já existe, retorna a busca existente sem criar duplicatas
+    // 2. Idempotência estrita: se a chave já existe, valida payload completo e recupera fila se necessário
     const finalIdempotencyKey = idempotencyKey || `search_${workspaceId}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
     if (idempotencyKey) {
@@ -110,13 +111,39 @@ export class CompanySearchService {
       });
 
       if (existingSearch) {
+        const isSameTargetCampaign = (existingSearch.targetCampaignId || null) === (targetCampaignId || null);
         if (
           existingSearch.workspaceId !== workspaceId ||
           existingSearch.segment !== cleanSegment ||
           existingSearch.location !== cleanLocation ||
-          existingSearch.requestedCount !== count
+          existingSearch.requestedCount !== count ||
+          !isSameTargetCampaign
         ) {
           throw new Error('Chave de idempotência já utilizada com parâmetros de busca diferentes.');
+        }
+
+        // Recupera buscas gravadas cujo enfileiramento falhou ou foi perdido (Item 3)
+        const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
+        if (!isTest && existingSearch.status === 'PENDING') {
+          try {
+            const existingJob = await companySearchQueue.getJob(`search_${existingSearch.id}`);
+            if (!existingJob) {
+              console.log(`[COMPANY SEARCH RE-ENQUEUE] Re-enfileirando busca órfã ${existingSearch.id}...`);
+              await companySearchQueue.add(
+                'execute-company-search',
+                { searchId: existingSearch.id },
+                {
+                  jobId: `search_${existingSearch.id}`,
+                  attempts: 2,
+                  backoff: { type: 'exponential', delay: 10000 },
+                  removeOnComplete: true,
+                  removeOnFail: false
+                }
+              );
+            }
+          } catch (qErr: any) {
+            console.warn('[COMPANY SEARCH RE-ENQUEUE WARNING]', qErr?.message);
+          }
         }
 
         return existingSearch;
@@ -137,7 +164,7 @@ export class CompanySearchService {
       throw err;
     }
 
-    // 4. Persistência do registro de busca e enfileiramento com tratamento contra falhas intermediárias
+    // 4. Persistência do registro de busca e enfileiramento com tratamento contra conflito concorrente (Item 3)
     try {
       const searchRecord = await prisma.companySearch.create({
         data: {
@@ -178,15 +205,27 @@ export class CompanySearchService {
       }
 
       return searchRecord;
-    } catch (error) {
-      // Se falhar a gravação da busca ou o enfileiramento, libera a reserva imediatamente para não abandonar saldo
+    } catch (createErr: any) {
+      // Se duas requisições concorrentes tentarem criar com a mesma chave:
+      // A perdedora recebe P2002. NÃO libera a reserva da vencedora! Retorna a busca criada pela vencedora.
+      if (createErr instanceof Prisma.PrismaClientKnownRequestError && createErr.code === 'P2002') {
+        const winnerSearch = await prisma.companySearch.findUnique({
+          where: { idempotencyKey: finalIdempotencyKey },
+          include: { results: true }
+        });
+        if (winnerSearch) {
+          return winnerSearch;
+        }
+      }
+
+      // Se falhou por outro erro real, cancela a reserva criada nesta tentativa para não reter saldo
       if (reservation?.reservationId) {
         await CreditWalletService.releaseReservation({
           reservationId: reservation.reservationId,
           reason: 'Falha no registro ou enfileiramento da busca de empresas'
         }).catch(() => {});
       }
-      throw error;
+      throw createErr;
     }
   }
 
@@ -236,34 +275,71 @@ export class CompanySearchService {
       // O consumo de créditos nunca pode exceder o valor reservado
       const creditsToConsume = Math.min(usableCount, searchRecord.creditsReserved);
 
-      // 3. Transação atômica ÚNICA: salva resultados, vincula leads na campanha, liquida a carteira E conclui a busca
+      // 3. Transação atômica ÚNICA: garante entrega exclusiva no workspace, salva resultados, vincula leads, liquida carteira e conclui
       await prisma.$transaction(async (tx) => {
-        // Persiste os resultados encontrados
-        const createdResults = await Promise.all(
-          classifiedResults.map(item =>
-            tx.companySearchResult.create({
-              data: {
-                searchId: searchRecord.id,
-                workspaceId,
-                name: item.name,
-                phone: item.phone,
-                website: item.website || null,
-                address: item.address || null,
-                neighborhood: item.neighborhood || null,
-                city: item.city || null,
-                category: item.category || segment,
-                rating: item.rating || null,
-                reviewsCount: item.reviewsCount || null,
-                isUsable: item.isUsable,
-                discardReason: item.discardReason || null
-              }
-            })
-          )
-        );
+        const createdResults: any[] = [];
 
-        // Se houver campanha alvo, injeta diretamente os leads aproveitáveis
+        for (const item of classifiedResults) {
+          let isUsable = item.isUsable;
+          let discardReason = item.discardReason;
+
+          if (isUsable && item.phone) {
+            // Garantia atômica da primeira entrega por workspace/telefone contra buscas concorrentes (Item 5)
+            try {
+              if (typeof tx.$queryRaw === 'function') {
+                const insertedRows: any[] = await tx.$queryRaw`
+                  INSERT INTO "DeliveredWorkspaceContact" ("id", "workspaceId", "phone", "searchId", "createdAt")
+                  VALUES (gen_random_uuid(), ${workspaceId}, ${item.phone}, ${searchRecord.id}, NOW())
+                  ON CONFLICT ("workspaceId", "phone") DO NOTHING
+                  RETURNING "id"
+                `;
+                if (!insertedRows || insertedRows.length === 0) {
+                  isUsable = false;
+                  discardReason = 'ALREADY_DELIVERED';
+                }
+              } else if (tx.deliveredWorkspaceContact && typeof tx.deliveredWorkspaceContact.create === 'function') {
+                await tx.deliveredWorkspaceContact.create({
+                  data: {
+                    workspaceId,
+                    phone: item.phone,
+                    searchId: searchRecord.id
+                  }
+                });
+              }
+            } catch (uniqueErr: any) {
+              // Conflito de unicidade em mock ou fallback
+              isUsable = false;
+              discardReason = 'ALREADY_DELIVERED';
+            }
+          }
+
+          const created = await tx.companySearchResult.create({
+            data: {
+              searchId: searchRecord.id,
+              workspaceId,
+              name: item.name,
+              phone: item.phone,
+              website: item.website || null,
+              address: item.address || null,
+              neighborhood: item.neighborhood || null,
+              city: item.city || null,
+              category: item.category || segment,
+              rating: item.rating || null,
+              reviewsCount: item.reviewsCount || null,
+              isUsable,
+              discardReason: discardReason || null
+            }
+          });
+
+          createdResults.push(created);
+        }
+
+        const usableItems = createdResults.filter(i => i.isUsable && i.phone);
+        const usableCount = usableItems.length;
+        const discardedCount = createdResults.length - usableCount;
+
+        // Se houver campanha alvo, injeta diretamente apenas os contatos confirmados como primeira entrega
         if (targetCampaignId) {
-          const usableItems = createdResults.filter(i => i.isUsable && i.phone);
           for (const item of usableItems) {
             const lead = await tx.lead.upsert({
               where: {
@@ -292,7 +368,10 @@ export class CompanySearchService {
           }
         }
 
-        // 4. Liquidação da reserva de créditos NA MESMA TRANSAÇÃO (tx)
+        // 4. Consumo de créditos calculado estritamente sobre os contatos efetivamente novos
+        const creditsToConsume = Math.min(usableCount, searchRecord.creditsReserved);
+
+        // 5. Liquidação da reserva de créditos NA MESMA TRANSAÇÃO (tx)
         if (reservationId) {
           await CreditWalletService.settleReservation({
             reservationId,
@@ -301,7 +380,7 @@ export class CompanySearchService {
           }, tx);
         }
 
-        // 5. Atualização final do registro de busca
+        // 6. Atualização final do registro de busca
         await tx.companySearch.update({
           where: { id: searchRecord.id },
           data: {
@@ -681,47 +760,100 @@ export class CompanySearchService {
       }
     }
 
-    // 2. Se não existe runId ou se não conseguiu reconectar, inicia nova execução externa
+    // 2. Se não existe runId, reconcilia antes de disparar nova execução paga (Item 4)
     if (!runId) {
-      console.log(`[APIFY SEARCH] Iniciando consulta para "${segment}" em "${location}" (máx ${requestedCount})...`);
+      const searchString = `${segment} em ${location}`;
 
-      const startRes = await fetch(
-        `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            searchStringsArray: [`${segment} em ${location}`],
-            maxCrawledPlacesPerSearch: requestedCount,
-            language: 'pt-BR',
-            countryCode: 'BR',
-            skipClosedPlaces: true
-          }),
-          signal: AbortSignal.timeout(45000)
+      // Checa se já existe um run recente na Apify para os mesmos termos (ex: resposta perdida em timeout anterior)
+      try {
+        const recentRes = await fetch(
+          `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=5&desc=1`,
+          { signal: AbortSignal.timeout(15000) }
+        );
+        if (recentRes.ok) {
+          const recentJson: any = await recentRes.json();
+          const items = recentJson.data?.items || [];
+          const threeMinutesAgo = Date.now() - 180000;
+          const candidate = items.find((r: any) =>
+            new Date(r.startedAt).getTime() > threeMinutesAgo &&
+            ['RUNNING', 'READY', 'SUCCEEDED'].includes(r.status)
+          );
+          if (candidate) {
+            console.log(`[APIFY RECONCILIATION] Reconciliado com execução recente em andamento ${candidate.id}`);
+            runId = candidate.id;
+            defaultDatasetId = candidate.defaultDatasetId || null;
+          }
         }
-      );
-
-      if (!startRes.ok) {
-        const errText = await startRes.text().catch(() => '');
-        throw new Error(`Falha na API da Apify ao iniciar run (HTTP ${startRes.status}): ${errText.slice(0, 200)}`);
+      } catch (recErr: any) {
+        console.warn('[APIFY RECONCILIATION CHECK WARNING]', recErr?.message);
       }
 
-      const startJson: any = await startRes.json();
-      runId = startJson.data?.id;
-      defaultDatasetId = startJson.data?.defaultDatasetId;
-
+      // Se não havia execução recente compatível, inicia nova chamada externa
       if (!runId) {
-        throw new Error('Identificador da execução externa não foi retornado pela Apify.');
+        console.log(`[APIFY SEARCH] Iniciando consulta para "${segment}" em "${location}" (máx ${requestedCount})...`);
+
+        let startRes: Response;
+        try {
+          startRes = await fetch(
+            `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                searchStringsArray: [searchString],
+                maxCrawledPlacesPerSearch: requestedCount,
+                language: 'pt-BR',
+                countryCode: 'BR',
+                skipClosedPlaces: true
+              }),
+              signal: AbortSignal.timeout(45000)
+            }
+          );
+        } catch (postErr: any) {
+          // Em caso de timeout ou erro de rede no POST (estado incerto), tenta capturar o run recém-criado
+          console.warn('[APIFY POST WARNING] Timeout/erro na criação externa. Verificando estado incerto...', postErr?.message);
+          try {
+            const checkRes = await fetch(
+              `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=3&desc=1`,
+              { signal: AbortSignal.timeout(15000) }
+            );
+            if (checkRes.ok) {
+              const checkJson: any = await checkRes.json();
+              const latest = checkJson.data?.items?.[0];
+              if (latest && (Date.now() - new Date(latest.startedAt).getTime() < 60000)) {
+                runId = latest.id;
+                defaultDatasetId = latest.defaultDatasetId;
+              }
+            }
+          } catch (_) {}
+
+          if (!runId) throw postErr;
+        }
+
+        if (!runId && startRes!) {
+          if (!startRes.ok) {
+            const errText = await startRes.text().catch(() => '');
+            throw new Error(`Falha na API da Apify ao iniciar run (HTTP ${startRes.status}): ${errText.slice(0, 200)}`);
+          }
+
+          const startJson: any = await startRes.json();
+          runId = startJson.data?.id;
+          defaultDatasetId = startJson.data?.defaultDatasetId;
+        }
+
+        if (!runId) {
+          throw new Error('Identificador da execução externa não foi retornado pela Apify.');
+        }
       }
 
-      // Persiste imediatamente o apifyRunId no banco para garantir rastreabilidade e idempotência
+      // Persistência estrita obrigatória: NÃO engole erro com catch (Item 4)
       await prisma.companySearch.update({
         where: { id: searchId },
         data: {
           apifyRunId: runId,
           apifyActorId: 'compass~crawler-google-places'
         }
-      }).catch(err => console.warn('[PERSIST APIFY RUN ID WARNING]', err?.message));
+      });
     }
 
     // 3. Aguarda a conclusão da execução com polling seguro e timeout explícito

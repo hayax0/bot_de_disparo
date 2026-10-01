@@ -208,18 +208,8 @@ export class CreditWalletService {
         };
       }
 
-      // 4. Clientes legados não ganham busca integrada ou IA gratuitas
-      if (isLegacyPlan(user.planId)) {
-        const availablePurchased = wallet.purchasedBalance - wallet.reservedBalance;
-        if (availablePurchased < amount) {
-          throw new InsufficientCreditsError(
-            'O plano legado não possui créditos inclusos para Busca Integrada ou IA. Adquira um pacote avulso de créditos ou realize upgrade de plano.'
-          );
-        }
-      }
-
       // 5. Validação de assinatura ativa para novos planos
-      if (!isSubscriptionActive(user)) {
+      if (!isLegacyPlan(user.planId) && !isSubscriptionActive(user)) {
         throw new WalletSuspendedError();
       }
 
@@ -229,17 +219,68 @@ export class CreditWalletService {
       );
       const effectiveMonthly = isMonthlyExpired ? 0 : wallet.monthlyBalance;
 
-      // 7. Disponibilidade de saldo (Clean Hold: saldos brutos menos o já reservado)
-      const totalAvailable = effectiveMonthly + wallet.purchasedBalance - wallet.reservedBalance;
+      // 7. Cálculo das reservas pendentes comprometendo cada compartimento de saldo (Item 1)
+      let committedMonthly = 0;
+      let committedPurchased = 0;
+
+      if (typeof tx.creditReservation?.aggregate === 'function') {
+        const pendingCycleMonthlyResult = await tx.creditReservation.aggregate({
+          where: {
+            walletId: wallet.id,
+            status: 'PENDING',
+            monthlyExpiresAt: wallet.monthlyExpiresAt,
+          },
+          _sum: {
+            monthlyAmount: true,
+          }
+        });
+        committedMonthly = pendingCycleMonthlyResult?._sum?.monthlyAmount || 0;
+
+        const pendingPurchasedResult = await tx.creditReservation.aggregate({
+          where: {
+            walletId: wallet.id,
+            status: 'PENDING',
+          },
+          _sum: {
+            purchasedAmount: true,
+          }
+        });
+        committedPurchased = pendingPurchasedResult?._sum?.purchasedAmount || 0;
+      } else {
+        committedMonthly = Math.min(effectiveMonthly, wallet.reservedBalance);
+        committedPurchased = Math.max(0, wallet.reservedBalance - committedMonthly);
+      }
+
+      const availableMonthly = Math.max(0, effectiveMonthly - committedMonthly);
+      const availablePurchased = Math.max(0, wallet.purchasedBalance - committedPurchased);
+      const totalAvailable = availableMonthly + availablePurchased;
+
+      // 8. Clientes legados não possuem créditos inclusos: exigem saldo comprado livre
+      if (isLegacyPlan(user.planId)) {
+        if (availablePurchased < amount) {
+          throw new InsufficientCreditsError(
+            'O plano legado não possui créditos inclusos para Busca Integrada ou IA. Adquira um pacote avulso de créditos ou realize upgrade de plano.'
+          );
+        }
+      }
+
       if (totalAvailable < amount) {
         throw new InsufficientCreditsError(
-          `Saldo insuficiente. Disponível: ${Math.max(0, totalAvailable)} créditos; Necessário: ${amount} créditos.`
+          `Saldo insuficiente. Disponível: ${totalAvailable} créditos (Mensal: ${availableMonthly}, Comprado: ${availablePurchased}); Necessário: ${amount} créditos.`
         );
       }
 
-      // 8. Alocação de hold com prioridade (mensal -> comprado)
-      const monthlyToHold = Math.min(effectiveMonthly, amount);
-      const purchasedToHold = amount - monthlyToHold;
+      // 9. Alocação de hold respeitando rigorosamente a disponibilidade restante de cada origem
+      let monthlyToHold = 0;
+      let purchasedToHold = 0;
+
+      if (isLegacyPlan(user.planId)) {
+        monthlyToHold = 0;
+        purchasedToHold = amount;
+      } else {
+        monthlyToHold = Math.min(availableMonthly, amount);
+        purchasedToHold = amount - monthlyToHold;
+      }
 
       // 9. Atualização atômica da carteira: apenas incrementa reservedBalance
       await tx.creditWallet.update({

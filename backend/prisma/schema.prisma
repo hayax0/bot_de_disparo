@@ -35,6 +35,7 @@ model User {
   cycleResetAt          DateTime?
   wallet                CreditWallet?
   creditReservations    CreditReservation[]
+  dispatchReservations  DispatchReservation[]
   purchaseOrders        CreditPurchaseOrder[]
   companySearches       CompanySearch[]
   aiConversations       AiConversation[]
@@ -73,6 +74,7 @@ model Workspace {
   auditLogs        AuditLog[]
   companySearches  CompanySearch[]
   aiConversations  AiConversation[]
+  deliveredContacts DeliveredWorkspaceContact[]
 }
 
 model Blacklist {
@@ -410,3 +412,31 @@ model AiMessage {
   @@index([conversationId, createdAt])
 }
 
+model DispatchReservation {
+  id          String   @id @default(uuid())
+  userId      String
+  dispatchKey String
+  cycleKey    String
+  status      String   @default("RESERVED") // RESERVED, CONFIRMED, RELEASED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cycleKey, dispatchKey])
+  @@index([userId, cycleKey])
+  @@index([dispatchKey])
+}
+
+model DeliveredWorkspaceContact {
+  id          String   @id @default(uuid())
+  workspaceId String
+  phone       String
+  searchId    String
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phone])
+  @@index([workspaceId])
+}

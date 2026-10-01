@@ -155,8 +155,9 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
 
   // 6. Reserva atômica da franquia de disparos imediatamente antes da transmissão
   const dispatchKey = `${campaignId}_${leadId}`;
+  const quotaUserId = user.id || campaign.workspace?.userId || '';
   const quota = await QuotaService.tryConsumeDispatchQuota({
-    userId: user.id,
+    userId: quotaUserId,
     dispatchKey
   });
 
@@ -187,7 +188,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       });
       if (claimed.count !== 1) throw new Error('Envio interrompido ou já iniciado.');
       sendStarted = true;
-      QuotaService.confirmDispatchQuota({ userId: user.id, dispatchKey });
+      await QuotaService.confirmDispatchQuota({ userId: user.id, dispatchKey });
     });
     sentSuccessfully = true;
 
@@ -249,7 +250,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       });
     } else {
       // Falha pré-transmissão: libera a cota para não tarifar o cliente indevidamente
-      await QuotaService.releaseDispatchQuota({ userId: user.id, dispatchKey }).catch(() => {});
+      const quotaUserId = user?.id || campaign.workspace?.userId || '';
+      await QuotaService.releaseDispatchQuota({ userId: quotaUserId, dispatchKey }).catch(() => {});
 
       const maxAttempts = job.opts.attempts || 1;
       const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
