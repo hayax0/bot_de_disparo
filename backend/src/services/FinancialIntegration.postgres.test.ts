@@ -866,9 +866,14 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       }
     });
 
-    setTestPlacesProvider(async () => [
-      { title: 'Auto Eletrica Central', phone: '5511999993333' }
-    ]);
+    setTestPlacesProvider(async (segment, _location, count) => {
+      const total = count || 10;
+      const seed = Math.abs(segment.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % 900 + 100;
+      return Array.from({ length: total }, (_, i) => ({
+        title: `${segment} ${i + 1}`,
+        phone: `551198${seed}${String(i).padStart(4, '0')}`
+      }));
+    });
 
     const idempotencyKey = `orphaned_res_test_${Date.now()}`;
 
@@ -1051,8 +1056,8 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     assert.equal(recovB.status, 'COMPLETED');
     assert.equal(recovA.reservationId, recovB.reservationId, 'Ambas as chamadas devem estar vinculadas à mesma reserva recuperada');
 
-    // Valida no banco: existe exatamente 1 reserva de recuperação criada com chave determinística
-    const deterministicKey = `recovery_search_${concurrentSearchRecord.id}`;
+    // Valida no banco: existe exatamente 1 reserva de recuperação criada com chave determinística gen_1
+    const deterministicKey = `recovery_search_${concurrentSearchRecord.id}_gen_1`;
     const createdReservations = await testPrisma.creditReservation.findMany({
       where: {
         userId: user.id,
@@ -1061,7 +1066,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     });
     assert.equal(createdReservations.length, 1, 'Deve existir exatamente 1 reserva criada com a chave determinística');
 
-    // 6. Falha de enfileiramento durante a recuperação não abandona saldo
+    // 6. Falha de enfileiramento durante a recuperação não abandona saldo e repetição posterior conclui com sucesso
     const queueFailKey = `queue_fail_${Date.now()}`;
     const origQueueFailRes = await CreditWalletService.reserveCredits({
       userId: user.id,
@@ -1128,13 +1133,212 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     );
 
     const recoveryResDb = await testPrisma.creditReservation.findUnique({
-      where: { idempotencyKey: `recovery_search_${queueFailSearchRecord.id}` }
+      where: { idempotencyKey: `recovery_search_${queueFailSearchRecord.id}_gen_1` }
     });
     assert.equal(
       recoveryResDb?.status,
       'RELEASED',
-      'A reserva recuperada que falhou ao enfileirar deve ser imediatamente cancelada com status RELEASED'
+      'A reserva recuperada (gen_1) que falhou ao enfileirar deve ser imediatamente cancelada com status RELEASED'
     );
+
+    // Repete a mesma solicitação com a fila restaurada: deve criar a reserva gen_2 e concluir a busca com sucesso
+    const retryCompletedSearch = await CompanySearchService.initiateSearch({
+      userId: user.id,
+      workspaceId: workspace.id,
+      segment: 'Academias',
+      location: 'Sao Paulo',
+      requestedCount: 10,
+      idempotencyKey: queueFailKey
+    });
+
+    assert.equal(retryCompletedSearch.status, 'COMPLETED', 'A repetição da busca após restauração da fila deve concluir com sucesso');
+
+    // Valida cobrança única, integridade de saldo e nenhuma reserva abandonada
+    const allRecoveriesForSearch = await testPrisma.creditReservation.findMany({
+      where: {
+        OR: [
+          { sourceId: queueFailSearchRecord.id },
+          { idempotencyKey: { startsWith: `recovery_search_${queueFailSearchRecord.id}` } }
+        ]
+      }
+    });
+
+    assert.equal(allRecoveriesForSearch.length, 2, 'Devem existir exatamente 2 reservas registradas (gen_1 e gen_2)');
+    const gen1Res = allRecoveriesForSearch.find(r => r.idempotencyKey.endsWith('_gen_1'));
+    const gen2Res = allRecoveriesForSearch.find(r => r.idempotencyKey.endsWith('_gen_2'));
+    assert.equal(gen1Res?.status, 'RELEASED', 'A primeira reserva gen_1 deve permanecer RELEASED');
+    assert.equal(gen2Res?.status, 'SETTLED', 'A segunda reserva gen_2 deve ser liquidada como SETTLED');
+    assert.equal(
+      allRecoveriesForSearch.filter(r => r.status === 'PENDING').length,
+      0,
+      'Nenhuma reserva pode permanecer abandonada com status PENDING'
+    );
+
+    const summaryAfterRetrySuccess = await CreditWalletService.getWalletSummary(user.id);
+    assert.equal(summaryAfterRetrySuccess.reservedBalance, 0, 'ReservedBalance final deve ser 0');
+    assert.equal(
+      summaryAfterRetrySuccess.availableBalance,
+      summaryBeforeQueueFail.availableBalance - 10,
+      'Cobrança deve ser estritamente única (exatamente 10 créditos descontados)'
+    );
+
+    // 7. Repetição com duas solicitações simultâneas após falha de enfileiramento na recuperação
+    const concurrentAfterFailKey = `concurrent_after_fail_${Date.now()}`;
+    const origSimulRes = await CreditWalletService.reserveCredits({
+      userId: user.id,
+      amount: 10,
+      idempotencyKey: concurrentAfterFailKey,
+      sourceType: 'COMPANY_SEARCH'
+    });
+    await CreditWalletService.releaseReservation({
+      reservationId: origSimulRes.reservationId,
+      reason: 'Falha inicial'
+    });
+    const simulSearchRecord = await testPrisma.companySearch.create({
+      data: {
+        workspaceId: workspace.id,
+        userId: user.id,
+        idempotencyKey: concurrentAfterFailKey,
+        reservationId: origSimulRes.reservationId,
+        query: 'Pilates em Sao Paulo',
+        segment: 'Pilates',
+        location: 'Sao Paulo',
+        requestedCount: 10,
+        creditsReserved: 10,
+        status: 'PENDING'
+      }
+    });
+
+    // Provoca falha de enfileiramento na primeira recuperação
+    (companySearchQueue as any).add = async () => {
+      throw new Error('Falha simulada de conexao Redis na primeira recuperacao');
+    };
+    (process.env as any).NODE_ENV = 'production';
+
+    try {
+      await assert.rejects(
+        async () => {
+          await CompanySearchService.initiateSearch({
+            userId: user.id,
+            workspaceId: workspace.id,
+            segment: 'Pilates',
+            location: 'Sao Paulo',
+            requestedCount: 10,
+            idempotencyKey: concurrentAfterFailKey
+          });
+        },
+        /Falha simulada de conexao Redis na primeira recuperacao/
+      );
+    } finally {
+      process.env.NODE_ENV = originalEnvNode;
+      companySearchQueue.add = originalQueueAdd;
+    }
+
+    const summaryBeforeConcurrentRetry = await CreditWalletService.getWalletSummary(user.id);
+
+    // Com a fila restaurada, dispara duas solicitações simultâneas para a mesma busca
+    const [simulResA, simulResB] = await Promise.all([
+      CompanySearchService.initiateSearch({
+        userId: user.id,
+        workspaceId: workspace.id,
+        segment: 'Pilates',
+        location: 'Sao Paulo',
+        requestedCount: 10,
+        idempotencyKey: concurrentAfterFailKey
+      }),
+      CompanySearchService.initiateSearch({
+        userId: user.id,
+        workspaceId: workspace.id,
+        segment: 'Pilates',
+        location: 'Sao Paulo',
+        requestedCount: 10,
+        idempotencyKey: concurrentAfterFailKey
+      })
+    ]);
+
+    assert.equal(simulResA.status, 'COMPLETED');
+    assert.equal(simulResB.status, 'COMPLETED');
+    assert.equal(
+      simulResA.reservationId,
+      simulResB.reservationId,
+      'Ambas as solicitações simultâneas devem estar vinculadas à mesma reserva da geração recuperada'
+    );
+
+    const allRecoveriesForSimul = await testPrisma.creditReservation.findMany({
+      where: {
+        OR: [
+          { sourceId: simulSearchRecord.id },
+          { idempotencyKey: { startsWith: `recovery_search_${simulSearchRecord.id}` } }
+        ]
+      }
+    });
+
+    assert.equal(allRecoveriesForSimul.length, 2, 'Devem existir exatamente 2 reservas (gen_1 liberada e gen_2 ativa/liquidada)');
+    const simulGen1 = allRecoveriesForSimul.find(r => r.idempotencyKey.endsWith('_gen_1'));
+    const simulGen2 = allRecoveriesForSimul.find(r => r.idempotencyKey.endsWith('_gen_2'));
+    assert.equal(simulGen1?.status, 'RELEASED', 'A primeira reserva que falhou deve estar RELEASED');
+    assert.equal(simulGen2?.status, 'SETTLED', 'A segunda reserva compartilhada pelas simultâneas deve estar SETTLED');
+    assert.equal(
+      allRecoveriesForSimul.filter(r => r.status === 'PENDING').length,
+      0,
+      'Nenhuma reserva pode permanecer abandonada'
+    );
+
+    const summaryAfterSimulSuccess = await CreditWalletService.getWalletSummary(user.id);
+    assert.equal(summaryAfterSimulSuccess.reservedBalance, 0, 'ReservedBalance final deve ser 0');
+    assert.equal(
+      summaryAfterSimulSuccess.availableBalance,
+      summaryBeforeConcurrentRetry.availableBalance - 10,
+      'Mesmo com duas chamadas simultâneas, a cobrança deve ser estritamente única (10 créditos debitados)'
+    );
+
+    // 8. reserveCredits não trata reserva liberada como retenção válida nem a reativa sem saldo
+    const explicitReleasedKey = `explicit_released_test_${Date.now()}`;
+    const explicitRes = await CreditWalletService.reserveCredits({
+      userId: user.id,
+      amount: 5,
+      idempotencyKey: explicitReleasedKey,
+      sourceType: 'COMPANY_SEARCH'
+    });
+    await CreditWalletService.releaseReservation({
+      reservationId: explicitRes.reservationId,
+      reason: 'Liberação proposital'
+    });
+
+    // Zera saldo livre do usuário para provar que a chave liberada NÃO é tratada como retenção válida
+    await testPrisma.creditWallet.update({
+      where: { userId: user.id },
+      data: { monthlyBalance: 0, purchasedBalance: 0, reservedBalance: 0 }
+    });
+
+    await assert.rejects(
+      async () => {
+        await CreditWalletService.reserveCredits({
+          userId: user.id,
+          amount: 5,
+          idempotencyKey: explicitReleasedKey,
+          sourceType: 'COMPANY_SEARCH'
+        });
+      },
+      /Saldo insuficiente/,
+      'Não pode tratar reserva liberada como retenção válida nem reativá-la sem saldo disponível'
+    );
+
+    // Restaura saldo e comprova que a reativação reserva o saldo atomicamente
+    await testPrisma.creditWallet.update({
+      where: { userId: user.id },
+      data: { monthlyBalance: 20 }
+    });
+
+    const reactivatedRes = await CreditWalletService.reserveCredits({
+      userId: user.id,
+      amount: 5,
+      idempotencyKey: explicitReleasedKey,
+      sourceType: 'COMPANY_SEARCH'
+    });
+    assert.equal(reactivatedRes.reservationId, explicitRes.reservationId);
+    const walletAfterReactivation = await testPrisma.creditWallet.findUnique({ where: { userId: user.id } });
+    assert.equal(walletAfterReactivation?.reservedBalance, 5, 'Reativação atômica deve incrementar reservedBalance');
   });
 
   // =========================================================================

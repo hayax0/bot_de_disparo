@@ -147,16 +147,29 @@ export class CompanySearchService {
             ? await tx.creditReservation.findUnique({ where: { id: freshSearch.reservationId } })
             : null;
 
-          // Se a reserva vinculada não existir ou estiver RELEASED, aloca com chave determinística
+          // Se a reserva vinculada não existir ou estiver RELEASED, aloca com geração determinística e persistida
           if (!currentRes || currentRes.status === 'RELEASED') {
             console.log(`[COMPANY SEARCH RECOVERY] Recuperando reserva para busca pendente ${freshSearch.id}...`);
-            const deterministicKey = `recovery_search_${freshSearch.id}`;
+
+            // Garantir geração persistida e determinística por tentativa de recuperação sob o bloqueio da busca
+            const previousRecoveries = await tx.creditReservation.findMany({
+              where: {
+                OR: [
+                  { sourceId: freshSearch.id },
+                  { idempotencyKey: { startsWith: `recovery_search_${freshSearch.id}` } }
+                ]
+              }
+            });
+            const generation = previousRecoveries.length + 1;
+            const deterministicKey = `recovery_search_${freshSearch.id}_gen_${generation}`;
+
             const recovered = await CreditWalletService.reserveCredits({
               userId,
               amount: count,
               idempotencyKey: deterministicKey,
               sourceType: 'COMPANY_SEARCH',
-              description: `Recuperação de reserva para busca de empresas: ${cleanSegment} em ${cleanLocation}`
+              sourceId: freshSearch.id,
+              description: `Recuperação de reserva (geração ${generation}) para busca de empresas: ${cleanSegment} em ${cleanLocation}`
             }, tx);
 
             recoveredReservationId = recovered.reservationId;

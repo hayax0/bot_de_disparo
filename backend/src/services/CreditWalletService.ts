@@ -158,13 +158,25 @@ export class CreditWalletService {
           throw new Error('Chave de idempotência já utilizada por outro usuário.');
         }
 
-        return {
-          success: true,
-          reservationId: existingReservation.id,
-          reservedAmount: existingReservation.amount,
-          isUnlimited: existingReservation.amount === 0,
-          isIdempotent: true
-        };
+        // Se a reserva já existe e está PENDING, é uma retenção válida ativa idempotente
+        if (existingReservation.status === 'PENDING') {
+          return {
+            success: true,
+            reservationId: existingReservation.id,
+            reservedAmount: existingReservation.amount,
+            isUnlimited: existingReservation.amount === 0,
+            isIdempotent: true
+          };
+        }
+
+        // Se a reserva já foi liquidada (SETTLED) ou expirada, não pode ser reutilizada
+        if (existingReservation.status === 'SETTLED' || existingReservation.status === 'EXPIRED') {
+          throw new Error(`Chave de idempotência já utilizada por uma reserva finalizada (${existingReservation.status}).`);
+        }
+
+        // Se a reserva estiver RELEASED:
+        // Não tratar reserva liberada como retenção válida nem reativá-la sem verificar e reservar o saldo atomicamente.
+        // O fluxo continua abaixo para validar disponibilidade real de saldo e reservar atomicamente.
       }
 
       const user = await tx.user.findUnique({
@@ -183,22 +195,37 @@ export class CreditWalletService {
 
       // 3. Administradores possuem isenção comercial, mas registram reserva para rastreabilidade
       if (isUserUnlimited(user)) {
-        const adminReservation = await tx.creditReservation.create({
-          data: {
-            walletId: wallet.id,
-            userId,
-            idempotencyKey,
-            amount: 0,
-            monthlyAmount: 0,
-            purchasedAmount: 0,
-            monthlyExpiresAt: null,
-            status: 'PENDING',
-            sourceType,
-            sourceId: sourceId || null,
-            description: description || `Reserva administrativa (${sourceType})`,
-            metadata: JSON.stringify({ isUnlimited: true, requestedAmount: amount, ...metadata })
-          }
-        });
+        const adminReservation = existingReservation
+          ? await tx.creditReservation.update({
+              where: { id: existingReservation.id },
+              data: {
+                status: 'PENDING',
+                releasedAt: null,
+                settledAt: null,
+                amount: 0,
+                monthlyAmount: 0,
+                purchasedAmount: 0,
+                monthlyExpiresAt: null,
+                description: description || `Reativação administrativa (${sourceType})`,
+                metadata: JSON.stringify({ isUnlimited: true, requestedAmount: amount, ...metadata })
+              }
+            })
+          : await tx.creditReservation.create({
+              data: {
+                walletId: wallet.id,
+                userId,
+                idempotencyKey,
+                amount: 0,
+                monthlyAmount: 0,
+                purchasedAmount: 0,
+                monthlyExpiresAt: null,
+                status: 'PENDING',
+                sourceType,
+                sourceId: sourceId || null,
+                description: description || `Reserva administrativa (${sourceType})`,
+                metadata: JSON.stringify({ isUnlimited: true, requestedAmount: amount, ...metadata })
+              }
+            });
 
         return {
           success: true,
@@ -290,23 +317,38 @@ export class CreditWalletService {
         }
       });
 
-      // 10. Criação do registro persistido de reserva
-      const reservation = await tx.creditReservation.create({
-        data: {
-          walletId: wallet.id,
-          userId,
-          idempotencyKey,
-          amount,
-          monthlyAmount: monthlyToHold,
-          purchasedAmount: purchasedToHold,
-          monthlyExpiresAt: wallet.monthlyExpiresAt,
-          status: 'PENDING',
-          sourceType,
-          sourceId: sourceId || null,
-          description: description || `Reserva de ${amount} créditos para ${sourceType}`,
-          metadata: metadata ? JSON.stringify(metadata) : null
-        }
-      });
+      // 10. Criação ou reativação persistida com verificação atômica de saldo
+      const reservation = existingReservation
+        ? await tx.creditReservation.update({
+            where: { id: existingReservation.id },
+            data: {
+              amount,
+              monthlyAmount: monthlyToHold,
+              purchasedAmount: purchasedToHold,
+              monthlyExpiresAt: wallet.monthlyExpiresAt,
+              status: 'PENDING',
+              releasedAt: null,
+              settledAt: null,
+              description: description || `Reativação de reserva de ${amount} créditos para ${sourceType}`,
+              metadata: metadata ? JSON.stringify(metadata) : null
+            }
+          })
+        : await tx.creditReservation.create({
+            data: {
+              walletId: wallet.id,
+              userId,
+              idempotencyKey,
+              amount,
+              monthlyAmount: monthlyToHold,
+              purchasedAmount: purchasedToHold,
+              monthlyExpiresAt: wallet.monthlyExpiresAt,
+              status: 'PENDING',
+              sourceType,
+              sourceId: sourceId || null,
+              description: description || `Reserva de ${amount} créditos para ${sourceType}`,
+              metadata: metadata ? JSON.stringify(metadata) : null
+            }
+          });
 
       // 11. Auditoria contábil da retenção temporária (amount: 0 para evitar dupla contabilidade no extrato)
       await tx.creditTransaction.create({
