@@ -90,6 +90,8 @@ services:
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-cmpxsuporte@gmail.com}
       PLATFORM_URL: ${PLATFORM_URL:-https://botdisparo.cmpx.tec.br}
       CRON_SECRET: ${CRON_SECRET:?Defina CRON_SECRET forte no .env}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
     volumes:
       - ./backend/.baileys_auth:/app/.baileys_auth
       - ./backend/uploads:/app/uploads

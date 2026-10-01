@@ -40,6 +40,7 @@ model User {
   purchaseOrders        CreditPurchaseOrder[]
   companySearches       CompanySearch[]
   aiConversations       AiConversation[]
+  aiOperations          AiOperation[]
 
   workspaces            Workspace[]
   notifications         SubscriptionNotification[]
@@ -75,6 +76,7 @@ model Workspace {
   auditLogs        AuditLog[]
   companySearches  CompanySearch[]
   aiConversations  AiConversation[]
+  aiOperations     AiOperation[]
   deliveredContacts DeliveredWorkspaceContact[]
 }
 
@@ -165,8 +167,9 @@ model Campaign {
   aiToneStyle         String?  @default("CONSULTATIVE")
   createdAt           DateTime @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  leads     Lead[]
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+  aiOperations AiOperation[]
 }
 
 model Lead {
@@ -453,4 +456,36 @@ model ApifyCredential {
   accountName String
   updatedAt DateTime @updatedAt
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AiOperation {
+  id               String    @id @default(uuid())
+  workspaceId      String
+  userId           String
+  campaignId       String
+  type             String    @default("BATCH") // BATCH, SINGLE_LEAD
+  leadId           String?
+  idempotencyKey   String?   @unique
+  payloadHash      String?
+  offerDescription String?   @db.Text
+  toneStyle        String    @default("CONSULTATIVE")
+  status           String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, PARTIAL
+  reservationId    String?
+  totalLeads       Int       @default(0)
+  completedLeads   Int       @default(0)
+  failedLeads      Int       @default(0)
+  creditsReserved  Int       @default(0)
+  creditsConsumed  Int       @default(0)
+  errorMessage     String?
+  resultSummary    String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([campaignId, status])
+  @@index([workspaceId])
 }

@@ -38,9 +38,10 @@ import adminRoutes from './routes/admin';
 import searchRoutes from './routes/search';
 import integrationRoutes from './routes/integrations';
 import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
-import { messageQueue, queueEvents } from './services/queue';
+import { messageQueue, queueEvents, aiGenerationQueue, aiGenerationQueueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
 import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
+import { startAiGenerationWorker, aiGenerationWorker } from './workers/aiGenerationWorker';
 
 const app = express();
 
@@ -207,6 +208,8 @@ const server = app.listen(ENV.PORT, async () => {
   });
   // Inicializa worker de busca durável de empresas via BullMQ
   startCompanySearchWorker();
+  // Inicializa worker de geração durável de mensagens por IA via BullMQ
+  startAiGenerationWorker();
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
 });
@@ -230,8 +233,11 @@ async function gracefulShutdown(signal: string) {
     server.close();
     await campaignWorker.close();
     if (companySearchWorker) await companySearchWorker.close();
+    if (aiGenerationWorker) await aiGenerationWorker.close();
     await messageQueue.close();
     await queueEvents.close();
+    await aiGenerationQueue.close();
+    await aiGenerationQueueEvents.close();
     await WhatsappManager.destroyAll();
     await redisConnection.quit();
     await prisma.$disconnect();

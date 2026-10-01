@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 interface Wallet {
   availableBalance: number; monthlyBalance: number; purchasedBalance: number; reservedBalance: number;
-  monthlyExpiresAt: string | null; isUnlimited: boolean; isLegacy: boolean;
+  monthlyExpiresAt: string | null; isUnlimited: boolean; isLegacy: boolean; aiEnabled?: boolean;
   transactions: { id: string; amount: number; description: string; sourceType: string; createdAt: string }[];
 }
 export function AiWallet() {
@@ -34,7 +34,11 @@ export function AiWallet() {
       </div>
       <p className="text-sm text-slate-400">Créditos exclusivos para gerar mensagens e usar o assistente de IA. Buscas utilizam sua conta Apify; disparos seguem a franquia do plano.</p>
       {!wallet.isUnlimited && wallet.monthlyExpiresAt && <p className="text-xs text-slate-400">Créditos mensais válidos até {new Date(wallet.monthlyExpiresAt).toLocaleDateString('pt-BR')}. Créditos comprados não expiram.</p>}
-      <p className="text-xs text-amber-200">Assistente de IA e compra de créditos em preparação. Nenhum pagamento está disponível nesta etapa.</p>
+      {wallet.aiEnabled ? (
+        <p className="text-xs text-emerald-400">Assistente de IA ativo e disponível para personalização de abordagens.</p>
+      ) : (
+        <p className="text-xs text-amber-200">Assistente de IA temporariamente indisponível (chave não configurada no servidor).</p>
+      )}
       <details><summary className="text-emerald-400 text-sm cursor-pointer">Ver extrato — últimas 50 movimentações</summary>
         <p className="text-xs text-slate-400 mt-2">Movimentações antigas de buscas permanecem no histórico. Novas buscas não consomem créditos.</p>
         <ul className="mt-3 space-y-2 max-h-64 overflow-auto">{wallet.transactions.length === 0 && <li className="text-sm text-slate-400">Nenhuma movimentação.</li>}

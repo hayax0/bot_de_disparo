@@ -6,6 +6,8 @@ import { CreditWalletService } from '../services/CreditWalletService';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
+import { AiCopyService } from '../services/AiCopyService';
+
 const router = Router();
 router.use(authenticate);
 const limiter = rateLimit({ windowMs: 60000, limit: 10, keyGenerator: req => req.user!.userId, message: { error: 'Muitas tentativas. Aguarde um minuto.' } });
@@ -29,7 +31,7 @@ router.get('/ai-wallet', async (req, res) => {
     const summary = await CreditWalletService.getWalletSummary(userId);
     const transactions = await prisma.creditTransaction.findMany({ where: { userId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50,
       select: { id: true, amount: true, type: true, sourceType: true, description: true, createdAt: true } });
-    res.json({ ...summary, transactions, purchaseEnabled: false, aiEnabled: false });
+    res.json({ ...summary, transactions, purchaseEnabled: false, aiEnabled: AiCopyService.isAvailable() });
   } catch (error) { failure(res, error); }
 });
 export default router;
