@@ -48,6 +48,13 @@ export function setTestAiProvider(fn: ((input: GenerateCopyInput) => Promise<str
   testAiProvider = fn;
 }
 
+// Hook de teste injetável para sincronização determinística de concorrência com barreiras
+let testBeforeReserveHook: ((params: SingleLeadRegenParams) => Promise<void>) | null = null;
+
+export function setTestBeforeReserveHook(fn: ((params: SingleLeadRegenParams) => Promise<void>) | null) {
+  testBeforeReserveHook = fn;
+}
+
 export function computePayloadHash(payload: {
   offerDescription: string;
   toneStyle: string;
@@ -1089,15 +1096,69 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       }
     }
 
-    // 2. Reserva 1 crédito na carteira
-    const reservation = await CreditWalletService.reserveCredits({
-      userId,
-      amount: 1,
-      sourceType: 'AI_ASSISTANT',
-      sourceId: campaignId,
-      idempotencyKey,
-      description: `Regeneração IA para lead: ${lead.title}`,
+    if (process.env.NODE_ENV === 'test' && testBeforeReserveHook) {
+      await testBeforeReserveHook(params);
+    }
+
+    // Revalidação imediata pré-reserva para impedir corrida se houve pausa/processamento concorrente
+    const recheckedOp = await prisma.aiOperation.findUnique({
+      where: { idempotencyKey },
     });
+
+    if (recheckedOp) {
+      if (
+        recheckedOp.userId !== userId ||
+        recheckedOp.leadId !== leadId ||
+        (recheckedOp.payloadHash && recheckedOp.payloadHash !== payloadHash)
+      ) {
+        const err = new Error('Chave de idempotência já utilizada com outros parâmetros ou usuário.');
+        (err as any).statusCode = 409;
+        throw err;
+      }
+
+      if (recheckedOp.status === 'COMPLETED') {
+        const currentLead = await prisma.lead.findUnique({ where: { id: leadId } });
+        return {
+          leadId,
+          messageContent: currentLead?.messageContent || '',
+          isExisting: true,
+        };
+      }
+
+      if (recheckedOp.status === 'FAILED') {
+        const err = new Error(recheckedOp.errorMessage || 'Falha persistida na geração da mensagem para esta chave de idempotência.');
+        (err as any).code = 'OPERATION_FAILED';
+        (err as any).statusCode = 422;
+        throw err;
+      }
+
+      if (recheckedOp.status === 'PROCESSING') {
+        return await this.waitForSingleLeadCompletion(recheckedOp.id, leadId);
+      }
+    }
+
+    // 2. Reserva 1 crédito na carteira
+    let reservation: any;
+    try {
+      reservation = await CreditWalletService.reserveCredits({
+        userId,
+        amount: 1,
+        sourceType: 'AI_ASSISTANT',
+        sourceId: campaignId,
+        idempotencyKey,
+        description: `Regeneração IA para lead: ${lead.title}`,
+      });
+    } catch (reserveErr: any) {
+      // Se a reserva falhar por já pertencer a operação terminal, reconsulta e devolve erro persistido
+      const opAfterErr = await prisma.aiOperation.findUnique({ where: { idempotencyKey } });
+      if (opAfterErr?.status === 'FAILED') {
+        const err = new Error(opAfterErr.errorMessage || 'Falha persistida na geração da mensagem para esta chave de idempotência.');
+        (err as any).code = 'OPERATION_FAILED';
+        (err as any).statusCode = 422;
+        throw err;
+      }
+      throw reserveErr;
+    }
 
     // 3. PERSISTE e REIVINDICA a operação como PROCESSING ANTES de chamar o Gemini
     let op;
@@ -1129,26 +1190,64 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
         });
 
         if (concurrentlyCreated) {
-          // Se a reserva gerada for diferente, libera a reserva secundária redundante
-          if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
-            await CreditWalletService.releaseReservation({
-              reservationId: reservation.reservationId,
-              reason: 'Operação concorrente com mesma chave detectada',
-            }).catch(() => {});
-          }
-
           // Validação rigorosa de payload divergente na corrida concorrente
           if (
             concurrentlyCreated.userId !== userId ||
             concurrentlyCreated.leadId !== leadId ||
             (concurrentlyCreated.payloadHash && concurrentlyCreated.payloadHash !== payloadHash)
           ) {
+            if (reservation.reservationId && (reservation.reservationId !== concurrentlyCreated.reservationId || concurrentlyCreated.status !== 'PROCESSING')) {
+              await CreditWalletService.releaseReservation({
+                reservationId: reservation.reservationId,
+                reason: 'Operação concorrente com payload divergente',
+              }).catch(() => {});
+            }
             const conflictErr = new Error('Chave de idempotência já utilizada com outros parâmetros ou usuário.');
             (conflictErr as any).statusCode = 409;
             throw conflictErr;
           }
 
+          // 1. Se a execução vencedora estiver ATIVA ('PROCESSING'):
+          // DEVE PRESERVAR a reserva da vencedora! Se a reserva de A for redundante (ID diferente),
+          // libera a redundante. Mas se for o mesmo ID compartilhado, NÃO libera (vencedora está usando).
+          if (concurrentlyCreated.status === 'PROCESSING') {
+            if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
+              await CreditWalletService.releaseReservation({
+                reservationId: reservation.reservationId,
+                reason: 'Operação concorrente ativa com mesma chave detectada',
+              }).catch(() => {});
+            }
+            // Aguarda a operação vencedora concluir sem chamar o Gemini novamente
+            return await this.waitForSingleLeadCompletion(concurrentlyCreated.id, leadId);
+          }
+
+          // 2. Se a execução vencedora já for TERMINAL ('FAILED'):
+          // A vencedora já finalizou e não está ativa. Se a reserva em mãos estiver PENDING
+          // (mesmo ID reativado ou ID diferente), deve ser liberada para não prender créditos órfãos!
+          if (concurrentlyCreated.status === 'FAILED') {
+            if (reservation.reservationId) {
+              const resDb = await prisma.creditReservation.findUnique({ where: { id: reservation.reservationId } });
+              if (resDb?.status === 'PENDING') {
+                await CreditWalletService.releaseReservation({
+                  reservationId: reservation.reservationId,
+                  reason: 'Operação concorrente já falhou e finalizou',
+                }).catch(() => {});
+              }
+            }
+            const failErr = new Error(concurrentlyCreated.errorMessage || 'Falha persistida na geração da mensagem para esta chave de idempotência.');
+            (failErr as any).code = 'OPERATION_FAILED';
+            (failErr as any).statusCode = 422;
+            throw failErr;
+          }
+
+          // 3. Se a execução vencedora já for 'COMPLETED':
           if (concurrentlyCreated.status === 'COMPLETED') {
+            if (reservation.reservationId && reservation.reservationId !== concurrentlyCreated.reservationId) {
+              await CreditWalletService.releaseReservation({
+                reservationId: reservation.reservationId,
+                reason: 'Operação concorrente já completada',
+              }).catch(() => {});
+            }
             const currentLead = await prisma.lead.findUnique({ where: { id: leadId } });
             return {
               leadId,
@@ -1156,18 +1255,9 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
               isExisting: true,
             };
           }
-
-          if (concurrentlyCreated.status === 'FAILED') {
-            const failErr = new Error(concurrentlyCreated.errorMessage || 'Falha persistida na geração da mensagem para esta chave de idempotência.');
-            (failErr as any).code = 'OPERATION_FAILED';
-            (failErr as any).statusCode = 422;
-            throw failErr;
-          }
-
-          // Aguarda a operação vencedora concluir sem chamar o Gemini novamente
-          return await this.waitForSingleLeadCompletion(concurrentlyCreated.id, leadId);
         }
       }
+
       if (reservation.reservationId) {
         await CreditWalletService.releaseReservation({
           reservationId: reservation.reservationId,

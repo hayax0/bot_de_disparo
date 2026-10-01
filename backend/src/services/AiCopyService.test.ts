@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { Queue, Worker, QueueEvents } from 'bullmq';
 import IORedis from 'ioredis';
 import { prisma } from '../lib/prisma';
-import { AiCopyService, setTestAiProvider } from './AiCopyService';
+import { AiCopyService, setTestAiProvider, setTestBeforeReserveHook } from './AiCopyService';
 import { CreditWalletService } from './CreditWalletService';
 import { CompanySearchService, setTestPlacesProvider } from './CompanySearchService';
 import { ApifyCredentialService } from './ApifyCredentialService';
@@ -1359,6 +1359,173 @@ test('Cenário 20: Integração BullMQ/Redis real reativa jobs FAILED, preserva 
   const preservedCount = concReconcile.filter((c) => c.action === 'PRESERVED').length;
   assert.strictEqual(retriedCount, 1, 'Exatamente uma chamada fez o RETRIED do job');
   assert.strictEqual(preservedCount, 2, 'As chamadas concorrentes encontraram o job já esperando e preservaram');
+});
+
+// 21. Concorrência com barreira determinística em regenerateSingleLead não reativa reserva terminal nem prende créditos
+test('Cenário 21: Concorrência com barreira determinística em regenerateSingleLead não reativa reserva terminal nem prende créditos', async () => {
+  const { user, workspace, campaign, unique } = await createTestFixtures('c21');
+  const lead = await prisma.lead.create({
+    data: { campaignId: campaign.id, title: 'Lead C21 Concorrente', phone: `551199${unique.slice(-7)}1`, status: 'PENDING' },
+  });
+
+  const testKey = `idemp_barrier_${unique}`;
+
+  // Provedor de IA: primeira chamada falha propositalmente (Requisição B)
+  let aiCallCount = 0;
+  setTestAiProvider(async (input) => {
+    aiCallCount++;
+    if (aiCallCount === 1) {
+      throw new Error('Falha simulada na chamada B do provedor Gemini');
+    }
+    return `Olá ${input.leadTitle}, copy gerada com sucesso!`;
+  });
+
+  // Barreiras determinísticas sem sleeps
+  let signalAPaused: () => void = () => {};
+  const aPausedPromise = new Promise<void>((resolve) => {
+    signalAPaused = resolve;
+  });
+
+  let signalBFinished: () => void = () => {};
+  const bFinishedPromise = new Promise<void>((resolve) => {
+    signalBFinished = resolve;
+  });
+
+  let hookTriggered = false;
+  setTestBeforeReserveHook(async (p) => {
+    if (!hookTriggered && p.idempotencyKey === testKey) {
+      hookTriggered = true;
+      signalAPaused(); // Requisição A sinaliza que consultou e pausou antes de reserveCredits
+      await bFinishedPromise; // Requisição A aguarda Requisição B completar a falha
+    }
+  });
+
+  try {
+    // 1. Dispara Requisição A em segundo plano
+    const promiseA = AiCopyService.regenerateSingleLead({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      leadId: lead.id,
+      offerDescription: 'Oferta teste concorrência determinística',
+      idempotencyKey: testKey,
+    });
+
+    // Aguarda deterministicamente a Requisição A pausar antes de reserveCredits
+    await aPausedPromise;
+
+    // 2. Requisição B entra com a mesma chave e payload, reserva, cria a operação, chama o provedor e falha
+    await assert.rejects(
+      async () => {
+        await AiCopyService.regenerateSingleLead({
+          userId: user.id,
+          workspaceId: workspace.id,
+          campaignId: campaign.id,
+          leadId: lead.id,
+          offerDescription: 'Oferta teste concorrência determinística',
+          idempotencyKey: testKey,
+        });
+      },
+      (err: any) => {
+        assert.ok(err.message.includes('Falha simulada na chamada B do provedor'));
+        return true;
+      }
+    );
+
+    // Confirma que a operação de B ficou FAILED e a reserva foi liberada
+    const opB = await prisma.aiOperation.findUnique({ where: { idempotencyKey: testKey } });
+    assert.strictEqual(opB?.status, 'FAILED');
+    assert.strictEqual(aiCallCount, 1, 'Provedor chamado uma vez pela requisição B');
+
+    // 3. Libera a Requisição A para continuar
+    signalBFinished();
+
+    // Requisição A deve falhar com a falha persistida sem reativar reserva nem prender créditos
+    await assert.rejects(
+      async () => {
+        await promiseA;
+      },
+      (err: any) => {
+        assert.ok(
+          err.message.includes('Falha simulada na chamada B') ||
+          err.message.includes('Falha persistida') ||
+          (err as any).code === 'OPERATION_FAILED'
+        );
+        return true;
+      }
+    );
+
+    // 4. Validações determinísticas pós-corrida:
+    // Confirma: Operação permanece FAILED
+    const opFinal = await prisma.aiOperation.findUnique({ where: { idempotencyKey: testKey } });
+    assert.strictEqual(opFinal?.status, 'FAILED');
+
+    // Confirma: Saldo disponível permanece 20 e reservado zero
+    let summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 20, 'Saldo disponível deve permanecer 20 após a corrida com falha');
+    assert.strictEqual(summary.reservedBalance, 0, 'Saldo reservado deve permanecer zero');
+
+    // Confirma: Apenas uma chamada ao provedor
+    assert.strictEqual(aiCallCount, 1, 'Provedor deve ter sido chamado exatamente uma vez durante toda a corrida');
+
+    // Confirma: Nenhuma reserva órfã pendente
+    const orphanReservations = await prisma.creditReservation.findMany({
+      where: { userId: user.id, status: 'PENDING' },
+    });
+    assert.strictEqual(orphanReservations.length, 0, 'Nenhuma reserva órfã em estado PENDING');
+
+    // 5. Concorrência em uma geração bem-sucedida continua produzindo uma chamada e um débito
+    setTestBeforeReserveHook(null); // remove hook para testar concorrência direta natural
+    const concurrentSuccessKey = `idemp_conc_success_${unique}`;
+
+    const [resC1, resC2] = await Promise.all([
+      AiCopyService.regenerateSingleLead({
+        userId: user.id,
+        workspaceId: workspace.id,
+        campaignId: campaign.id,
+        leadId: lead.id,
+        offerDescription: 'Oferta concorrência sucesso',
+        idempotencyKey: concurrentSuccessKey,
+      }),
+      AiCopyService.regenerateSingleLead({
+        userId: user.id,
+        workspaceId: workspace.id,
+        campaignId: campaign.id,
+        leadId: lead.id,
+        offerDescription: 'Oferta concorrência sucesso',
+        idempotencyKey: concurrentSuccessKey,
+      }),
+    ]);
+
+    assert.strictEqual(resC1.messageContent, resC2.messageContent);
+    assert.ok(resC1.messageContent.includes('copy gerada com sucesso!'));
+    assert.strictEqual(aiCallCount, 2, 'Exatamente uma chamada ao provedor na geração bem-sucedida concorrente');
+
+    summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 19, 'Exatamente 1 débito na concorrência bem-sucedida (20 -> 19)');
+    assert.strictEqual(summary.reservedBalance, 0, 'Saldo reservado zerado após sucesso');
+
+    // 6. Nova tentativa intencional com outra chave continua funcionando
+    const intentionalKey = `idemp_intentional_${unique}`;
+    const resIntentional = await AiCopyService.regenerateSingleLead({
+      userId: user.id,
+      workspaceId: workspace.id,
+      campaignId: campaign.id,
+      leadId: lead.id,
+      offerDescription: 'Oferta nova tentativa intencional',
+      idempotencyKey: intentionalKey,
+    });
+
+    assert.ok(resIntentional.messageContent.includes('copy gerada com sucesso!'));
+    assert.strictEqual(aiCallCount, 3, 'Provedor chamado pela terceira vez na nova tentativa intencional');
+
+    summary = await CreditWalletService.getWalletSummary(user.id);
+    assert.strictEqual(summary.monthlyBalance, 18, 'Debitou mais 1 crédito com sucesso (19 -> 18)');
+    assert.strictEqual(summary.reservedBalance, 0);
+  } finally {
+    setTestBeforeReserveHook(null);
+    setTestAiProvider(null);
+  }
 });
 
 

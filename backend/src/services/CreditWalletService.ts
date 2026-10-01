@@ -175,7 +175,22 @@ export class CreditWalletService {
         }
 
         // Se a reserva estiver RELEASED:
-        // Não tratar reserva liberada como retenção válida nem reativá-la sem verificar e reservar o saldo atomicamente.
+        // Não permitir reativação se a reserva pertencer a uma operação terminal (ex: IA concluída ou com falha)
+        if (existingReservation.status === 'RELEASED') {
+          const terminalOp = await tx.aiOperation.findFirst({
+            where: {
+              OR: [
+                { idempotencyKey },
+                { reservationId: existingReservation.id }
+              ],
+              status: { in: ['COMPLETED', 'FAILED', 'PARTIAL'] }
+            }
+          });
+
+          if (terminalOp) {
+            throw new Error(`Não é permitido reativar reserva pertencente a uma operação terminal (${terminalOp.status}).`);
+          }
+        }
         // O fluxo continua abaixo para validar disponibilidade real de saldo e reservar atomicamente.
       }
 
