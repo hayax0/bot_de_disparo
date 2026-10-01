@@ -11,13 +11,16 @@ out/
 # TypeScript Build
 dist/
 
-# Environment variables
+# Environment variables (strict protection against accidental leaks)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-backend/.env
+.env.*
+*.env
+*.env.*
+**/.env
+**/.env.*
+!.env.example
+!.env.production.example
+!backend/.env.example
 
 # WhatsApp Web & Sessions
 .baileys_auth/
