@@ -44,9 +44,20 @@ export const queueEvents = isTest
   ? ({ on: () => {}, close: async () => {} } as any)
   : new QueueEvents('message-queue', { connection: createConnection() });
 
+export const companySearchQueue = isTest
+  ? ({ add: async () => ({ id: 'mock-search-job' }), on: () => {}, close: async () => {} } as any)
+  : new Queue('company-search-queue', { connection: createConnection(false) });
+
+export const companySearchQueueEvents = isTest
+  ? ({ on: () => {}, close: async () => {} } as any)
+  : new QueueEvents('company-search-queue', { connection: createConnection() });
+
 if (!isTest) {
   messageQueue.on('error', () => {});
   queueEvents.on('error', () => {});
+  companySearchQueue.on('error', () => {});
+  companySearchQueueEvents.on('error', () => {});
 }
 
 export { connection };
+

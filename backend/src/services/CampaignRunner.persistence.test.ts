@@ -55,6 +55,15 @@ function fixture(t: any) {
     if (dbDown) throw new Error('database unavailable');
     Object.assign(lead, data); return lead;
   });
+  mockMethod(t, prisma.user, 'findUnique', async () => ({
+    id: 'u-admin',
+    role: 'ADMIN',
+    planId: null,
+    subscriptionStatus: 'LIFETIME',
+    monthlyDispatchQuota: 0,
+    dispatchesUsedInCycle: 0
+  }));
+  mockMethod(t, prisma.user, 'update', async () => ({}));
   mockMethod(t, prisma.campaign, 'findUnique', async () => campaign);
   mockMethod(t, prisma.campaign, 'findMany', async () => [campaign]);
   mockMethod(t, prisma.campaign, 'updateMany', async () => ({ count: 0 }));

@@ -2,56 +2,109 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mockMethod } from '../test-support/mockMethod';
 import { prisma } from '../lib/prisma';
-import { CompanySearchService } from './CompanySearchService';
+import {
+  CompanySearchService,
+  isValidBrazilianMobilePhone,
+  sanitizeCompanyWebsite,
+  setTestPlacesProvider
+} from './CompanySearchService';
 import { CreditWalletService } from './CreditWalletService';
 import { ContactPolicyService } from './ContactPolicyService';
 
-test('CompanySearchService: executa busca, consome créditos somente por aproveitáveis e libera excedente', async (t) => {
-  const workspace = { id: 'w-search', userId: 'u-search', name: 'Minha Empresa' };
-  mockMethod(t, prisma.workspace, 'findFirst', async () => workspace);
+test('CompanySearchService: validação de celular e descarte estrito de telefones fixos', () => {
+  // Celulares válidos brasileiros com DDD
+  assert.equal(isValidBrazilianMobilePhone('5511999998888'), true);
+  assert.equal(isValidBrazilianMobilePhone('5521988887777'), true);
+  assert.equal(isValidBrazilianMobilePhone('+55 (31) 99123-4567'), true);
+  assert.equal(isValidBrazilianMobilePhone('5585994443322'), true);
 
-  let searchRecord = { id: 'search-1', status: 'PROCESSING', creditsReserved: 10, creditsConsumed: 0 };
-  mockMethod(t, prisma.companySearch, 'create', async ({ data }: any) => ({ ...searchRecord, ...data }));
-  mockMethod(t, prisma.companySearch, 'update', async ({ data }: any) => {
+  // Telefones fixos (iniciam com 2, 3, 4, 5 ou têm 8 dígitos após DDD) -> Devem ser descartados
+  assert.equal(isValidBrazilianMobilePhone('551133334444'), false);
+  assert.equal(isValidBrazilianMobilePhone('551122221111'), false);
+  assert.equal(isValidBrazilianMobilePhone('552140040000'), false);
+  assert.equal(isValidBrazilianMobilePhone('553155556666'), false);
+  assert.equal(isValidBrazilianMobilePhone('1133334444'), false); // sem DDI 55
+  assert.equal(isValidBrazilianMobilePhone(''), false);
+  assert.equal(isValidBrazilianMobilePhone('123'), false);
+});
+
+test('CompanySearchService: higienização de website descarta URLs de ficha do Google Maps', () => {
+  // URLs do Google Maps devem retornar null para não classificar a empresa como "com site"
+  assert.equal(sanitizeCompanyWebsite('https://www.google.com/maps/place/Barber+Shop'), null);
+  assert.equal(sanitizeCompanyWebsite('https://maps.google.com/?cid=123456789'), null);
+  assert.equal(sanitizeCompanyWebsite('https://goo.gl/maps/xyz123'), null);
+  assert.equal(sanitizeCompanyWebsite('https://maps.app.goo.gl/abcdef'), null);
+  assert.equal(sanitizeCompanyWebsite(''), null);
+  assert.equal(sanitizeCompanyWebsite(null), null);
+
+  // Websites reais próprios da empresa devem ser preservados
+  assert.equal(sanitizeCompanyWebsite('https://minhaempresa.com.br'), 'https://minhaempresa.com.br');
+  assert.equal(sanitizeCompanyWebsite('loja.com.br'), 'https://loja.com.br');
+});
+
+test('CompanySearchService: valida campanha de destino ANTES de qualquer reserva de créditos', async (t) => {
+  // Campanha não pertence ao workspace
+  mockMethod(t, prisma.campaign, 'findFirst', async () => null);
+
+  let reserveCalled = false;
+  mockMethod(t, CreditWalletService, 'reserveCredits', async () => {
+    reserveCalled = true;
+    return { success: true, reservationId: 'res-inv', reservedAmount: 10 };
+  });
+
+  await assert.rejects(
+    async () => {
+      await CompanySearchService.initiateSearch({
+        userId: 'u-1',
+        workspaceId: 'w-1',
+        segment: 'Dentistas',
+        location: 'Belo Horizonte',
+        requestedCount: 10,
+        targetCampaignId: 'c-outra-empresa'
+      });
+    },
+    /A campanha de destino informada não existe ou não pertence a este workspace/
+  );
+
+  assert.equal(reserveCalled, false, 'Não deve efetuar reserva de créditos para campanha inválida');
+});
+
+test('CompanySearchService: resposta vazia conclui com zero resultados e zero créditos consumidos (sem dados fictícios)', async (t) => {
+  let searchRecord: any = { id: 'search-empty', status: 'PENDING', creditsReserved: 10 };
+  mockMethod(t, prisma.companySearch, 'create', async ({ data }: any) => {
     searchRecord = { ...searchRecord, ...data };
     return searchRecord;
   });
-
-  let reservedAmount = 0;
-  let settledConsumed = 0;
-  let settledReleased = 0;
-
-  mockMethod(t, CreditWalletService, 'reserveCredits', async ({ amount }: any) => {
-    reservedAmount = amount;
-    return { success: true, reservedAmount: amount };
+  mockMethod(t, prisma.companySearch, 'findUnique', async () => ({ ...searchRecord, results: [] }));
+  mockMethod(t, prisma.companySearch, 'update', async ({ data }: any) => {
+    Object.assign(searchRecord, data);
+    return searchRecord;
   });
 
-  mockMethod(t, CreditWalletService, 'settleReservation', async ({ actualConsumedAmount, releasedAmount }: any) => {
+  mockMethod(t, CreditWalletService, 'reserveCredits', async () => ({
+    success: true,
+    reservationId: 'res-empty',
+    reservedAmount: 10
+  }));
+
+  let settledConsumed = -1;
+  let settledReleased = -1;
+  mockMethod(t, CreditWalletService, 'settleReservation', async ({ actualConsumedAmount }: any) => {
     settledConsumed = actualConsumedAmount;
-    settledReleased = (10 - actualConsumedAmount);
+    settledReleased = 10 - actualConsumedAmount;
     return { success: true, consumedAmount: actualConsumedAmount, releasedAmount: settledReleased };
   });
 
-  // Mock de 5 lugares: 4 com telefone válido (1 duplicado), 1 sem telefone
-  const rawPlaces = [
-    { title: 'Padaria Alfa', phone: '11999990001', website: 'https://alfa.com', address: 'Rua 1', neighborhood: 'Centro' },
-    { title: 'Padaria Beta', phone: '11999990002', website: null, address: 'Rua 2', neighborhood: 'Moema' },
-    { title: 'Padaria Alfa Repetida', phone: '11999990001', website: null, address: 'Rua 1', neighborhood: 'Centro' },
-    { title: 'Padaria Gamma', phone: '11999990003', website: 'https://gamma.com', address: 'Rua 3', neighborhood: 'Pinheiros' },
-    { title: 'Padaria Sem Telefone', phone: '', website: null, address: 'Rua 4', neighborhood: 'Jardins' },
-  ];
-
-  mockMethod(t, CompanySearchService as any, 'fetchPlacesFromProvider', async () => rawPlaces);
-  mockMethod(t, ContactPolicyService, 'isBlacklisted', async () => false);
+  // Provedor retorna lista vazia
+  setTestPlacesProvider(async () => []);
+  t.after(() => setTestPlacesProvider(null));
 
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
-      companySearchResult: {
-        create: async ({ data }: any) => ({ id: `res-${Math.random()}`, ...data })
-      },
+      companySearchResult: { createMany: async () => ({ count: 0 }) },
       companySearch: {
         update: async ({ data }: any) => {
-          searchRecord = { ...searchRecord, ...data };
+          Object.assign(searchRecord, data);
           return searchRecord;
         }
       }
@@ -59,84 +112,172 @@ test('CompanySearchService: executa busca, consome créditos somente por aprovei
     return fn(tx);
   });
 
-  const result = await CompanySearchService.executeSearch({
-    userId: 'u-search',
-    workspaceId: 'w-search',
-    segment: 'Padarias',
-    location: 'São Paulo',
+  const res = await CompanySearchService.initiateSearch({
+    userId: 'u-1',
+    workspaceId: 'w-1',
+    segment: 'Aeroespacial',
+    location: 'Cidade Pequena',
     requestedCount: 10
   });
 
-  assert.equal(reservedAmount, 10, 'Deve reservar 10 créditos (pelo total solicitado)');
-  assert.equal(result.foundCount, 5, 'Encontrou 5 registros brutos');
-  assert.equal(result.usableCount, 3, 'Apenas 3 são aproveitáveis (1 sem telefone e 1 duplicado descartados)');
-  assert.equal(result.discardedCount, 2);
-  assert.equal(settledConsumed, 3, 'Deve cobrar exatamente 3 créditos');
-  assert.equal(settledReleased, 7, 'Deve liberar 7 créditos da reserva');
+  assert.ok(res);
+  assert.equal(res.status, 'COMPLETED');
+  assert.equal(res.foundCount, 0);
+  assert.equal(res.usableCount, 0);
+  assert.equal(settledConsumed, 0, 'Zero empresas aproveitáveis consome exatamente zero créditos');
+  assert.equal(settledReleased, 10, 'Estorna integralmente os 10 créditos reservados');
 });
 
-test('CompanySearchService: falha na busca aciona liberação integral da reserva', async (t) => {
-  mockMethod(t, prisma.workspace, 'findFirst', async () => ({ id: 'w-fail', userId: 'u-fail' }));
-  mockMethod(t, prisma.companySearch, 'create', async () => ({ id: 'search-fail' }));
-  mockMethod(t, prisma.companySearch, 'update', async () => ({}));
+test('CompanySearchService: erro na Apify lança exceção controlada, libera reserva e NÃO cria contatos fictícios', async (t) => {
+  let searchRecord: any = { id: 'search-err', status: 'PENDING', creditsReserved: 20 };
+  mockMethod(t, prisma.companySearch, 'create', async ({ data }: any) => {
+    searchRecord = { ...searchRecord, ...data };
+    return searchRecord;
+  });
+  mockMethod(t, prisma.companySearch, 'findUnique', async () => searchRecord);
+  mockMethod(t, prisma.companySearch, 'update', async ({ data }: any) => {
+    Object.assign(searchRecord, data);
+    return searchRecord;
+  });
 
-  let released = false;
-  mockMethod(t, CreditWalletService, 'reserveCredits', async () => ({ success: true, reservedAmount: 20 }));
-  mockMethod(t, CreditWalletService, 'releaseReservation', async () => {
-    released = true;
+  mockMethod(t, CreditWalletService, 'reserveCredits', async () => ({
+    success: true,
+    reservationId: 'res-err',
+    reservedAmount: 20
+  }));
+
+  let releasedReservationId = '';
+  mockMethod(t, CreditWalletService, 'releaseReservation', async ({ reservationId }: any) => {
+    releasedReservationId = reservationId;
     return { success: true, releasedAmount: 20 };
   });
 
-  mockMethod(t, CompanySearchService as any, 'fetchPlacesFromProvider', async () => {
-    throw new Error('Falha de rede na API de mapas.');
+  // Simula erro de conexão ou timeout na Apify
+  setTestPlacesProvider(async () => {
+    throw new Error('Timeout de 60s excedido ao consultar o provedor Apify.');
   });
+  t.after(() => setTestPlacesProvider(null));
 
   await assert.rejects(
     async () => {
-      await CompanySearchService.executeSearch({
-        userId: 'u-fail',
-        workspaceId: 'w-fail',
-        segment: 'Advogados',
-        location: 'Curitiba',
+      await CompanySearchService.initiateSearch({
+        userId: 'u-1',
+        workspaceId: 'w-1',
+        segment: 'Restaurantes',
+        location: 'São Paulo',
         requestedCount: 20
       });
     },
-    /Falha de rede/
+    /Timeout de 60s excedido/
   );
 
-  assert.equal(released, true, 'Deve ter liberado 100% da reserva de créditos ao falhar');
+  assert.equal(releasedReservationId, 'res-err', 'Deve ter liberado a reserva pelo reservationId');
+  assert.equal(searchRecord.status, 'FAILED');
+  assert.match(searchRecord.errorMessage, /Timeout de 60s/);
 });
 
-test('CompanySearchService: addSelectedToCampaign adiciona leads na campanha sem quebrar em duplicatas', async (t) => {
-  mockMethod(t, prisma.campaign, 'findFirst', async () => ({ id: 'c-1', workspaceId: 'w-1', name: 'Campanha Teste' }));
+test('CompanySearchService: deduplica contra o workspace histórico e descarta números fixos', async (t) => {
+  let searchRecord: any = { id: 'search-dedup', status: 'PENDING', creditsReserved: 10 };
+  mockMethod(t, prisma.companySearch, 'create', async ({ data }: any) => {
+    searchRecord = { ...searchRecord, ...data };
+    return searchRecord;
+  });
+  mockMethod(t, prisma.companySearch, 'findUnique', async () => ({ ...searchRecord, results: [] }));
+  mockMethod(t, prisma.companySearch, 'update', async ({ data }: any) => {
+    Object.assign(searchRecord, data);
+    return searchRecord;
+  });
 
-  const items = [
-    { id: 'item-1', name: 'Clínica 1', phone: '5511988880001', website: 'https://c1.com', neighborhood: 'Centro', isUsable: true },
-    { id: 'item-2', name: 'Clínica 2', phone: '5511988880002', website: null, neighborhood: 'Moema', isUsable: true },
-  ];
-  mockMethod(t, prisma.companySearchResult, 'findMany', async () => items);
-  mockMethod(t, prisma.companySearchResult, 'update', async () => ({}));
+  mockMethod(t, CreditWalletService, 'reserveCredits', async () => ({
+    success: true,
+    reservationId: 'res-dedup',
+    reservedAmount: 10
+  }));
 
-  let createdLeads: any[] = [];
-  mockMethod(t, prisma.lead, 'create', async ({ data }: any) => {
-    if (data.phone === '5511988880002') {
-      const err: any = new Error('Unique constraint failed');
-      err.code = 'P2002';
-      throw err;
+  let settledConsumed = 0;
+  mockMethod(t, CreditWalletService, 'settleReservation', async ({ actualConsumedAmount }: any) => {
+    settledConsumed = actualConsumedAmount;
+    return { success: true, consumedAmount: actualConsumedAmount };
+  });
+
+  // 1. Contato já contatado no histórico de envios do workspace
+  mockMethod(t, prisma.dispatchHistory, 'findUnique', async ({ where }: any) => {
+    const phone = where?.workspaceId_phone?.phone || where?.phone;
+    if (phone === '5511999990001') {
+      return { id: 'hist-1', phone: '5511999990001' };
     }
-    createdLeads.push(data);
-    return { id: 'lead-created', ...data };
+    return null;
+  });
+  mockMethod(t, prisma.dispatchHistory, 'findFirst', async ({ where }: any) => {
+    if (where.phone === '5511999990001') {
+      return { id: 'hist-1', phone: '5511999990001' };
+    }
+    return null;
   });
 
-  const res = await CompanySearchService.addSelectedToCampaign({
-    searchId: 's-1',
-    companyResultIds: ['item-1', 'item-2'],
-    campaignId: 'c-1',
-    workspaceId: 'w-1'
+  // 2. Contato já existente em outra campanha do workspace
+  mockMethod(t, prisma.lead, 'findFirst', async ({ where }: any) => {
+    if (where.phone === '5511999990002') {
+      return { id: 'lead-prev', phone: '5511999990002' };
+    }
+    return null;
   });
 
-  assert.equal(res.addedCount, 1);
-  assert.equal(res.duplicateCount, 1);
-  assert.equal(createdLeads[0].title, 'Clínica 1');
-  assert.equal(createdLeads[0].status, 'PENDING');
+  mockMethod(t, ContactPolicyService, 'isBlacklisted', async () => false);
+
+  const places = [
+    { title: 'Padaria Antiga (histórico)', phone: '11999990001', website: 'https://site1.com' },
+    { title: 'Padaria Outra Campanha', phone: '11999990002', website: null },
+    { title: 'Padaria Telefone Fixo', phone: '1133334444', website: null }, // Fixo descartado
+    { title: 'Padaria Nova e Celular Válido', phone: '11999990003', website: 'https://site3.com' },
+  ];
+
+  setTestPlacesProvider(async () => places);
+  t.after(() => setTestPlacesProvider(null));
+
+  let resultsSaved: any[] = [];
+  mockMethod(t, prisma, '$transaction', async (fn: any) => {
+    const tx = {
+      companySearchResult: {
+        create: async ({ data }: any) => {
+          resultsSaved.push(data);
+          return { id: `res-${resultsSaved.length}`, ...data };
+        }
+      },
+      companySearch: {
+        update: async ({ data }: any) => {
+          Object.assign(searchRecord, data);
+          return searchRecord;
+        }
+      }
+    };
+    return fn(tx);
+  });
+
+  const res = await CompanySearchService.initiateSearch({
+    userId: 'u-1',
+    workspaceId: 'w-1',
+    segment: 'Padarias',
+    location: 'Centro',
+    requestedCount: 10
+  });
+
+  assert.ok(res);
+  assert.equal(res.status, 'COMPLETED');
+  assert.equal(res.foundCount, 4);
+  assert.equal(res.usableCount, 1, 'Apenas 1 é novo e celular válido');
+  assert.equal(settledConsumed, 1, 'Consumiu apenas 1 crédito');
+
+  // Verifica as razões de descarte registradas
+  const fixo = resultsSaved.find(r => r.name.includes('Fixo'));
+  assert.equal(fixo.isUsable, false);
+  assert.equal(fixo.discardReason, 'INVALID_PHONE');
+
+  const jaDisparado = resultsSaved.find(r => r.name.includes('histórico'));
+  assert.equal(jaDisparado.isUsable, false);
+  assert.equal(jaDisparado.discardReason, 'ALREADY_IN_WORKSPACE');
+
+  const outraCampanha = resultsSaved.find(r => r.name.includes('Outra Campanha'));
+  assert.equal(outraCampanha.isUsable, false);
+  assert.equal(outraCampanha.discardReason, 'ALREADY_IN_WORKSPACE');
 });

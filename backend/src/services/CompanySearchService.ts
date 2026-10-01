@@ -1,12 +1,12 @@
 import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { CreditWalletService } from './CreditWalletService';
-import { ContactPolicyService } from './ContactPolicyService';
 import { WhatsappManager } from './WhatsappManager';
-import { isUserUnlimited, isLegacyPlan } from '../config/plans';
+import { ContactPolicyService } from './ContactPolicyService';
+import { companySearchQueue } from './queue';
 
 export interface RawPlaceItem {
-  title: string;
+  title?: string;
   phone?: string | null;
   website?: string | null;
   address?: string | null;
@@ -17,89 +17,185 @@ export interface RawPlaceItem {
   reviewsCount?: number | null;
 }
 
-export interface SearchParams {
-  userId: string;
-  workspaceId: string;
-  segment: string;
-  location: string;
-  requestedCount: number;
-  targetCampaignId?: string | undefined;
+/**
+ * Validador estrito de número celular brasileiro.
+ * Exige DDI 55 + DDD válido (11 a 99) + nono dígito 9 + primeiro dígito de celular (6, 7, 8 ou 9) + 7 dígitos.
+ * Números fixos (8 dígitos ou iniciando com 2, 3, 4 ou 5) retornam false.
+ */
+export function isValidBrazilianMobilePhone(phone: string): boolean {
+  if (!phone) return false;
+  const digits = phone.replace(/\D/g, '');
+  return /^55[1-9]{2}9[6-9][0-9]{7}$/.test(digits);
+}
+
+/**
+ * Sanitiza URL de website de empresa.
+ * Remove URLs do Google Maps (para não classificar empresas sem site como "com site").
+ */
+export function sanitizeCompanyWebsite(url?: string | null): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.includes('google.com/maps') ||
+    lower.includes('maps.google.') ||
+    lower.includes('goo.gl/maps') ||
+    lower.includes('google.com.br/maps') ||
+    lower.includes('maps.app.goo.gl')
+  ) {
+    return null;
+  }
+
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    return `https://${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+// Provedor injetável exclusivamente para testes automatizados unitários
+let testPlacesProvider: ((segment: string, location: string, count: number) => Promise<RawPlaceItem[]>) | null = null;
+
+export function setTestPlacesProvider(fn: ((segment: string, location: string, count: number) => Promise<RawPlaceItem[]>) | null) {
+  testPlacesProvider = fn;
 }
 
 export class CompanySearchService {
   /**
-   * Executa a busca de empresas integrada via Apify ou Mock com reserva e liquidação de créditos.
+   * Inicia uma busca de empresas com validação prévia de campanha,
+   * reserva atômica de créditos e agendamento durável.
    */
-  static async executeSearch(params: SearchParams) {
-    const { userId, workspaceId, segment, location, requestedCount, targetCampaignId } = params;
+  static async initiateSearch(params: {
+    userId: string;
+    workspaceId: string;
+    segment: string;
+    location: string;
+    requestedCount: number;
+    targetCampaignId?: string | undefined;
+    idempotencyKey?: string | undefined;
+  }) {
+    const { userId, workspaceId, segment, location, requestedCount, targetCampaignId, idempotencyKey } = params;
 
-    const cleanSegment = segment.trim();
-    const cleanLocation = location.trim();
-    const count = Math.min(200, Math.max(5, requestedCount || 20));
-    const query = `${cleanSegment} em ${cleanLocation}`;
+    const cleanSegment = (segment || '').trim();
+    const cleanLocation = (location || '').trim();
 
-    // 1. Valida existência do workspace
-    const workspace = await prisma.workspace.findFirst({
-      where: { id: workspaceId, userId }
+    if (cleanSegment.length < 2) {
+      throw new Error('O segmento ou nicho da busca deve ter ao menos 2 caracteres.');
+    }
+    if (cleanLocation.length < 2) {
+      throw new Error('A localização (cidade/bairro) deve ter ao menos 2 caracteres.');
+    }
+
+    const count = Math.min(200, Math.max(5, Math.floor(requestedCount || 20)));
+
+    // 1. Validação de isolamento: se houver campanha alvo, valida ownership ANTES de qualquer cobrança
+    if (targetCampaignId) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: targetCampaignId, workspaceId }
+      });
+      if (!campaign) {
+        throw new Error('A campanha de destino informada não existe ou não pertence a este workspace.');
+      }
+    }
+
+    const finalIdempotencyKey = idempotencyKey || `search_${workspaceId}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    // 2. Reserva atômica dos créditos correspondentes
+    const reservation = await CreditWalletService.reserveCredits({
+      userId,
+      amount: count,
+      idempotencyKey: finalIdempotencyKey,
+      sourceType: 'COMPANY_SEARCH',
+      description: `Busca de empresas: ${cleanSegment} em ${cleanLocation} (até ${count} contatos)`
     });
-    if (!workspace) throw new Error('Workspace não encontrado.');
 
-    // 2. Cria registro inicial da busca no banco
+    // 3. Persistência do registro de busca
     const searchRecord = await prisma.companySearch.create({
       data: {
         workspaceId,
         userId,
-        query,
+        targetCampaignId: targetCampaignId || null,
+        reservationId: reservation.reservationId,
+        query: `${cleanSegment} em ${cleanLocation}`,
         segment: cleanSegment,
         location: cleanLocation,
         requestedCount: count,
-        creditsReserved: count,
-        status: 'PROCESSING'
+        creditsReserved: reservation.reservedAmount,
+        status: 'PENDING'
       }
     });
 
-    let reservedSuccessfully = false;
+    // 4. Enfileiramento durável no BullMQ
+    const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
+    if (!isTest) {
+      await companySearchQueue.add(
+        'execute-company-search',
+        { searchId: searchRecord.id },
+        {
+          jobId: `search_${searchRecord.id}`,
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 10000 },
+          removeOnComplete: true,
+          removeOnFail: false
+        }
+      );
+    } else {
+      // Em testes automatizados, processa imediatamente de forma síncrona
+      await this.processSearchJob(searchRecord.id);
+      return await prisma.companySearch.findUnique({
+        where: { id: searchRecord.id },
+        include: { results: true }
+      });
+    }
+
+    return searchRecord;
+  }
+
+  /**
+   * Processador de execução da busca (executado pelo Worker da fila ou pelo teste síncrono).
+   * Garante consistência transacional: resultados só são persistidos junto com a liquidação contábil.
+   */
+  static async processSearchJob(searchId: string) {
+    const searchRecord = await prisma.companySearch.findUnique({
+      where: { id: searchId }
+    });
+
+    if (!searchRecord) {
+      throw new Error(`Busca não encontrada para processamento: ${searchId}`);
+    }
+
+    if (searchRecord.status === 'COMPLETED' || searchRecord.status === 'CANCELED') {
+      return searchRecord;
+    }
+
+    // Marca como em processamento
+    await prisma.companySearch.update({
+      where: { id: searchId },
+      data: { status: 'PROCESSING' }
+    });
+
+    const { segment, location, requestedCount, workspaceId, targetCampaignId, userId, reservationId } = searchRecord;
+    let rawPlaces: RawPlaceItem[] = [];
 
     try {
-      // 3. Reserva de saldo na carteira (Hold)
-      await CreditWalletService.reserveCredits({
-        userId,
-        amount: count,
-        sourceType: 'COMPANY_SEARCH',
-        sourceId: searchRecord.id,
-        description: `Reserva para busca: ${query} (${count} empresas solicitadas)`
-      });
-      reservedSuccessfully = true;
+      // 1. Extração no provedor oficial Apify
+      rawPlaces = await this.fetchPlacesFromProvider(segment || '', location || '', requestedCount);
 
-      // 4. Executa a extração (Apify ou Mock)
-      const rawPlaces = await this.fetchPlacesFromProvider(cleanSegment, cleanLocation, count);
-
-      // 5. Classifica e deduplica contatos
-      const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, targetCampaignId);
+      // 2. Classificação rigorosa, sanitização e deduplicação no workspace
+      const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, targetCampaignId || undefined);
 
       const usableCount = classifiedResults.filter(r => r.isUsable).length;
       const discardedCount = classifiedResults.length - usableCount;
-      const creditsToConsume = usableCount * 1; // 1 crédito por empresa nova aproveitável
 
-      // 6. Liquida os créditos (debita aproveitáveis e libera excedente)
-      await CreditWalletService.settleReservation({
-        userId,
-        reservedAmount: count,
-        actualConsumedAmount: creditsToConsume,
-        sourceType: 'COMPANY_SEARCH',
-        sourceId: searchRecord.id,
-        description: `Busca concluída: ${usableCount} empresas aproveitáveis de ${rawPlaces.length} encontradas`,
-        metadata: {
-          requestedCount: count,
-          foundCount: rawPlaces.length,
-          usableCount,
-          discardedCount
-        }
-      });
+      // O consumo de créditos nunca pode exceder o valor reservado
+      const creditsToConsume = Math.min(usableCount, searchRecord.creditsReserved);
 
-      // 7. Salva os resultados no banco
-      const savedResults = await prisma.$transaction(async (tx) => {
-        const createdItems = await Promise.all(
+      // 3. Transação atômica: salva resultados, vincula leads na campanha e liquida a carteira
+      await prisma.$transaction(async (tx) => {
+        // Persiste os resultados encontrados
+        const createdResults = await Promise.all(
           classifiedResults.map(item =>
             tx.companySearchResult.create({
               data: {
@@ -111,7 +207,7 @@ export class CompanySearchService {
                 address: item.address || null,
                 neighborhood: item.neighborhood || null,
                 city: item.city || null,
-                category: item.category || cleanSegment,
+                category: item.category || segment,
                 rating: item.rating || null,
                 reviewsCount: item.reviewsCount || null,
                 isUsable: item.isUsable,
@@ -121,44 +217,47 @@ export class CompanySearchService {
           )
         );
 
-        // Se houver campanha alvo informada, importa automaticamente os leads aproveitáveis
+        // Se houver campanha alvo, injeta diretamente os leads aproveitáveis
         if (targetCampaignId) {
-          const campaign = await tx.campaign.findFirst({
-            where: { id: targetCampaignId, workspaceId }
-          });
-
-          if (campaign) {
-            const usableItems = createdItems.filter(i => i.isUsable && i.phone);
-            for (const item of usableItems) {
-              const createdLead = await tx.lead.upsert({
-                where: {
-                  campaignId_phone: {
-                    campaignId: targetCampaignId,
-                    phone: item.phone!
-                  }
-                },
-                update: {},
-                create: {
+          const usableItems = createdResults.filter(i => i.isUsable && i.phone);
+          for (const item of usableItems) {
+            const lead = await tx.lead.upsert({
+              where: {
+                campaignId_phone: {
                   campaignId: targetCampaignId,
-                  title: item.name,
-                  phone: item.phone!,
-                  website: item.website || null,
-                  neighborhood: item.neighborhood || null,
-                  status: 'PENDING'
+                  phone: item.phone!
                 }
-              }).catch(() => null);
+              },
+              create: {
+                campaignId: targetCampaignId,
+                title: item.name,
+                phone: item.phone!,
+                website: item.website || null,
+                neighborhood: item.neighborhood || null,
+                status: 'PENDING'
+              },
+              update: {}
+            });
 
-              if (createdLead) {
-                await tx.companySearchResult.update({
-                  where: { id: item.id },
-                  data: { importedLeadId: createdLead.id }
-                }).catch(() => {});
-              }
+            if (lead) {
+              await tx.companySearchResult.update({
+                where: { id: item.id },
+                data: { importedLeadId: lead.id }
+              });
             }
           }
         }
 
-        // Atualiza status final da busca
+        // 4. Liquidação da reserva de créditos com estorno automático do excedente
+        if (reservationId) {
+          await CreditWalletService.settleReservation({
+            reservationId,
+            actualConsumedAmount: creditsToConsume,
+            description: `Busca finalizada: ${usableCount} empresas aproveitáveis (${creditsToConsume} créditos debitados)`
+          });
+        }
+
+        // 5. Atualização final do registro de busca
         await tx.companySearch.update({
           where: { id: searchRecord.id },
           data: {
@@ -169,41 +268,28 @@ export class CompanySearchService {
             creditsConsumed: creditsToConsume
           }
         });
+      }, { timeout: 20000 });
 
-        return createdItems;
+      return await prisma.companySearch.findUnique({
+        where: { id: searchRecord.id },
+        include: { results: true }
       });
-
-      return {
-        id: searchRecord.id,
-        query,
-        segment: cleanSegment,
-        location: cleanLocation,
-        requestedCount: count,
-        foundCount: rawPlaces.length,
-        usableCount,
-        discardedCount,
-        creditsConsumed: creditsToConsume,
-        results: savedResults
-      };
     } catch (error: any) {
-      console.error('[COMPANY SEARCH ERROR]', error);
+      console.error('[COMPANY SEARCH EXECUTION ERROR]', error);
 
-      // Libera a reserva em caso de falha da operação
-      if (reservedSuccessfully) {
+      // Em falha operacional, estorna 100% da reserva de créditos do cliente
+      if (reservationId) {
         await CreditWalletService.releaseReservation({
-          userId,
-          reservedAmount: count,
-          sourceType: 'COMPANY_SEARCH',
-          sourceId: searchRecord.id,
-          reason: `Falha na execução da busca: ${error?.message || 'Erro desconhecido'}`
-        }).catch(err => console.error('[RELEASE ERROR]', err));
+          reservationId,
+          reason: `Falha na extração de empresas: ${error?.message || 'Erro no provedor'}`
+        }).catch(err => console.error('[RELEASE RESERVATION ERROR]', err));
       }
 
       await prisma.companySearch.update({
         where: { id: searchRecord.id },
         data: {
           status: 'FAILED',
-          errorMessage: error?.message || 'Falha ao executar busca de empresas.'
+          errorMessage: error?.message || 'Falha ao processar busca de empresas.'
         }
       }).catch(() => {});
 
@@ -213,6 +299,7 @@ export class CompanySearchService {
 
   /**
    * Adiciona empresas selecionadas de uma busca a uma campanha existente.
+   * Revalida elegibilidade, opt-out e deduplicação no workspace.
    */
   static async addSelectedToCampaign(params: {
     searchId: string;
@@ -225,7 +312,9 @@ export class CompanySearchService {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, workspaceId }
     });
-    if (!campaign) throw new Error('Campanha não encontrada.');
+    if (!campaign) {
+      throw new Error('Campanha de destino não encontrada ou não pertence ao seu workspace.');
+    }
 
     const items = await prisma.companySearchResult.findMany({
       where: {
@@ -240,7 +329,11 @@ export class CompanySearchService {
     let duplicateCount = 0;
 
     for (const item of items) {
-      if (!item.phone) continue;
+      if (!item.phone || !isValidBrazilianMobilePhone(item.phone)) continue;
+
+      // Revalida blacklist LGPD
+      const isBlacklisted = await ContactPolicyService.isBlacklisted(item.phone, workspaceId);
+      if (isBlacklisted) continue;
 
       try {
         const lead = await prisma.lead.create({
@@ -261,11 +354,10 @@ export class CompanySearchService {
 
         addedCount++;
       } catch (err: any) {
-        // P2002: unique constraint em campaignId_phone
         if (err.code === 'P2002') {
           duplicateCount++;
         } else {
-          console.warn('[ADD LEAD ERROR]', err.message);
+          console.warn('[ADD LEAD WARNING]', err.message);
         }
       }
     }
@@ -278,8 +370,13 @@ export class CompanySearchService {
   }
 
   /**
-   * Classifica e deduplica os resultados brutos da busca.
-   * Só considera aproveitável empresas com telefone válido, sem duplicidade e não bloqueadas.
+   * Classifica e valida contatos com rigor:
+   * 1. Exige celular brasileiro válido (DDD + 9 dígitos com nono dígito 9 e inicial [6-9]).
+   * 2. Remove URLs do Google Maps como website.
+   * 3. Deduplica contra o lote da busca.
+   * 4. Deduplica contra a Blacklist (LGPD).
+   * 5. Deduplica contra o histórico completo de envios do workspace (DispatchHistory).
+   * 6. Deduplica contra leads existentes em qualquer campanha do workspace.
    */
   private static async classifyAndDeduplicate(
     rawPlaces: RawPlaceItem[],
@@ -290,54 +387,53 @@ export class CompanySearchService {
     const classified: Array<{
       name: string;
       phone: string | null;
-      website?: string | null | undefined;
-      address?: string | null | undefined;
-      neighborhood?: string | null | undefined;
-      city?: string | null | undefined;
-      category?: string | null | undefined;
-      rating?: number | null | undefined;
-      reviewsCount?: number | null | undefined;
+      website?: string | null;
+      address?: string | null;
+      neighborhood?: string | null;
+      city?: string | null;
+      category?: string | null;
+      rating?: number | null;
+      reviewsCount?: number | null;
       isUsable: boolean;
-      discardReason?: string | null | undefined;
+      discardReason?: string | null;
     }> = [];
 
     for (const place of rawPlaces) {
       const name = (place.title || '').trim() || 'Empresa sem nome';
       const rawPhone = (place.phone || '').trim();
+      const sanitizedWebsite = sanitizeCompanyWebsite(place.website);
 
       if (!rawPhone) {
         classified.push({
           name,
           phone: null,
-          website: place.website,
-          address: place.address,
-          neighborhood: place.neighborhood,
-          city: place.city,
-          category: place.category,
-          rating: place.totalScore,
-          reviewsCount: place.reviewsCount,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'NO_PHONE'
         });
         continue;
       }
 
-      // Normaliza o número (prefixa 55 e limpa caracteres)
       const normalizedPhone = WhatsappManager.normalizeBrPhone(rawPhone);
-      const digitsOnly = normalizedPhone.replace(/\D/g, '');
 
-      // Telefone brasileiro válido tem entre 12 e 13 dígitos com DDI 55 (ex: 5511999998888 ou 551133334444)
-      if (digitsOnly.length < 12 || digitsOnly.length > 13 || !digitsOnly.startsWith('55')) {
+      // Validação estrita de celular: descarta fixos e números mal formatados
+      if (!isValidBrazilianMobilePhone(normalizedPhone)) {
         classified.push({
           name,
           phone: rawPhone,
-          website: place.website,
-          address: place.address,
-          neighborhood: place.neighborhood,
-          city: place.city,
-          category: place.category,
-          rating: place.totalScore,
-          reviewsCount: place.reviewsCount,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'INVALID_PHONE'
         });
@@ -349,13 +445,13 @@ export class CompanySearchService {
         classified.push({
           name,
           phone: normalizedPhone,
-          website: place.website,
-          address: place.address,
-          neighborhood: place.neighborhood,
-          city: place.city,
-          category: place.category,
-          rating: place.totalScore,
-          reviewsCount: place.reviewsCount,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'DUPLICATE'
         });
@@ -369,52 +465,74 @@ export class CompanySearchService {
         classified.push({
           name,
           phone: normalizedPhone,
-          website: place.website,
-          address: place.address,
-          neighborhood: place.neighborhood,
-          city: place.city,
-          category: place.category,
-          rating: place.totalScore,
-          reviewsCount: place.reviewsCount,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'BLACKLISTED'
         });
         continue;
       }
 
-      // 3. Verificação de duplicidade na campanha alvo (se houver)
-      if (targetCampaignId) {
-        const existingInCampaign = await prisma.lead.findUnique({
-          where: {
-            campaignId_phone: {
-              campaignId: targetCampaignId,
-              phone: normalizedPhone
-            }
+      // 3. Deduplicação contra contatos já enviados no histórico permanente do workspace
+      const alreadyInHistory = await prisma.dispatchHistory.findUnique({
+        where: {
+          workspaceId_phone: {
+            workspaceId,
+            phone: normalizedPhone
           }
-        });
-        if (existingInCampaign) {
-          classified.push({
-            name,
-            phone: normalizedPhone,
-            website: place.website,
-            address: place.address,
-            neighborhood: place.neighborhood,
-            city: place.city,
-            category: place.category,
-            rating: place.totalScore,
-            reviewsCount: place.reviewsCount,
-            isUsable: false,
-            discardReason: 'DUPLICATE'
-          });
-          continue;
         }
+      });
+      if (alreadyInHistory) {
+        classified.push({
+          name,
+          phone: normalizedPhone,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
+          isUsable: false,
+          discardReason: 'ALREADY_IN_WORKSPACE'
+        });
+        continue;
       }
 
-      // Registro aproveitável!
+      // 4. Deduplicação contra leads existentes em qualquer campanha do workspace
+      const alreadyInWorkspace = await prisma.lead.findFirst({
+        where: {
+          campaign: { workspaceId },
+          phone: normalizedPhone
+        }
+      });
+      if (alreadyInWorkspace) {
+        classified.push({
+          name,
+          phone: normalizedPhone,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
+          isUsable: false,
+          discardReason: 'ALREADY_IN_WORKSPACE'
+        });
+        continue;
+      }
+
+      // 5. Empresa qualificada e aproveitável!
       classified.push({
         name,
         phone: normalizedPhone,
-        website: place.website || null,
+        website: sanitizedWebsite,
         address: place.address || null,
         neighborhood: place.neighborhood || null,
         city: place.city || null,
@@ -430,113 +548,68 @@ export class CompanySearchService {
   }
 
   /**
-   * Consulta o fornecedor de dados (Apify oficial ou Mock realista de desenvolvimento).
+   * Consulta a API oficial da Apify.
+   * NUNCA substitui falhas por contatos inventados ou fictícios.
    */
   private static async fetchPlacesFromProvider(
     segment: string,
     location: string,
     requestedCount: number
   ): Promise<RawPlaceItem[]> {
+    // Se houver um provider mock configurado para testes unitários isolados
+    if (testPlacesProvider) {
+      return await testPlacesProvider(segment, location, requestedCount);
+    }
+
     const apifyToken = ENV.APIFY_API_TOKEN;
 
-    if (apifyToken && apifyToken.trim() !== '') {
-      try {
-        console.log(`[APIFY SEARCH] Buscando "${segment}" em "${location}" (max ${requestedCount})...`);
+    if (!apifyToken || apifyToken.trim() === '') {
+      throw new Error('Integração com Apify não configurada no servidor (APIFY_API_TOKEN ausente).');
+    }
 
-        // Execução síncrona do Actor compass/crawler-google-places ou apify/google-maps-scraper
-        const response = await fetch(
-          `https://api.apify.com/v2/acts/compass~crawler-google-places/run-sync-get-dataset-items?token=${apifyToken}&timeout=60`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              searchStringsArray: [`${segment} em ${location}`],
-              maxCrawledPlacesPerSearch: requestedCount,
-              language: 'pt-BR',
-              countryCode: 'BR',
-              skipClosedPlaces: true
-            })
-          }
-        );
+    console.log(`[APIFY SEARCH] Iniciando consulta para "${segment}" em "${location}" (máx ${requestedCount})...`);
 
-        if (response.ok) {
-          const items: any = await response.json();
-          if (Array.isArray(items) && items.length > 0) {
-            return items.map(item => ({
-              title: item.title || item.name || '',
-              phone: item.phoneUnformatted || item.phone || null,
-              website: item.website || item.url || null,
-              address: item.address || item.street || null,
-              neighborhood: item.neighborhood || null,
-              city: item.city || location,
-              category: item.categoryName || segment,
-              totalScore: item.totalScore || item.rating || null,
-              reviewsCount: item.reviewsCount || null
-            }));
-          }
-        } else {
-          console.warn(`[APIFY SEARCH WARNING] Resposta não-200 da Apify (${response.status}). Acionando fallback.`);
-        }
-      } catch (err: any) {
-        console.error('[APIFY API ERROR]', err?.message);
+    const response = await fetch(
+      `https://api.apify.com/v2/acts/compass~crawler-google-places/run-sync-get-dataset-items?token=${apifyToken}&timeout=60`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          searchStringsArray: [`${segment} em ${location}`],
+          maxCrawledPlacesPerSearch: requestedCount,
+          language: 'pt-BR',
+          countryCode: 'BR',
+          skipClosedPlaces: true
+        })
       }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Falha na API da Apify (HTTP ${response.status}): ${errText.slice(0, 200)}`);
     }
 
-    // Fallback: Gerador realista de dados para desenvolvimento e testes
-    return this.generateSimulatedPlaces(segment, location, requestedCount);
-  }
+    const items: any = await response.json();
 
-  /**
-   * Gera empresas simuladas realistas com dados brasileiros para testes e ambiente local.
-   */
-  private static generateSimulatedPlaces(
-    segment: string,
-    location: string,
-    requestedCount: number
-  ): RawPlaceItem[] {
-    const dddMap: Record<string, string> = {
-      sp: '11', 'são paulo': '11', rj: '21', 'rio de janeiro': '21',
-      mg: '31', 'belo horizonte': '31', pr: '41', curitiba: '41',
-      rs: '51', 'porto alegre': '51', sc: '48', florianópolis: '48',
-      df: '61', brasília: '61', ba: '71', salvador: '71'
-    };
-
-    const locLower = location.toLowerCase();
-    let ddd = '11';
-    for (const [key, val] of Object.entries(dddMap)) {
-      if (locLower.includes(key)) {
-        ddd = val;
-        break;
-      }
+    if (!Array.isArray(items)) {
+      throw new Error('Resposta inválida do provedor Apify: esperado um array de resultados.');
     }
 
-    const neighborhoods = ['Centro', 'Jardins', 'Bela Vista', 'Moema', 'Vila Mariana', 'Pinheiros', 'Barra da Tijuca', 'Copacabana'];
-    const places: RawPlaceItem[] = [];
-
-    for (let i = 1; i <= requestedCount; i++) {
-      const neigh = neighborhoods[(i - 1) % neighborhoods.length];
-      const hasPhone = i % 5 !== 0; // 80% possuem telefone
-      const hasSite = i % 3 === 0;
-
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-      const isMobile = i % 2 === 0;
-      const phone = hasPhone
-        ? (isMobile ? `(0${ddd}) 9${Math.floor(8000 + Math.random() * 1000)}-${randomSuffix}` : `(0${ddd}) 3${Math.floor(200 + Math.random() * 100)}-${randomSuffix}`)
-        : null;
-
-      places.push({
-        title: `${segment} ${['Prime', 'Excelência', 'Elite', 'Brasil', 'Central', 'Avançada', 'São Paulo', 'Sul'][i % 8]} - Unidade ${neigh}`,
-        phone,
-        website: hasSite ? `https://www.${segment.toLowerCase().replace(/[^a-z]/g, '')}${i}.com.br` : null,
-        address: `Rua das Flores, ${i * 42} - ${neigh}`,
-        neighborhood: neigh,
-        city: location,
-        category: segment,
-        totalScore: Number((4.2 + (Math.random() * 0.8)).toFixed(1)),
-        reviewsCount: Math.floor(15 + Math.random() * 250)
-      });
+    // Uma resposta vazia é legítima: zero empresas encontradas, zero consumo
+    if (items.length === 0) {
+      return [];
     }
 
-    return places;
+    return items.map(item => ({
+      title: item.title || item.name || '',
+      phone: item.phoneUnformatted || item.phone || null,
+      website: item.website || null, // Nunca usar item.url do Google Maps
+      address: item.address || item.street || null,
+      neighborhood: item.neighborhood || null,
+      city: item.city || location,
+      category: item.categoryName || segment,
+      totalScore: item.totalScore || item.rating || null,
+      reviewsCount: item.reviewsCount || null
+    }));
   }
 }

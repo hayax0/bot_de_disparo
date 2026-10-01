@@ -24,6 +24,7 @@ import {
   updateWorkspaceSchema
 } from '../lib/validation';
 import { PasswordResetService, PasswordResetError } from '../services/PasswordResetService';
+import { getUserCapabilities } from '../config/plans';
 
 const router = Router();
 
@@ -164,7 +165,8 @@ router.post(
           subscriptionExpiresAt: user.subscriptionExpiresAt,
           planId: user.planId,
           emailVerifiedAt: user.emailVerifiedAt,
-          workspaceId
+          workspaceId,
+          capabilities: getUserCapabilities(user)
         }
       });
     } catch (error) {
@@ -230,7 +232,8 @@ router.post(
           subscriptionExpiresAt: user.subscriptionExpiresAt,
           planId: user.planId,
           emailVerifiedAt: user.emailVerifiedAt,
-          workspaceId
+          workspaceId,
+          capabilities: getUserCapabilities(user)
         } 
       });
     } catch (error) {
@@ -282,6 +285,7 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<any
         email: true,
         name: true,
         role: true,
+        planId: true,
         subscriptionStatus: true,
         subscriptionExpiresAt: true,
         createdAt: true,
@@ -303,7 +307,13 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<any
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
 
-    res.json({ user });
+    const capabilities = getUserCapabilities(user);
+    res.json({
+      user: {
+        ...user,
+        capabilities
+      }
+    });
   } catch (error) {
     console.error('Auth /me error:', error);
     res.status(500).json({ error: 'Erro ao buscar dados do usuário.' });
@@ -351,6 +361,7 @@ router.post('/verify-payment', authenticate, async (req: Request, res: Response)
         planId: user.planId,
         subscriptionStatus: user.subscriptionStatus,
         subscriptionExpiresAt: user.subscriptionExpiresAt,
+        capabilities: getUserCapabilities(user),
       },
       message: active
         ? 'Assinatura ativa e confirmada!'

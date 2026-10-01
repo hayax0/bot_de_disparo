@@ -167,24 +167,63 @@ export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
   },
 };
 
-export function getPlanById(planId?: string | null): PlanDefinition {
-  if (!planId) return PLANS.START;
+export function getPlanById(planId?: string | null): PlanDefinition | null {
+  if (!planId) return null;
   const upper = planId.trim().toUpperCase();
-  return PLANS[upper] || PLANS.START;
+  return PLANS[upper] || null;
 }
 
 export function isLegacyPlan(planId?: string | null): boolean {
-  if (!planId) return false;
-  return planId.trim().toUpperCase() === 'LEGACY_DAVI';
+  if (!planId) return true; // Contas pré-existentes sem plano são tratadas como legadas
+  const upper = planId.trim().toUpperCase();
+  return upper === 'LEGACY_DAVI' || upper === 'LEGACY';
 }
 
-export function isUserUnlimited(user: { role?: string | null; planId?: string | null; subscriptionStatus?: string | null }): boolean {
+/**
+ * Benefício ilimitado depende ESTRITAMENTE do papel de ADMIN atual.
+ * Ao remover o papel ADMIN, os privilégios cessam imediatamente.
+ */
+export function isUserUnlimited(user?: { role?: string | null } | null): boolean {
   if (!user) return false;
-  return (
-    user.role === 'ADMIN' ||
-    user.subscriptionStatus === 'LIFETIME' ||
-    user.planId === 'ADMIN_LIFETIME'
-  );
+  return user.role === 'ADMIN';
+}
+
+export interface UserCapabilities {
+  canUpload: boolean;
+  canUseSearch: boolean;
+  canUseAi: boolean;
+  isUnlimited: boolean;
+  requiresCredits: boolean;
+  isLegacy: boolean;
+  planId: string | null;
+}
+
+export function getUserCapabilities(user?: { role?: string | null; planId?: string | null } | null): UserCapabilities {
+  if (!user) {
+    return {
+      canUpload: false,
+      canUseSearch: false,
+      canUseAi: false,
+      isUnlimited: false,
+      requiresCredits: true,
+      isLegacy: false,
+      planId: null,
+    };
+  }
+
+  const isAdmin = user.role === 'ADMIN';
+  const isLegacy = !isAdmin && isLegacyPlan(user.planId);
+  const isNewPlan = !isAdmin && !isLegacy; // START, PRO, SCALE
+
+  return {
+    canUpload: isAdmin || isLegacy,
+    canUseSearch: isAdmin || isNewPlan,
+    canUseAi: isAdmin || isNewPlan,
+    isUnlimited: isAdmin,
+    requiresCredits: !isAdmin && isNewPlan,
+    isLegacy,
+    planId: user.planId || (isLegacy ? 'LEGACY_DAVI' : null),
+  };
 }
 
 export function getCreditPackageById(packageId: string): CreditPackageDefinition | null {

@@ -3,7 +3,7 @@ import { isUserUnlimited, isLegacyPlan, getPlanById } from '../config/plans';
 
 export class QuotaService {
   /**
-   * Verifica se o usuário possui franquia de disparos disponível no ciclo atual.
+   * Consulta se o usuário possui franquia de disparos disponível no ciclo atual.
    * Administradores e Contas Legadas têm permissão irrestrita.
    */
   static async canDispatch(userOrId: string | {
@@ -15,11 +15,11 @@ export class QuotaService {
     dispatchesUsedInCycle?: number | null;
   }): Promise<{
     allowed: boolean;
-    remaining?: number;
-    quota?: number;
-    used?: number;
-    reason?: string;
-    isUnlimited?: boolean;
+    remaining?: number | undefined;
+    quota?: number | undefined;
+    used?: number | undefined;
+    reason?: string | undefined;
+    isUnlimited?: boolean | undefined;
   }> {
     let user: any;
     if (typeof userOrId === 'string') {
@@ -46,20 +46,19 @@ export class QuotaService {
       return {
         allowed: true,
         isUnlimited: true,
-        remaining: 999999,
         quota: 0,
         used: user.dispatchesUsedInCycle || 0,
       };
     }
 
-    // Identifica a cota do plano
+    // Identifica a cota configurada no plano
     const plan = getPlanById(user.planId);
     const quota = (user.monthlyDispatchQuota && user.monthlyDispatchQuota > 0)
       ? user.monthlyDispatchQuota
-      : plan.monthlyDispatches;
+      : (plan ? plan.monthlyDispatches : 0);
     const used = user.dispatchesUsedInCycle || 0;
 
-    if (used >= quota) {
+    if (quota > 0 && used >= quota) {
       return {
         allowed: false,
         remaining: 0,
@@ -71,26 +70,103 @@ export class QuotaService {
 
     return {
       allowed: true,
-      remaining: Math.max(0, quota - used),
+      remaining: quota > 0 ? Math.max(0, quota - used) : undefined,
       quota,
       used,
+      isUnlimited: quota === 0
     };
   }
 
   /**
-   * Contabiliza 1 disparo consumido na franquia mensal do ciclo.
-   * Não bloqueia nem incrementa de forma punitiva administradores e legados.
+   * Reserva e consome 1 disparo na franquia mensal de forma ATÔMICA no banco de dados.
+   * Impede que múltiplos workers concorrentes ultrapassem a cota contratada.
+   */
+  static async tryConsumeDispatchQuota(userId: string): Promise<{
+    allowed: boolean;
+    isUnlimited?: boolean;
+    used?: number;
+    quota?: number;
+    reason?: string;
+  }> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        planId: true,
+        subscriptionStatus: true,
+        monthlyDispatchQuota: true,
+        dispatchesUsedInCycle: true
+      }
+    });
+
+    if (!user) {
+      return { allowed: false, reason: 'Usuário não encontrado.' };
+    }
+
+    // Administradores e Legado Davi possuem envio irrestrito sem bloqueio por cota
+    if (isUserUnlimited(user) || isLegacyPlan(user.planId)) {
+      // Registra contagem métrica sem bloqueio
+      await prisma.user.update({
+        where: { id: userId },
+        data: { dispatchesUsedInCycle: { increment: 1 } }
+      }).catch(() => {});
+
+      return { allowed: true, isUnlimited: true };
+    }
+
+    const plan = getPlanById(user.planId);
+    const quota = (user.monthlyDispatchQuota && user.monthlyDispatchQuota > 0)
+      ? user.monthlyDispatchQuota
+      : (plan ? plan.monthlyDispatches : 1500);
+
+    // Incremento condicional atômico: só incrementa se used < quota
+    const updatedRows: Array<{ dispatchesUsedInCycle: number; monthlyDispatchQuota: number }> =
+      await prisma.$queryRaw`
+        UPDATE "User"
+        SET "dispatchesUsedInCycle" = "dispatchesUsedInCycle" + 1
+        WHERE "id" = ${userId}
+          AND (${quota} = 0 OR "dispatchesUsedInCycle" < ${quota})
+        RETURNING "dispatchesUsedInCycle", "monthlyDispatchQuota"
+      `;
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return {
+        allowed: false,
+        quota,
+        used: user.dispatchesUsedInCycle,
+        reason: `Franquia mensal de disparos (${quota}) atingida no ciclo atual. Faça upgrade de plano ou aguarde a renovação.`
+      };
+    }
+
+    return {
+      allowed: true,
+      used: updatedRows[0].dispatchesUsedInCycle,
+      quota
+    };
+  }
+
+  /**
+   * Estorna atomicamente 1 disparo caso o envio tenha sido cancelado antes da tentativa de transmissão
+   * (ex: opt-out, blacklist LGPD ou número inválido pré-envio).
+   */
+  static async refundDispatchQuota(userId: string): Promise<void> {
+    try {
+      await prisma.$executeRaw`
+        UPDATE "User"
+        SET "dispatchesUsedInCycle" = GREATEST(0, "dispatchesUsedInCycle" - 1)
+        WHERE "id" = ${userId}
+      `;
+    } catch (err: any) {
+      console.warn(`[QUOTA REFUND WARNING] Falha ao estornar cota para ${userId}:`, err?.message);
+    }
+  }
+
+  /**
+   * Mantido para compatibilidade métrica com envios sem concorrência estrita.
    */
   static async recordDispatch(userId: string): Promise<void> {
     try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true, planId: true, subscriptionStatus: true }
-      });
-
-      if (!user) return;
-
-      // Mantém contagem métrica sem impor limite ao admin ou legado
       await prisma.user.update({
         where: { id: userId },
         data: {

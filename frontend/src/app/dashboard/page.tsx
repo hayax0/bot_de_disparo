@@ -284,14 +284,13 @@ export default function Dashboard() {
     } | null;
   }>({ loading: false, error: null, diagnostic: null });
 
-  // Perfil e Regras de Negócio do Usuário (Isolamento Legado Davi vs Novos Planos)
+  // Perfil e Regras de Negócio do Usuário (Isolamento Legado Davi vs Novos Planos via Capabilities do Backend)
   const isLegacyUser = Boolean(
-    user?.planId === 'LEGACY_DAVI' ||
-    user?.planId === 'LEGACY' ||
-    (user?.email && user.email.toLowerCase().includes('davi'))
+    user?.capabilities?.isLegacy ?? (user?.planId === 'LEGACY_DAVI' || user?.planId === 'LEGACY')
   );
-  const isAdmin = user?.role === 'ADMIN';
-  const canUseUpload = isLegacyUser || isAdmin;
+  const isAdmin = Boolean(user?.role === 'ADMIN');
+  const canUseUpload = Boolean(user?.capabilities?.canUpload ?? (isLegacyUser || isAdmin));
+  const canUseSearch = Boolean(user?.capabilities?.canUseSearch ?? (!isLegacyUser || isAdmin));
 
   // Obtenção de Leads no Modal de Campanha
   const [leadSourceMode, setLeadSourceMode] = useState<'search' | 'upload'>('search');
@@ -1147,7 +1146,11 @@ export default function Dashboard() {
           targetCampaignId: createdCampaignId
         });
 
-        addToast('success', `Campanha criada! ${searchRes.data.usableCount} empresas adicionadas (${searchRes.data.creditsConsumed} créditos consumidos).`);
+        if (searchRes.data?.status === 'COMPLETED') {
+          addToast('success', `Campanha criada! ${searchRes.data.usableCount || 0} empresas adicionadas (${searchRes.data.creditsConsumed || 0} créditos consumidos).`);
+        } else {
+          addToast('success', `Campanha criada! A busca de empresas foi iniciada em segundo plano e os contatos serão adicionados automaticamente.`);
+        }
       }
 
       // Limpeza do rascunho com sucesso
@@ -1175,8 +1178,8 @@ export default function Dashboard() {
       if (axios.isAxiosError(err) && err.response?.data?.code === 'INSUFFICIENT_CREDITS') {
         addToast('error', 'Créditos insuficientes para realizar esta busca. Adquira mais créditos ou reduza a quantidade.');
       }
-      // Se a campanha foi criada mas o processamento de leads falhou, remove a campanha vazia órfã
-      if (createdCampaignId) {
+      // NUNCA exclui automaticamente a campanha se for modo busca (o servidor pode estar processando em background)
+      if (createdCampaignId && effectiveMode === 'upload') {
         try {
           await api.delete(`/campaigns/${createdCampaignId}`);
         } catch {
@@ -1412,25 +1415,27 @@ export default function Dashboard() {
               </span>
             </button>
 
-            <button
-              onClick={() => {
-                setActiveTab('search');
-                setIsMobileMenuOpen(false);
-              }}
-              className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                activeTab === 'search'
-                  ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
-                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <Building2 size={15} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
-                <span>Buscar Empresas</span>
-              </div>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-                Apify
-              </span>
-            </button>
+            {canUseSearch && (
+              <button
+                onClick={() => {
+                  setActiveTab('search');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                  activeTab === 'search'
+                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Building2 size={15} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
+                  <span>Buscar Empresas</span>
+                </div>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                  Apify
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -1855,21 +1860,23 @@ export default function Dashboard() {
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('search')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-              activeTab === 'search'
-                ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
-                : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
-            }`}
-          >
-            <Building2 size={14} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
-            <span>Buscar Empresas</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
-              Apify
-            </span>
-          </button>
+          {canUseSearch && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('search')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                activeTab === 'search'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <Building2 size={14} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
+              <span>Buscar Empresas</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
+                Apify
+              </span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -2488,7 +2495,7 @@ export default function Dashboard() {
               )}
 
               {/* Modo Busca Integrada (Novos Planos & Admin) */}
-              {(canUseUpload ? leadSourceMode === 'search' : true) && (
+              {(canUseSearch && (canUseUpload ? leadSourceMode === 'search' : true)) && (
                 <div className="dash-card p-4 sm:p-5 rounded-2xl space-y-4 border border-emerald-500/25 bg-emerald-950/10">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">

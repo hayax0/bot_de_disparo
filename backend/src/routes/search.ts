@@ -18,7 +18,7 @@ const searchSchema = z.object({
 });
 
 /**
- * Inicia uma busca de empresas (com reserva e liquidação automática de créditos).
+ * Inicia uma busca de empresas (com reserva atômica e agendamento durável no BullMQ).
  */
 router.post('/', async (req: Request, res: Response): Promise<any> => {
   const userId = req.user!.userId;
@@ -30,18 +30,20 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
   }
 
   const { segment, location, requestedCount, targetCampaignId } = parsed.data;
+  const idempotencyKey = (req.headers['idempotency-key'] as string) || (req.body.idempotencyKey as string) || undefined;
 
   try {
-    const searchResult = await CompanySearchService.executeSearch({
+    const searchResult = await CompanySearchService.initiateSearch({
       userId,
       workspaceId,
       segment,
       location,
       requestedCount,
-      targetCampaignId
+      targetCampaignId,
+      idempotencyKey
     });
 
-    res.status(201).json(searchResult);
+    res.status(202).json(searchResult);
   } catch (error: any) {
     if (error.name === 'InsufficientCreditsError') {
       return res.status(402).json({

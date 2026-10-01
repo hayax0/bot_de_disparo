@@ -137,20 +137,51 @@ export function CompanySearchTab({
         requestedCount
       });
 
-      setCurrentSearch(res.data);
+      let searchData = res.data;
+
+      // Se a busca estiver sendo processada em background pelo worker da fila
+      if (searchData.status === 'PENDING' || searchData.status === 'IN_PROGRESS') {
+        addToast('info', 'Busca iniciada em segundo plano. Aguardando extração de dados...');
+        const pollInterval = 2500;
+        const maxAttempts = 40; // até 100 segundos
+        let attempts = 0;
+
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+          attempts++;
+          try {
+            const pollRes = await api.get(`/search/${searchData.id}`);
+            searchData = pollRes.data;
+            if (searchData.status === 'COMPLETED') {
+              break;
+            }
+            if (searchData.status === 'FAILED') {
+              throw new Error(searchData.failureReason || 'A busca falhou no processamento do provedor.');
+            }
+          } catch (pollErr: unknown) {
+            if (pollErr instanceof Error && !axios.isAxiosError(pollErr)) {
+              throw pollErr;
+            }
+          }
+        }
+      }
+
+      setCurrentSearch(searchData);
 
       // Pré-seleciona todos os aproveitáveis automaticamente
       const usableIds = new Set<string>(
-        (res.data.results || [])
+        (searchData.results || [])
           .filter((item: CompanySearchResultItem) => item.isUsable)
           .map((item: CompanySearchResultItem) => item.id)
       );
       setSelectedIds(usableIds);
 
-      addToast(
-        'success',
-        `Busca concluída! ${res.data.usableCount} empresas aproveitáveis encontradas (${res.data.creditsConsumed} créditos consumidos).`
-      );
+      if (searchData.status === 'COMPLETED') {
+        addToast(
+          'success',
+          `Busca concluída! ${searchData.usableCount || 0} empresas aproveitáveis encontradas (${searchData.creditsConsumed || 0} créditos consumidos).`
+        );
+      }
       fetchHistory();
     } catch (err: unknown) {
       let code: string | undefined;

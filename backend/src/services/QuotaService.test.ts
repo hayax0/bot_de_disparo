@@ -43,11 +43,11 @@ test('QuotaService: cliente comum que atingiu o limite é bloqueado com mensagem
   assert.match(check.reason || '', /Franquia mensal de disparos/);
 });
 
-test('QuotaService: administradores e contas vitalícias possuem franquia ilimitada', async (t) => {
+test('QuotaService: administradores possuem franquia ilimitada dependendo estritamente do papel ADMIN', async (t) => {
   const admin = {
     id: 'admin-id',
     role: 'ADMIN',
-    planId: 'ADMIN_LIFETIME',
+    planId: null,
     subscriptionStatus: 'LIFETIME',
     monthlyDispatchQuota: 0,
     dispatchesUsedInCycle: 85000,
@@ -59,7 +59,26 @@ test('QuotaService: administradores e contas vitalícias possuem franquia ilimit
 
   assert.equal(check.allowed, true);
   assert.equal(check.isUnlimited, true);
-  assert.equal(check.remaining, 999999);
+  assert.equal(check.remaining, undefined); // sem 999999 fictício
+});
+
+test('QuotaService: remoção do papel ADMIN faz usuário passar a respeitar a cota do plano', async (t) => {
+  const formerAdmin = {
+    id: 'former-admin',
+    role: 'USER', // papel revogado
+    planId: 'START',
+    subscriptionStatus: 'ACTIVE',
+    monthlyDispatchQuota: 1500,
+    dispatchesUsedInCycle: 1500,
+  };
+
+  mockMethod(t, prisma.user, 'findUnique', async () => formerAdmin);
+
+  const check = await QuotaService.canDispatch('former-admin');
+
+  assert.equal(check.allowed, false);
+  assert.equal(check.isUnlimited, undefined);
+  assert.equal(check.remaining, 0);
 });
 
 test('QuotaService: conta legada Davi possui acesso irrestrito sem bloqueio por cota', async (t) => {
@@ -78,7 +97,7 @@ test('QuotaService: conta legada Davi possui acesso irrestrito sem bloqueio por 
 
   assert.equal(check.allowed, true);
   assert.equal(check.isUnlimited, true);
-  assert.equal(check.remaining, 999999);
+  assert.equal(check.remaining, undefined);
 });
 
 test('QuotaService: resetCycleDispatches zera contador do ciclo', async (t) => {
@@ -94,4 +113,15 @@ test('QuotaService: resetCycleDispatches zera contador do ciclo', async (t) => {
   assert.equal(updatedData.dispatchesUsedInCycle, 0);
   assert.equal(updatedData.monthlyDispatchQuota, 5000);
   assert.ok(updatedData.cycleResetAt instanceof Date);
+});
+
+test('QuotaService: refundDispatchQuota estorna disparo atomicamente', async (t) => {
+  let rawQueryCalled = false;
+  mockMethod(t, prisma, '$executeRaw', async () => {
+    rawQueryCalled = true;
+    return 1;
+  });
+
+  await QuotaService.refundDispatchQuota('user-test-id');
+  assert.equal(rawQueryCalled, true);
 });

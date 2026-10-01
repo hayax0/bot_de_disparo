@@ -39,6 +39,7 @@ import searchRoutes from './routes/search';
 import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
 import { messageQueue, queueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
+import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
 
 const app = express();
 
@@ -202,6 +203,8 @@ const server = app.listen(ENV.PORT, async () => {
     console.error('[WORKER] Consumo da fila interrompido:', err);
     Sentry.captureException(err);
   });
+  // Inicializa worker de busca durável de empresas via BullMQ
+  startCompanySearchWorker();
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
 });
@@ -224,6 +227,7 @@ async function gracefulShutdown(signal: string) {
   try {
     server.close();
     await campaignWorker.close();
+    if (companySearchWorker) await companySearchWorker.close();
     await messageQueue.close();
     await queueEvents.close();
     await WhatsappManager.destroyAll();

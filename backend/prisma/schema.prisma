@@ -34,6 +34,7 @@ model User {
   dispatchesUsedInCycle Int       @default(0)
   cycleResetAt          DateTime?
   wallet                CreditWallet?
+  creditReservations    CreditReservation[]
   purchaseOrders        CreditPurchaseOrder[]
   companySearches       CompanySearch[]
   aiConversations       AiConversation[]
@@ -242,6 +243,35 @@ model CreditWallet {
 
   user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions     CreditTransaction[]
+  reservations     CreditReservation[]
+}
+
+model CreditReservation {
+  id              String        @id @default(uuid())
+  walletId        String
+  userId          String
+  idempotencyKey  String        @unique
+  amount          Int           // Valor total retido
+  monthlyAmount   Int           @default(0) // Quantidade retida de monthlyBalance
+  purchasedAmount Int           @default(0) // Quantidade retida de purchasedBalance
+  status          String        @default("PENDING") // PENDING, SETTLED, RELEASED, EXPIRED
+  sourceType      String        // COMPANY_SEARCH, AI_ASSISTANT
+  sourceId        String?
+  description     String?
+  consumedAmount  Int?          // Valor efetivamente consumido na liquidação
+  settledAt       DateTime?
+  releasedAt      DateTime?
+  expiresAt       DateTime?
+  metadata        String?       @db.Text
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  wallet          CreditWallet  @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([walletId])
+  @@index([sourceType, sourceId])
 }
 
 model CreditTransaction {
@@ -294,6 +324,8 @@ model CompanySearch {
   id              String                @id @default(uuid())
   workspaceId     String
   userId          String
+  targetCampaignId String?
+  reservationId   String?
   query           String
   segment         String?
   location        String?
@@ -306,6 +338,8 @@ model CompanySearch {
   status          String                @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELED
   errorMessage    String?
   apifyRunId      String?
+  apifyActorId    String?
+  providerCost    Float?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 

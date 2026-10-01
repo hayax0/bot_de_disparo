@@ -104,8 +104,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     return;
   }
 
-  // 3.1. Confirmar franquia de disparos disponível no ciclo
-  const quota = await QuotaService.canDispatch(user);
+  // 3.1. Reserva atômica da franquia de disparos no ciclo
+  const quota = await QuotaService.tryConsumeDispatchQuota(user.id);
   if (!quota.allowed) {
     console.warn(`[WORKER] Job ${job.id} bloqueado: Franquia de disparos esgotada para ${user.email}. Pausando campanha ${campaignId}.`);
     await prisma.campaign.update({
@@ -125,6 +125,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
   // 4. Consultar blacklist global e do workspace (Opt-Out / Bloqueios)
   const isBlocked = await ContactPolicyService.isBlacklisted(lead.phone, workspaceId);
   if (isBlocked) {
+    if (!quota.isUnlimited) await QuotaService.refundDispatchQuota(user.id);
     await prisma.lead.update({
       where: { id: leadId },
       data: {
@@ -139,6 +140,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
 
   // 5. Revalidar estado do lead (idempotência e prevenção de duplicidade)
   if (['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR', 'IGNORED', 'OPTED_OUT'].includes(lead.status)) {
+    if (!quota.isUnlimited) await QuotaService.refundDispatchQuota(user.id);
     await checkCampaignCompletion(campaignId);
     return;
   }
@@ -184,7 +186,6 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       sendStarted = true;
     });
     sentSuccessfully = true;
-    await QuotaService.recordDispatch(user.id);
 
     const normalizedPhone = WhatsappManager.normalizeBrPhone(lead.phone);
     const now = new Date();

@@ -11,7 +11,26 @@ import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
-import { isLegacyPlan } from '../config/plans';
+import { isLegacyPlan, getUserCapabilities } from '../config/plans';
+
+const requireUploadPermission = async (req: Request, res: Response, next: Function): Promise<any> => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { role: true, planId: true }
+    });
+    const caps = getUserCapabilities(user);
+    if (!caps.canUpload) {
+      return res.status(403).json({
+        error: 'O seu plano utiliza a busca integrada de empresas diretamente na plataforma. Para adicionar leads, utilize a Busca de Empresas.',
+        code: 'INTEGRATED_SEARCH_ONLY'
+      });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
 
 const router = Router();
 
@@ -198,7 +217,7 @@ router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), 
 });
 
 // Prévia da importação de leads com diagnóstico completo e categorias mutuamente exclusivas
-router.post('/preview-import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
+router.post('/preview-import', requireActiveSubscription, requireUploadPermission, (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
@@ -214,23 +233,6 @@ router.post('/preview-import', requireActiveSubscription, (req: Request, res: Re
   const workspaceId = req.user!.workspaceId;
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado para prévia.' });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user!.userId },
-    select: { role: true, planId: true }
-  });
-  const isLegacy = isLegacyPlan(user?.planId);
-  const isAdmin = user?.role === 'ADMIN';
-
-  if (!isLegacy && !isAdmin) {
-    if (req.file && fs.existsSync(req.file.path)) {
-      try { fs.unlinkSync(req.file.path); } catch {}
-    }
-    return res.status(403).json({
-      error: 'O seu plano utiliza a busca integrada de empresas diretamente na plataforma. Para adicionar leads, utilize a Busca de Empresas.',
-      code: 'INTEGRATED_SEARCH_ONLY'
-    });
   }
 
   const filePath = req.file.path;
@@ -310,7 +312,7 @@ router.post('/preview-message', async (req: Request, res: Response): Promise<any
 });
 
 // Importar leads de arquivo JSON ou CSV com limpeza e alta compatibilidade usando LeadImportService
-router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
+router.post('/:id/leads/import', requireActiveSubscription, requireUploadPermission, (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
@@ -328,23 +330,6 @@ router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: 
 
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo de leads foi enviado.' });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: req.user!.userId },
-    select: { role: true, planId: true }
-  });
-  const isLegacy = isLegacyPlan(user?.planId);
-  const isAdmin = user?.role === 'ADMIN';
-
-  if (!isLegacy && !isAdmin) {
-    if (req.file && fs.existsSync(req.file.path)) {
-      try { fs.unlinkSync(req.file.path); } catch {}
-    }
-    return res.status(403).json({
-      error: 'O seu plano utiliza a busca integrada de empresas diretamente na plataforma. Para adicionar leads, utilize a Busca de Empresas.',
-      code: 'INTEGRATED_SEARCH_ONLY'
-    });
   }
 
   const filePath = req.file.path;
