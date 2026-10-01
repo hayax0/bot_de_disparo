@@ -122,47 +122,72 @@ export class CompanySearchService {
           throw new Error('Chave de idempotência já utilizada com parâmetros de busca diferentes.');
         }
 
-        // Recupera buscas gravadas cujo enfileiramento falhou ou foi perdido (Item 3)
-        let currentReservationId = existingSearch.reservationId;
-        const existingReservation = currentReservationId
-          ? await prisma.creditReservation.findUnique({
-              where: { id: currentReservationId }
-            })
-          : null;
-
-        // Se a reserva foi liberada (ex: por falha no queue.add anterior) ou não existe, recupera coerentemente
-        if (!existingReservation || existingReservation.status === 'RELEASED') {
-          console.log(`[COMPANY SEARCH RECOVERY] Reserva associada à busca ${existingSearch.id} está ${existingReservation?.status || 'AUSENTE'}. Recuperando nova reserva...`);
-          const recoveredReservation = await CreditWalletService.reserveCredits({
-            userId,
-            amount: count,
-            idempotencyKey: `recovery_${existingSearch.id}_${Date.now()}`,
-            sourceType: 'COMPANY_SEARCH',
-            description: `Recuperação de reserva para busca de empresas: ${cleanSegment} em ${cleanLocation}`
-          });
-          currentReservationId = recoveredReservation.reservationId;
-          await prisma.companySearch.update({
-            where: { id: existingSearch.id },
-            data: {
-              reservationId: recoveredReservation.reservationId,
-              creditsReserved: recoveredReservation.reservedAmount
-            }
-          });
-          existingSearch.reservationId = recoveredReservation.reservationId;
-          existingSearch.creditsReserved = recoveredReservation.reservedAmount;
+        // Se a busca já terminou (COMPLETED, FAILED, CANCELED), não recupera reserva nem re-enfileira
+        if (existingSearch.status !== 'PENDING') {
+          return existingSearch;
         }
 
-        const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
-        if (!isTest && existingSearch.status === 'PENDING') {
+        // Recuperação atômica limitada ao estado PENDING com lock consultivo e chave determinística (Item 2)
+        let recoveredReservationId: string | null = null;
+        let searchToProcess: any = existingSearch;
+
+        await prisma.$transaction(async (tx) => {
+          // Serializa recuperações simultâneas da mesma busca através de advisory lock
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`search_recovery:${existingSearch.id}`}))`;
+
+          const freshSearch = await tx.companySearch.findUnique({
+            where: { id: existingSearch.id }
+          });
+
+          if (!freshSearch || freshSearch.status !== 'PENDING') {
+            return;
+          }
+
+          let currentRes = freshSearch.reservationId
+            ? await tx.creditReservation.findUnique({ where: { id: freshSearch.reservationId } })
+            : null;
+
+          // Se a reserva vinculada não existir ou estiver RELEASED, aloca com chave determinística
+          if (!currentRes || currentRes.status === 'RELEASED') {
+            console.log(`[COMPANY SEARCH RECOVERY] Recuperando reserva para busca pendente ${freshSearch.id}...`);
+            const deterministicKey = `recovery_search_${freshSearch.id}`;
+            const recovered = await CreditWalletService.reserveCredits({
+              userId,
+              amount: count,
+              idempotencyKey: deterministicKey,
+              sourceType: 'COMPANY_SEARCH',
+              description: `Recuperação de reserva para busca de empresas: ${cleanSegment} em ${cleanLocation}`
+            }, tx);
+
+            recoveredReservationId = recovered.reservationId;
+            const updated = await tx.companySearch.update({
+              where: { id: freshSearch.id },
+              data: {
+                reservationId: recovered.reservationId,
+                creditsReserved: recovered.reservedAmount
+              },
+              include: { results: true }
+            });
+            searchToProcess = updated;
+          } else {
+            searchToProcess = freshSearch;
+          }
+        }, { timeout: 15000 });
+
+        // Enfileiramento coerente com proteção contra falha de fila
+        const isTest = process.env.NODE_ENV === 'test';
+        if (!isTest) {
           try {
-            const existingJob = await companySearchQueue.getJob(`search_${existingSearch.id}`);
+            const existingJob = typeof companySearchQueue.getJob === 'function'
+              ? await companySearchQueue.getJob(`search_${searchToProcess.id}`)
+              : null;
             if (!existingJob) {
-              console.log(`[COMPANY SEARCH RE-ENQUEUE] Re-enfileirando busca órfã ${existingSearch.id}...`);
+              console.log(`[COMPANY SEARCH RE-ENQUEUE] Re-enfileirando busca órfã ${searchToProcess.id}...`);
               await companySearchQueue.add(
                 'execute-company-search',
-                { searchId: existingSearch.id },
+                { searchId: searchToProcess.id },
                 {
-                  jobId: `search_${existingSearch.id}`,
+                  jobId: `search_${searchToProcess.id}`,
                   attempts: 2,
                   backoff: { type: 'exponential', delay: 10000 },
                   removeOnComplete: true,
@@ -172,17 +197,25 @@ export class CompanySearchService {
             }
           } catch (qErr: any) {
             console.warn('[COMPANY SEARCH RE-ENQUEUE WARNING]', qErr?.message);
+            // Se falhou ao enfileirar, cancela a reserva recuperada para não abandonar saldo
+            if (recoveredReservationId) {
+              await CreditWalletService.releaseReservation({
+                reservationId: recoveredReservationId,
+                reason: 'Falha ao re-enfileirar busca durante recuperação'
+              }).catch(() => {});
+            }
+            throw qErr;
           }
-        } else if (isTest && existingSearch.status === 'PENDING') {
+        } else {
           // Em testes automatizados, processa de forma síncrona
-          await this.processSearchJob(existingSearch.id, { isLastAttempt: true });
+          await this.processSearchJob(searchToProcess.id, { isLastAttempt: true });
           return await prisma.companySearch.findUnique({
-            where: { id: existingSearch.id },
+            where: { id: searchToProcess.id },
             include: { results: true }
           });
         }
 
-        return existingSearch;
+        return searchToProcess;
       }
     }
 
@@ -218,7 +251,7 @@ export class CompanySearchService {
         }
       });
 
-      const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
+      const isTest = process.env.NODE_ENV === 'test';
       if (!isTest) {
         await companySearchQueue.add(
           'execute-company-search',

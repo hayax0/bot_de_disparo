@@ -45,7 +45,7 @@ export const queueEvents = isTest
   : new QueueEvents('message-queue', { connection: createConnection() });
 
 export const companySearchQueue = isTest
-  ? ({ add: async () => ({ id: 'mock-search-job' }), on: () => {}, close: async () => {} } as any)
+  ? ({ add: async () => ({ id: 'mock-search-job' }), getJob: async () => null, on: () => {}, close: async () => {} } as any)
   : new Queue('company-search-queue', { connection: createConnection(false) });
 
 export const companySearchQueueEvents = isTest
