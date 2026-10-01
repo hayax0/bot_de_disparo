@@ -120,6 +120,9 @@ export function CompanySearchTab({
     };
   }, []);
 
+  // Chave estável de idempotência para o formulário atual (reutilizada em retry/duplo clique)
+  const [searchIdempotencyKey, setSearchIdempotencyKey] = useState<string>(() => `search_cli_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!segment.trim() || !location.trim()) {
@@ -134,7 +137,8 @@ export function CompanySearchTab({
       const res = await api.post("/search", {
         segment: segment.trim(),
         location: location.trim(),
-        requestedCount
+        requestedCount,
+        idempotencyKey: searchIdempotencyKey
       });
 
       let searchData = res.data;
@@ -181,6 +185,8 @@ export function CompanySearchTab({
           'success',
           `Busca concluída! ${searchData.usableCount || 0} empresas aproveitáveis encontradas (${searchData.creditsConsumed || 0} créditos consumidos).`
         );
+        // Gera nova chave para a próxima busca distinta
+        setSearchIdempotencyKey(`search_cli_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
       }
       fetchHistory();
     } catch (err: unknown) {

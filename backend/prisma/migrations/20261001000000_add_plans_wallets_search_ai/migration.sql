@@ -59,37 +59,11 @@ CREATE TABLE IF NOT EXISTS "CreditPurchaseOrder" (
     CONSTRAINT "CreditPurchaseOrder_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: CreditReservation
-CREATE TABLE IF NOT EXISTS "CreditReservation" (
-    "id" TEXT NOT NULL,
-    "walletId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "idempotencyKey" TEXT NOT NULL,
-    "amount" INTEGER NOT NULL,
-    "monthlyAmount" INTEGER NOT NULL DEFAULT 0,
-    "purchasedAmount" INTEGER NOT NULL DEFAULT 0,
-    "status" TEXT NOT NULL DEFAULT 'PENDING',
-    "sourceType" TEXT NOT NULL,
-    "sourceId" TEXT,
-    "description" TEXT,
-    "consumedAmount" INTEGER,
-    "settledAt" TIMESTAMP(3),
-    "releasedAt" TIMESTAMP(3),
-    "expiresAt" TIMESTAMP(3),
-    "metadata" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "CreditReservation_pkey" PRIMARY KEY ("id")
-);
-
 -- CreateTable: CompanySearch
 CREATE TABLE IF NOT EXISTS "CompanySearch" (
     "id" TEXT NOT NULL,
     "workspaceId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "targetCampaignId" TEXT,
-    "reservationId" TEXT,
     "query" TEXT NOT NULL,
     "segment" TEXT,
     "location" TEXT,
@@ -102,8 +76,6 @@ CREATE TABLE IF NOT EXISTS "CompanySearch" (
     "status" TEXT NOT NULL DEFAULT 'PENDING',
     "errorMessage" TEXT,
     "apifyRunId" TEXT,
-    "apifyActorId" TEXT,
-    "providerCost" DOUBLE PRECISION,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -162,13 +134,8 @@ CREATE TABLE IF NOT EXISTS "AiMessage" (
 
 -- Unique & Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS "CreditWallet_userId_key" ON "CreditWallet"("userId");
-CREATE UNIQUE INDEX IF NOT EXISTS "CreditReservation_idempotencyKey_key" ON "CreditReservation"("idempotencyKey");
 CREATE UNIQUE INDEX IF NOT EXISTS "CreditTransaction_idempotencyKey_key" ON "CreditTransaction"("idempotencyKey");
 CREATE UNIQUE INDEX IF NOT EXISTS "CreditPurchaseOrder_idempotencyKey_key" ON "CreditPurchaseOrder"("idempotencyKey");
-
-CREATE INDEX IF NOT EXISTS "CreditReservation_userId_status_idx" ON "CreditReservation"("userId", "status");
-CREATE INDEX IF NOT EXISTS "CreditReservation_walletId_idx" ON "CreditReservation"("walletId");
-CREATE INDEX IF NOT EXISTS "CreditReservation_sourceType_sourceId_idx" ON "CreditReservation"("sourceType", "sourceId");
 
 CREATE INDEX IF NOT EXISTS "CreditTransaction_userId_createdAt_idx" ON "CreditTransaction"("userId", "createdAt");
 CREATE INDEX IF NOT EXISTS "CreditTransaction_walletId_idx" ON "CreditTransaction"("walletId");
@@ -191,12 +158,6 @@ CREATE INDEX IF NOT EXISTS "AiMessage_conversationId_createdAt_idx" ON "AiMessag
 -- Foreign Keys
 ALTER TABLE "CreditWallet" DROP CONSTRAINT IF EXISTS "CreditWallet_userId_fkey";
 ALTER TABLE "CreditWallet" ADD CONSTRAINT "CreditWallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
-ALTER TABLE "CreditReservation" DROP CONSTRAINT IF EXISTS "CreditReservation_walletId_fkey";
-ALTER TABLE "CreditReservation" ADD CONSTRAINT "CreditReservation_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "CreditWallet"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
-ALTER TABLE "CreditReservation" DROP CONSTRAINT IF EXISTS "CreditReservation_userId_fkey";
-ALTER TABLE "CreditReservation" ADD CONSTRAINT "CreditReservation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "CreditTransaction" DROP CONSTRAINT IF EXISTS "CreditTransaction_walletId_fkey";
 ALTER TABLE "CreditTransaction" ADD CONSTRAINT "CreditTransaction_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "CreditWallet"("id") ON DELETE CASCADE ON UPDATE CASCADE;

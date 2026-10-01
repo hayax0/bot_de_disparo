@@ -15,8 +15,9 @@ export function startCompanySearchWorker() {
       const { searchId } = job.data;
       if (!searchId) return;
 
-      console.log(`[COMPANY SEARCH WORKER] Processando busca ${searchId}...`);
-      await CompanySearchService.processSearchJob(searchId);
+      const isLastAttempt = job.attemptsMade >= ((job.opts.attempts || 1) - 1);
+      console.log(`[COMPANY SEARCH WORKER] Processando busca ${searchId} (tentativa ${job.attemptsMade + 1}/${job.opts.attempts || 1}, isLastAttempt=${isLastAttempt})...`);
+      await CompanySearchService.processSearchJob(searchId, { isLastAttempt });
     },
     {
       connection: createConnection(),

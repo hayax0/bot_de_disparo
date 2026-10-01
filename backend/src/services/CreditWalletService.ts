@@ -29,7 +29,7 @@ export interface WalletSummary {
   isUnlimited: boolean;
   isLegacy: boolean;
   isActiveSubscription: boolean;
-  planId: string;
+  planId: string | null;
   dispatchesUsedInCycle: number;
   monthlyDispatchQuota: number;
 }
@@ -62,8 +62,7 @@ export class CreditWalletService {
 
   /**
    * Retorna o resumo fiel dos saldos do usuário com verificação de ciclo.
-   * Não utiliza saldos fictícios (como 999999) para administradores;
-   * expressa isenção através da flag 'isUnlimited: true'.
+   * Modelo contábil de Hold: availableBalance = (effectiveMonthly + purchasedBalance) - reservedBalance.
    */
   static async getWalletSummary(userId: string): Promise<WalletSummary> {
     const user = await prisma.user.findUnique({
@@ -102,7 +101,7 @@ export class CreditWalletService {
       isUnlimited: isAdmin,
       isLegacy,
       isActiveSubscription: isActive,
-      planId: user.planId || (isLegacy ? 'LEGACY_DAVI' : 'START'),
+      planId: user.planId || (isLegacy ? 'LEGACY_DAVI' : null),
       dispatchesUsedInCycle: user.dispatchesUsedInCycle,
       monthlyDispatchQuota: user.monthlyDispatchQuota,
     };
@@ -110,17 +109,21 @@ export class CreditWalletService {
 
   /**
    * Reserva créditos para operação assíncrona com persistência, hold contábil e idempotência.
-   * Não concede bypass gratuito de busca ou IA para contas legadas.
+   * Não debita antecipadamente monthlyBalance/purchasedBalance (modelo Clean Hold).
+   * Suporta transação externa via prismaClientOrTx.
    */
-  static async reserveCredits(params: {
-    userId: string;
-    amount: number;
-    idempotencyKey: string;
-    sourceType: 'COMPANY_SEARCH' | 'AI_ASSISTANT';
-    sourceId?: string;
-    description?: string;
-    metadata?: Record<string, any>;
-  }): Promise<{
+  static async reserveCredits(
+    params: {
+      userId: string;
+      amount: number;
+      idempotencyKey: string;
+      sourceType: 'COMPANY_SEARCH' | 'AI_ASSISTANT';
+      sourceId?: string;
+      description?: string;
+      metadata?: Record<string, any>;
+    },
+    prismaClientOrTx?: Prisma.TransactionClient
+  ): Promise<{
     success: boolean;
     reservationId: string;
     reservedAmount: number;
@@ -141,7 +144,7 @@ export class CreditWalletService {
       throw new Error('Quantidade de créditos excede o limite operacional de 1.000 por reserva.');
     }
 
-    return await prisma.$transaction(async (tx) => {
+    const execute = async (tx: Prisma.TransactionClient) => {
       // 1. Lock consultivo transacional exclusivo por usuário
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
 
@@ -188,6 +191,7 @@ export class CreditWalletService {
             amount: 0,
             monthlyAmount: 0,
             purchasedAmount: 0,
+            monthlyExpiresAt: null,
             status: 'PENDING',
             sourceType,
             sourceId: sourceId || null,
@@ -206,7 +210,6 @@ export class CreditWalletService {
 
       // 4. Clientes legados não ganham busca integrada ou IA gratuitas
       if (isLegacyPlan(user.planId)) {
-        // Se a conta legada não comprou créditos avulsos, bloqueia operação paga
         const availablePurchased = wallet.purchasedBalance - wallet.reservedBalance;
         if (availablePurchased < amount) {
           throw new InsufficientCreditsError(
@@ -226,7 +229,7 @@ export class CreditWalletService {
       );
       const effectiveMonthly = isMonthlyExpired ? 0 : wallet.monthlyBalance;
 
-      // 7. Disponibilidade de saldo
+      // 7. Disponibilidade de saldo (Clean Hold: saldos brutos menos o já reservado)
       const totalAvailable = effectiveMonthly + wallet.purchasedBalance - wallet.reservedBalance;
       if (totalAvailable < amount) {
         throw new InsufficientCreditsError(
@@ -234,16 +237,14 @@ export class CreditWalletService {
         );
       }
 
-      // 8. Alocação com prioridade de consumo (mensal -> comprado)
+      // 8. Alocação de hold com prioridade (mensal -> comprado)
       const monthlyToHold = Math.min(effectiveMonthly, amount);
       const purchasedToHold = amount - monthlyToHold;
 
-      // 9. Atualização atômica da carteira
+      // 9. Atualização atômica da carteira: apenas incrementa reservedBalance
       await tx.creditWallet.update({
         where: { id: wallet.id },
         data: {
-          monthlyBalance: { decrement: monthlyToHold },
-          purchasedBalance: { decrement: purchasedToHold },
           reservedBalance: { increment: amount }
         }
       });
@@ -257,6 +258,7 @@ export class CreditWalletService {
           amount,
           monthlyAmount: monthlyToHold,
           purchasedAmount: purchasedToHold,
+          monthlyExpiresAt: wallet.monthlyExpiresAt,
           status: 'PENDING',
           sourceType,
           sourceId: sourceId || null,
@@ -265,21 +267,22 @@ export class CreditWalletService {
         }
       });
 
-      // 11. Auditoria contábil da retenção
+      // 11. Auditoria contábil da retenção temporária (amount: 0 para evitar dupla contabilidade no extrato)
       await tx.creditTransaction.create({
         data: {
           walletId: wallet.id,
           userId,
-          amount: -amount,
+          amount: 0,
           type: 'RESERVATION_HOLD',
           balanceType: monthlyToHold > 0 && purchasedToHold > 0 ? 'MIXED' : monthlyToHold > 0 ? 'MONTHLY' : 'PURCHASED',
-          monthlyAmount: -monthlyToHold,
-          purchasedAmount: -purchasedToHold,
+          monthlyAmount: 0,
+          purchasedAmount: 0,
           sourceType,
           sourceId: reservation.id,
-          description: `Retenção de reserva #${reservation.id.slice(0, 8)} (${sourceType})`,
+          description: `Retenção de reserva #${reservation.id.slice(0, 8)} (${sourceType}: ${amount} créditos)`,
           metadata: JSON.stringify({
             reservationId: reservation.id,
+            heldAmount: amount,
             monthlyToHold,
             purchasedToHold,
             idempotencyKey
@@ -292,19 +295,28 @@ export class CreditWalletService {
         reservationId: reservation.id,
         reservedAmount: amount
       };
-    }, { timeout: 15000 });
+    };
+
+    if (prismaClientOrTx) {
+      return await execute(prismaClientOrTx);
+    }
+    return await prisma.$transaction(execute, { timeout: 15000 });
   }
 
   /**
    * Liquida uma reserva existente debitando estritamente o valor consumido
-   * e estornando automaticamente o excedente não consumido de volta para a carteira.
+   * e liberando o hold da carteira de forma atômica e idempotente.
+   * Suporta transação compartilhada via prismaClientOrTx.
    */
-  static async settleReservation(params: {
-    reservationId: string;
-    actualConsumedAmount: number;
-    description?: string;
-    metadata?: Record<string, any>;
-  }): Promise<{
+  static async settleReservation(
+    params: {
+      reservationId: string;
+      actualConsumedAmount: number;
+      description?: string;
+      metadata?: Record<string, any>;
+    },
+    prismaClientOrTx?: Prisma.TransactionClient
+  ): Promise<{
     success: boolean;
     consumedAmount: number;
     releasedAmount: number;
@@ -321,54 +333,58 @@ export class CreditWalletService {
       throw new Error('A quantidade consumida deve ser um número inteiro maior ou igual a zero.');
     }
 
-    return await prisma.$transaction(async (tx) => {
-      // 1. Busca a reserva
+    const execute = async (tx: Prisma.TransactionClient) => {
+      // 1. Transição condicional atômica: só quem transicionar de PENDING para SETTLED executa a movimentação
+      const updateResult = await tx.creditReservation.updateMany({
+        where: {
+          id: reservationId,
+          status: 'PENDING'
+        },
+        data: {
+          status: 'SETTLED',
+          consumedAmount: actualConsumedAmount,
+          settledAt: new Date()
+        }
+      });
+
+      // 2. Se não atualizou nenhuma linha, a reserva já foi liquidada, liberada ou não existe
+      if (updateResult.count === 0) {
+        const existing = await tx.creditReservation.findUnique({
+          where: { id: reservationId }
+        });
+
+        if (!existing) {
+          throw new Error(`Reserva não encontrada: ${reservationId}`);
+        }
+
+        if (existing.status === 'SETTLED') {
+          const consumed = existing.consumedAmount || 0;
+          const released = Math.max(0, existing.amount - consumed);
+          return {
+            success: true,
+            consumedAmount: consumed,
+            releasedAmount: released,
+            isUnlimited: existing.amount === 0,
+            isIdempotent: true
+          };
+        }
+
+        throw new Error(`Reserva em estado inválido para liquidação: ${existing.status}.`);
+      }
+
+      // 3. Lê os dados da reserva que acabamos de transicionar atomicamente
       const reservation = await tx.creditReservation.findUnique({
         where: { id: reservationId }
       });
-
       if (!reservation) {
-        throw new Error(`Reserva não encontrada: ${reservationId}`);
+        throw new Error(`Reserva não encontrada após transição: ${reservationId}`);
       }
 
-      // Lock consultivo na carteira do proprietário da reserva
+      // Advisory lock por segurança adicional dentro do escopo transacional
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${reservation.userId}`}))`;
 
-      // Idempotência: Se já liquidada, retorna sem movimentar novamente
-      if (reservation.status === 'SETTLED') {
-        const consumed = reservation.consumedAmount || 0;
-        const released = reservation.amount - consumed;
-        return {
-          success: true,
-          consumedAmount: consumed,
-          releasedAmount: released,
-          isUnlimited: reservation.amount === 0,
-          isIdempotent: true
-        };
-      }
-
-      if (reservation.status !== 'PENDING') {
-        throw new Error(`Reserva em estado inválido para liquidação: ${reservation.status}.`);
-      }
-
-      // O consumo nunca pode ser maior que o valor retido
-      if (actualConsumedAmount > reservation.amount && reservation.amount > 0) {
-        throw new Error(
-          `Consumo real (${actualConsumedAmount}) não pode exceder o montante reservado (${reservation.amount}).`
-        );
-      }
-
-      // Tratamento para reserva administrativa (Admin com amount 0)
+      // Se for reserva administrativa (amount 0), encerra
       if (reservation.amount === 0) {
-        await tx.creditReservation.update({
-          where: { id: reservation.id },
-          data: {
-            status: 'SETTLED',
-            consumedAmount: actualConsumedAmount,
-            settledAt: new Date()
-          }
-        });
-
         return {
           success: true,
           consumedAmount: actualConsumedAmount,
@@ -377,47 +393,53 @@ export class CreditWalletService {
         };
       }
 
+      if (actualConsumedAmount > reservation.amount) {
+        throw new Error(
+          `Consumo real (${actualConsumedAmount}) não pode exceder o montante reservado (${reservation.amount}).`
+        );
+      }
+
       const wallet = await tx.creditWallet.findUnique({
         where: { id: reservation.walletId }
       });
       if (!wallet) throw new Error('Carteira não encontrada.');
 
-      // 2. Apuração do consumo por compartimento (consome do mensal retido primeiro, depois do comprado retido)
+      // 4. Apuração do consumo por compartimento
       const consumedFromMonthly = Math.min(reservation.monthlyAmount, actualConsumedAmount);
       const consumedFromPurchased = actualConsumedAmount - consumedFromMonthly;
+      const releasedAmount = Math.max(0, reservation.amount - actualConsumedAmount);
 
-      // 3. Apuração do estorno do excedente não consumido
-      const refundMonthly = Math.max(0, reservation.monthlyAmount - consumedFromMonthly);
-      const refundPurchased = Math.max(0, reservation.purchasedAmount - consumedFromPurchased);
-      const totalReleased = refundMonthly + refundPurchased;
-
-      // Verifica se o ciclo mensal expirou durante a operação
-      const isMonthlyExpired = Boolean(
-        wallet.monthlyExpiresAt && new Date(wallet.monthlyExpiresAt) < new Date()
+      // 5. Verificação de expiração do ciclo original da reserva (Item 6)
+      const isOriginalCycleExpired = Boolean(
+        reservation.monthlyExpiresAt && new Date(reservation.monthlyExpiresAt) < new Date()
       );
-      const restoreMonthly = isMonthlyExpired ? 0 : refundMonthly;
+      const hasRenewedNewCycle = Boolean(
+        wallet.monthlyExpiresAt &&
+        reservation.monthlyExpiresAt &&
+        new Date(wallet.monthlyExpiresAt) > new Date(reservation.monthlyExpiresAt)
+      );
 
-      // 4. Atualização da carteira
+      // 6. Atualização atômica da carteira:
+      // - Desfaz o hold integral: reservedBalance decrementado por reservation.amount
+      // - Se o ciclo da reserva NÃO expirou (ou ainda não renovou), debita consumedFromMonthly
+      // - purchasedBalance debita consumedFromPurchased
+      const walletUpdateData: any = {
+        reservedBalance: { decrement: reservation.amount }
+      };
+
+      if (!hasRenewedNewCycle && consumedFromMonthly > 0) {
+        walletUpdateData.monthlyBalance = { decrement: consumedFromMonthly };
+      }
+      if (consumedFromPurchased > 0) {
+        walletUpdateData.purchasedBalance = { decrement: consumedFromPurchased };
+      }
+
       await tx.creditWallet.update({
         where: { id: wallet.id },
-        data: {
-          monthlyBalance: { increment: restoreMonthly },
-          purchasedBalance: { increment: refundPurchased },
-          reservedBalance: { decrement: reservation.amount }
-        }
+        data: walletUpdateData
       });
 
-      // 5. Atualização da reserva
-      await tx.creditReservation.update({
-        where: { id: reservation.id },
-        data: {
-          status: 'SETTLED',
-          consumedAmount: actualConsumedAmount,
-          settledAt: new Date()
-        }
-      });
-
-      // 6. Registro de consumo contábil
+      // 7. Registro de consumo definitivo no extrato
       if (actualConsumedAmount > 0) {
         await tx.creditTransaction.create({
           data: {
@@ -442,27 +464,49 @@ export class CreditWalletService {
         });
       }
 
-      // 7. Registro de estorno/liberação do excedente
-      if (totalReleased > 0) {
+      // 8. Se o ciclo mensal original expirou e sobrou saldo mensal não consumido, audita a expiração
+      const expiredMonthly = (reservation.monthlyAmount - consumedFromMonthly);
+      if (isOriginalCycleExpired && expiredMonthly > 0) {
         await tx.creditTransaction.create({
           data: {
             walletId: wallet.id,
             userId: reservation.userId,
-            amount: totalReleased,
-            type: 'RESERVATION_RELEASE',
-            balanceType: refundMonthly > 0 && refundPurchased > 0 ? 'MIXED' : refundMonthly > 0 ? 'MONTHLY' : 'PURCHASED',
-            monthlyAmount: restoreMonthly,
-            purchasedAmount: refundPurchased,
+            amount: 0,
+            type: 'EXPIRATION',
+            balanceType: 'MONTHLY',
+            monthlyAmount: 0,
+            purchasedAmount: 0,
             sourceType: reservation.sourceType,
             sourceId: reservation.id,
-            description: `Estorno de saldo reservado não utilizado (${reservation.sourceType})`,
+            description: `Créditos mensais não consumidos da reserva #${reservation.id.slice(0, 8)} expirados com o ciclo original (${expiredMonthly} créditos)`,
+            metadata: JSON.stringify({
+              reservationId: reservation.id,
+              expiredMonthlyCredits: expiredMonthly,
+              originalMonthlyExpiresAt: reservation.monthlyExpiresAt
+            })
+          }
+        });
+      }
+
+      // 9. Registro de liberação do hold restante no extrato (amount: 0 para consistência contábil)
+      if (releasedAmount > 0) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId: reservation.userId,
+            amount: 0,
+            type: 'RESERVATION_RELEASE',
+            balanceType: reservation.monthlyAmount > 0 && reservation.purchasedAmount > 0 ? 'MIXED' : reservation.monthlyAmount > 0 ? 'MONTHLY' : 'PURCHASED',
+            monthlyAmount: 0,
+            purchasedAmount: 0,
+            sourceType: reservation.sourceType,
+            sourceId: reservation.id,
+            description: `Liberação de hold residual da reserva #${reservation.id.slice(0, 8)} (${releasedAmount} créditos liberados)`,
             metadata: JSON.stringify({
               reservationId: reservation.id,
               reservedAmount: reservation.amount,
               consumedAmount: actualConsumedAmount,
-              refundMonthly: restoreMonthly,
-              refundPurchased,
-              expiredMonthlyOnRelease: isMonthlyExpired ? refundMonthly : 0
+              releasedAmount
             })
           }
         });
@@ -471,19 +515,28 @@ export class CreditWalletService {
       return {
         success: true,
         consumedAmount: actualConsumedAmount,
-        releasedAmount: totalReleased
+        releasedAmount
       };
-    }, { timeout: 15000 });
+    };
+
+    if (prismaClientOrTx) {
+      return await execute(prismaClientOrTx);
+    }
+    return await prisma.$transaction(execute, { timeout: 15000 });
   }
 
   /**
-   * Libera integralmente uma reserva ativa devolvendo o saldo retido.
+   * Libera integralmente uma reserva ativa devolvendo o hold de créditos.
    * Utilizado quando uma operação externa falha ou é cancelada.
+   * Suporta transação compartilhada via prismaClientOrTx.
    */
-  static async releaseReservation(params: {
-    reservationId: string;
-    reason?: string;
-  }): Promise<{
+  static async releaseReservation(
+    params: {
+      reservationId: string;
+      reason?: string;
+    },
+    prismaClientOrTx?: Prisma.TransactionClient
+  ): Promise<{
     success: boolean;
     releasedAmount: number;
     isUnlimited?: boolean;
@@ -495,41 +548,51 @@ export class CreditWalletService {
       throw new Error('Identificador da reserva é obrigatório para liberação.');
     }
 
-    return await prisma.$transaction(async (tx) => {
+    const execute = async (tx: Prisma.TransactionClient) => {
+      // 1. Transição atômica condicional no banco de dados
+      const updateResult = await tx.creditReservation.updateMany({
+        where: {
+          id: reservationId,
+          status: 'PENDING'
+        },
+        data: {
+          status: 'RELEASED',
+          releasedAt: new Date(),
+          ...(reason ? { description: reason } : {})
+        }
+      });
+
+      if (updateResult.count === 0) {
+        const existing = await tx.creditReservation.findUnique({
+          where: { id: reservationId }
+        });
+
+        if (!existing) {
+          throw new Error(`Reserva não encontrada: ${reservationId}`);
+        }
+
+        if (existing.status === 'RELEASED') {
+          return {
+            success: true,
+            releasedAmount: existing.amount,
+            isUnlimited: existing.amount === 0,
+            isIdempotent: true
+          };
+        }
+
+        throw new Error(`Reserva em estado inválido para liberação: ${existing.status}.`);
+      }
+
       const reservation = await tx.creditReservation.findUnique({
         where: { id: reservationId }
       });
-
       if (!reservation) {
-        throw new Error(`Reserva não encontrada: ${reservationId}`);
+        throw new Error(`Reserva não encontrada após transição: ${reservationId}`);
       }
 
-      // Lock consultivo na carteira do usuário
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${reservation.userId}`}))`;
 
-      if (reservation.status === 'RELEASED') {
-        return {
-          success: true,
-          releasedAmount: reservation.amount,
-          isUnlimited: reservation.amount === 0,
-          isIdempotent: true
-        };
-      }
-
-      if (reservation.status !== 'PENDING') {
-        throw new Error(`Reserva em estado inválido para liberação: ${reservation.status}.`);
-      }
-
       if (reservation.amount === 0) {
-        await tx.creditReservation.update({
-          where: { id: reservation.id },
-          data: {
-            status: 'RELEASED',
-            releasedAt: new Date(),
-            description: reason || reservation.description
-          }
-        });
-
         return {
           success: true,
           releasedAmount: 0,
@@ -542,48 +605,58 @@ export class CreditWalletService {
       });
       if (!wallet) throw new Error('Carteira não encontrada.');
 
-      const isMonthlyExpired = Boolean(
-        wallet.monthlyExpiresAt && new Date(wallet.monthlyExpiresAt) < new Date()
-      );
-      const restoreMonthly = isMonthlyExpired ? 0 : reservation.monthlyAmount;
-
-      // Devolve valores aos respectivos compartimentos
+      // 2. Modelo Clean Hold: apenas decrementa reservedBalance (hold liberado)
       await tx.creditWallet.update({
         where: { id: wallet.id },
         data: {
-          monthlyBalance: { increment: restoreMonthly },
-          purchasedBalance: { increment: reservation.purchasedAmount },
           reservedBalance: { decrement: reservation.amount }
         }
       });
 
-      await tx.creditReservation.update({
-        where: { id: reservation.id },
-        data: {
-          status: 'RELEASED',
-          releasedAt: new Date(),
-          description: reason || reservation.description
-        }
-      });
+      // 3. Verifica expiração do ciclo original
+      const isOriginalCycleExpired = Boolean(
+        reservation.monthlyExpiresAt && new Date(reservation.monthlyExpiresAt) < new Date()
+      );
 
+      if (isOriginalCycleExpired && reservation.monthlyAmount > 0) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId: reservation.userId,
+            amount: 0,
+            type: 'EXPIRATION',
+            balanceType: 'MONTHLY',
+            monthlyAmount: 0,
+            purchasedAmount: 0,
+            sourceType: reservation.sourceType,
+            sourceId: reservation.id,
+            description: `Créditos mensais da reserva cancelada #${reservation.id.slice(0, 8)} expirados com o ciclo original (${reservation.monthlyAmount} créditos)`,
+            metadata: JSON.stringify({
+              reservationId: reservation.id,
+              expiredMonthlyCredits: reservation.monthlyAmount,
+              originalMonthlyExpiresAt: reservation.monthlyExpiresAt
+            })
+          }
+        });
+      }
+
+      // 4. Registro de liberação de hold no extrato
       await tx.creditTransaction.create({
         data: {
           walletId: wallet.id,
           userId: reservation.userId,
-          amount: reservation.amount,
+          amount: 0,
           type: 'RESERVATION_RELEASE',
           balanceType: reservation.monthlyAmount > 0 && reservation.purchasedAmount > 0 ? 'MIXED' : reservation.monthlyAmount > 0 ? 'MONTHLY' : 'PURCHASED',
-          monthlyAmount: restoreMonthly,
-          purchasedAmount: reservation.purchasedAmount,
+          monthlyAmount: 0,
+          purchasedAmount: 0,
           sourceType: reservation.sourceType,
           sourceId: reservation.id,
           description: `Liberação de reserva #${reservation.id.slice(0, 8)}: ${reason || 'Operação cancelada'}`,
           metadata: JSON.stringify({
             reservationId: reservation.id,
             reason,
-            restoredMonthly: restoreMonthly,
-            restoredPurchased: reservation.purchasedAmount,
-            expiredMonthly: isMonthlyExpired ? reservation.monthlyAmount : 0
+            releasedAmount: reservation.amount
           })
         }
       });
@@ -592,7 +665,12 @@ export class CreditWalletService {
         success: true,
         releasedAmount: reservation.amount
       };
-    }, { timeout: 15000 });
+    };
+
+    if (prismaClientOrTx) {
+      return await execute(prismaClientOrTx);
+    }
+    return await prisma.$transaction(execute, { timeout: 15000 });
   }
 
   /**

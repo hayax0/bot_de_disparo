@@ -100,64 +100,102 @@ export class CompanySearchService {
       }
     }
 
+    // 2. Idempotência estrita: se a chave já existe, retorna a busca existente sem criar duplicatas
     const finalIdempotencyKey = idempotencyKey || `search_${workspaceId}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-    // 2. Reserva atômica dos créditos correspondentes
-    const reservation = await CreditWalletService.reserveCredits({
-      userId,
-      amount: count,
-      idempotencyKey: finalIdempotencyKey,
-      sourceType: 'COMPANY_SEARCH',
-      description: `Busca de empresas: ${cleanSegment} em ${cleanLocation} (até ${count} contatos)`
-    });
-
-    // 3. Persistência do registro de busca
-    const searchRecord = await prisma.companySearch.create({
-      data: {
-        workspaceId,
-        userId,
-        targetCampaignId: targetCampaignId || null,
-        reservationId: reservation.reservationId,
-        query: `${cleanSegment} em ${cleanLocation}`,
-        segment: cleanSegment,
-        location: cleanLocation,
-        requestedCount: count,
-        creditsReserved: reservation.reservedAmount,
-        status: 'PENDING'
-      }
-    });
-
-    // 4. Enfileiramento durável no BullMQ
-    const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
-    if (!isTest) {
-      await companySearchQueue.add(
-        'execute-company-search',
-        { searchId: searchRecord.id },
-        {
-          jobId: `search_${searchRecord.id}`,
-          attempts: 2,
-          backoff: { type: 'exponential', delay: 10000 },
-          removeOnComplete: true,
-          removeOnFail: false
-        }
-      );
-    } else {
-      // Em testes automatizados, processa imediatamente de forma síncrona
-      await this.processSearchJob(searchRecord.id);
-      return await prisma.companySearch.findUnique({
-        where: { id: searchRecord.id },
+    if (idempotencyKey) {
+      const existingSearch = await prisma.companySearch.findUnique({
+        where: { idempotencyKey: finalIdempotencyKey },
         include: { results: true }
       });
+
+      if (existingSearch) {
+        if (
+          existingSearch.workspaceId !== workspaceId ||
+          existingSearch.segment !== cleanSegment ||
+          existingSearch.location !== cleanLocation ||
+          existingSearch.requestedCount !== count
+        ) {
+          throw new Error('Chave de idempotência já utilizada com parâmetros de busca diferentes.');
+        }
+
+        return existingSearch;
+      }
     }
 
-    return searchRecord;
+    // 3. Reserva atômica dos créditos correspondentes
+    let reservation: any;
+    try {
+      reservation = await CreditWalletService.reserveCredits({
+        userId,
+        amount: count,
+        idempotencyKey: finalIdempotencyKey,
+        sourceType: 'COMPANY_SEARCH',
+        description: `Busca de empresas: ${cleanSegment} em ${cleanLocation} (até ${count} contatos)`
+      });
+    } catch (err) {
+      throw err;
+    }
+
+    // 4. Persistência do registro de busca e enfileiramento com tratamento contra falhas intermediárias
+    try {
+      const searchRecord = await prisma.companySearch.create({
+        data: {
+          workspaceId,
+          userId,
+          idempotencyKey: finalIdempotencyKey,
+          targetCampaignId: targetCampaignId || null,
+          reservationId: reservation.reservationId,
+          query: `${cleanSegment} em ${cleanLocation}`,
+          segment: cleanSegment,
+          location: cleanLocation,
+          requestedCount: count,
+          creditsReserved: reservation.reservedAmount,
+          status: 'PENDING'
+        }
+      });
+
+      const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
+      if (!isTest) {
+        await companySearchQueue.add(
+          'execute-company-search',
+          { searchId: searchRecord.id },
+          {
+            jobId: `search_${searchRecord.id}`,
+            attempts: 2,
+            backoff: { type: 'exponential', delay: 10000 },
+            removeOnComplete: true,
+            removeOnFail: false
+          }
+        );
+      } else {
+        // Em testes automatizados, processa imediatamente de forma síncrona
+        await this.processSearchJob(searchRecord.id, { isLastAttempt: true });
+        return await prisma.companySearch.findUnique({
+          where: { id: searchRecord.id },
+          include: { results: true }
+        });
+      }
+
+      return searchRecord;
+    } catch (error) {
+      // Se falhar a gravação da busca ou o enfileiramento, libera a reserva imediatamente para não abandonar saldo
+      if (reservation?.reservationId) {
+        await CreditWalletService.releaseReservation({
+          reservationId: reservation.reservationId,
+          reason: 'Falha no registro ou enfileiramento da busca de empresas'
+        }).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   /**
    * Processador de execução da busca (executado pelo Worker da fila ou pelo teste síncrono).
-   * Garante consistência transacional: resultados só são persistidos junto com a liquidação contábil.
+   * Garante consistência transacional: resultados só são persistidos junto com a liquidação contábil NA MESMA TRANSAÇÃO.
+   * Tolerante a retries do BullMQ: reconcilia o apifyRunId e só libera reserva na tentativa final.
    */
-  static async processSearchJob(searchId: string) {
+  static async processSearchJob(searchId: string, options?: { isLastAttempt?: boolean }) {
     const searchRecord = await prisma.companySearch.findUnique({
       where: { id: searchId }
     });
@@ -176,14 +214,20 @@ export class CompanySearchService {
       data: { status: 'PROCESSING' }
     });
 
-    const { segment, location, requestedCount, workspaceId, targetCampaignId, userId, reservationId } = searchRecord;
+    const { segment, location, requestedCount, workspaceId, targetCampaignId, userId, reservationId, apifyRunId } = searchRecord;
     let rawPlaces: RawPlaceItem[] = [];
 
     try {
-      // 1. Extração no provedor oficial Apify
-      rawPlaces = await this.fetchPlacesFromProvider(segment || '', location || '', requestedCount);
+      // 1. Extração no provedor oficial Apify com recuperação e persistência de runId
+      rawPlaces = await this.fetchPlacesFromProvider({
+        searchId,
+        segment: segment || '',
+        location: location || '',
+        requestedCount,
+        existingRunId: apifyRunId
+      });
 
-      // 2. Classificação rigorosa, sanitização e deduplicação no workspace
+      // 2. Classificação rigorosa, sanitização e deduplicação no workspace (inclui resultados já entregues)
       const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, targetCampaignId || undefined);
 
       const usableCount = classifiedResults.filter(r => r.isUsable).length;
@@ -192,7 +236,7 @@ export class CompanySearchService {
       // O consumo de créditos nunca pode exceder o valor reservado
       const creditsToConsume = Math.min(usableCount, searchRecord.creditsReserved);
 
-      // 3. Transação atômica: salva resultados, vincula leads na campanha e liquida a carteira
+      // 3. Transação atômica ÚNICA: salva resultados, vincula leads na campanha, liquida a carteira E conclui a busca
       await prisma.$transaction(async (tx) => {
         // Persiste os resultados encontrados
         const createdResults = await Promise.all(
@@ -248,13 +292,13 @@ export class CompanySearchService {
           }
         }
 
-        // 4. Liquidação da reserva de créditos com estorno automático do excedente
+        // 4. Liquidação da reserva de créditos NA MESMA TRANSAÇÃO (tx)
         if (reservationId) {
           await CreditWalletService.settleReservation({
             reservationId,
             actualConsumedAmount: creditsToConsume,
             description: `Busca finalizada: ${usableCount} empresas aproveitáveis (${creditsToConsume} créditos debitados)`
-          });
+          }, tx);
         }
 
         // 5. Atualização final do registro de busca
@@ -268,7 +312,7 @@ export class CompanySearchService {
             creditsConsumed: creditsToConsume
           }
         });
-      }, { timeout: 20000 });
+      }, { timeout: 30000 });
 
       return await prisma.companySearch.findUnique({
         where: { id: searchRecord.id },
@@ -277,21 +321,27 @@ export class CompanySearchService {
     } catch (error: any) {
       console.error('[COMPANY SEARCH EXECUTION ERROR]', error);
 
-      // Em falha operacional, estorna 100% da reserva de créditos do cliente
-      if (reservationId) {
-        await CreditWalletService.releaseReservation({
-          reservationId,
-          reason: `Falha na extração de empresas: ${error?.message || 'Erro no provedor'}`
-        }).catch(err => console.error('[RELEASE RESERVATION ERROR]', err));
-      }
+      const isLastAttempt = options?.isLastAttempt ?? true;
 
-      await prisma.companySearch.update({
-        where: { id: searchRecord.id },
-        data: {
-          status: 'FAILED',
-          errorMessage: error?.message || 'Falha ao processar busca de empresas.'
+      // Apenas na última tentativa do BullMQ libera a reserva e marca como FAILED
+      if (isLastAttempt) {
+        if (reservationId) {
+          await CreditWalletService.releaseReservation({
+            reservationId,
+            reason: `Falha na extração de empresas: ${error?.message || 'Erro no provedor'}`
+          }).catch(err => console.error('[RELEASE RESERVATION ERROR]', err));
         }
-      }).catch(() => {});
+
+        await prisma.companySearch.update({
+          where: { id: searchRecord.id },
+          data: {
+            status: 'FAILED',
+            errorMessage: error?.message || 'Falha ao processar busca de empresas.'
+          }
+        }).catch(() => {});
+      } else {
+        console.warn(`[COMPANY SEARCH RETRY] Falha transitória na tentativa do job. Mantendo reserva PENDING e apifyRunId salvo para o próximo retry do BullMQ.`);
+      }
 
       throw error;
     }
@@ -299,7 +349,7 @@ export class CompanySearchService {
 
   /**
    * Adiciona empresas selecionadas de uma busca a uma campanha existente.
-   * Revalida elegibilidade, opt-out e deduplicação no workspace.
+   * Revalida elegibilidade, opt-out, histórico de disparos e deduplicação no workspace.
    */
   static async addSelectedToCampaign(params: {
     searchId: string;
@@ -334,6 +384,17 @@ export class CompanySearchService {
       // Revalida blacklist LGPD
       const isBlacklisted = await ContactPolicyService.isBlacklisted(item.phone, workspaceId);
       if (isBlacklisted) continue;
+
+      // Revalida histórico de disparos do workspace (Item 9)
+      const alreadyDispatched = await prisma.dispatchHistory.findUnique({
+        where: {
+          workspaceId_phone: {
+            workspaceId,
+            phone: item.phone
+          }
+        }
+      });
+      if (alreadyDispatched) continue;
 
       try {
         const lead = await prisma.lead.create({
@@ -377,6 +438,7 @@ export class CompanySearchService {
    * 4. Deduplica contra a Blacklist (LGPD).
    * 5. Deduplica contra o histórico completo de envios do workspace (DispatchHistory).
    * 6. Deduplica contra leads existentes em qualquer campanha do workspace.
+   * 7. Deduplica contra resultados já entregues em buscas concluídas deste workspace (Item 9).
    */
   private static async classifyAndDeduplicate(
     rawPlaces: RawPlaceItem[],
@@ -528,7 +590,35 @@ export class CompanySearchService {
         continue;
       }
 
-      // 5. Empresa qualificada e aproveitável!
+      // 5. Deduplicação contra resultados já entregues em buscas concluídas do workspace (Item 9)
+      const alreadyDelivered = await prisma.companySearchResult.findFirst({
+        where: {
+          workspaceId,
+          phone: normalizedPhone,
+          isUsable: true,
+          search: {
+            status: 'COMPLETED'
+          }
+        }
+      });
+      if (alreadyDelivered) {
+        classified.push({
+          name,
+          phone: normalizedPhone,
+          website: sanitizedWebsite,
+          address: place.address || null,
+          neighborhood: place.neighborhood || null,
+          city: place.city || null,
+          category: place.category || null,
+          rating: place.totalScore || null,
+          reviewsCount: place.reviewsCount || null,
+          isUsable: false,
+          discardReason: 'ALREADY_DELIVERED'
+        });
+        continue;
+      }
+
+      // 6. Empresa qualificada e aproveitável!
       classified.push({
         name,
         phone: normalizedPhone,
@@ -548,14 +638,19 @@ export class CompanySearchService {
   }
 
   /**
-   * Consulta a API oficial da Apify.
+   * Consulta a API oficial da Apify com persistência do runId, timeouts explícitos de 45s
+   * e capacidade de reconectar ao run existente em caso de retry do BullMQ.
    * NUNCA substitui falhas por contatos inventados ou fictícios.
    */
-  private static async fetchPlacesFromProvider(
-    segment: string,
-    location: string,
-    requestedCount: number
-  ): Promise<RawPlaceItem[]> {
+  private static async fetchPlacesFromProvider(params: {
+    searchId: string;
+    segment: string;
+    location: string;
+    requestedCount: number;
+    existingRunId?: string | null;
+  }): Promise<RawPlaceItem[]> {
+    const { searchId, segment, location, requestedCount, existingRunId } = params;
+
     // Se houver um provider mock configurado para testes unitários isolados
     if (testPlacesProvider) {
       return await testPlacesProvider(segment, location, requestedCount);
@@ -567,29 +662,118 @@ export class CompanySearchService {
       throw new Error('Integração com Apify não configurada no servidor (APIFY_API_TOKEN ausente).');
     }
 
-    console.log(`[APIFY SEARCH] Iniciando consulta para "${segment}" em "${location}" (máx ${requestedCount})...`);
+    let runId = existingRunId;
+    let defaultDatasetId: string | null = null;
 
-    const response = await fetch(
-      `https://api.apify.com/v2/acts/compass~crawler-google-places/run-sync-get-dataset-items?token=${apifyToken}&timeout=60`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          searchStringsArray: [`${segment} em ${location}`],
-          maxCrawledPlacesPerSearch: requestedCount,
-          language: 'pt-BR',
-          countryCode: 'BR',
-          skipClosedPlaces: true
-        })
+    // 1. Se já existe runId gravado (retry do BullMQ), reconecta ao run existente em vez de disparar outro pago
+    if (runId) {
+      console.log(`[APIFY RECONNECT] Reconectando ao run existente ${runId} para a busca ${searchId}...`);
+      try {
+        const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`, {
+          signal: AbortSignal.timeout(45000)
+        });
+        if (runRes.ok) {
+          const runJson: any = await runRes.json();
+          defaultDatasetId = runJson.data?.defaultDatasetId || null;
+        }
+      } catch (err: any) {
+        console.warn(`[APIFY RECONNECT WARNING] Falha ao checar run existente ${runId}:`, err?.message);
       }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      throw new Error(`Falha na API da Apify (HTTP ${response.status}): ${errText.slice(0, 200)}`);
     }
 
-    const items: any = await response.json();
+    // 2. Se não existe runId ou se não conseguiu reconectar, inicia nova execução externa
+    if (!runId) {
+      console.log(`[APIFY SEARCH] Iniciando consulta para "${segment}" em "${location}" (máx ${requestedCount})...`);
+
+      const startRes = await fetch(
+        `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            searchStringsArray: [`${segment} em ${location}`],
+            maxCrawledPlacesPerSearch: requestedCount,
+            language: 'pt-BR',
+            countryCode: 'BR',
+            skipClosedPlaces: true
+          }),
+          signal: AbortSignal.timeout(45000)
+        }
+      );
+
+      if (!startRes.ok) {
+        const errText = await startRes.text().catch(() => '');
+        throw new Error(`Falha na API da Apify ao iniciar run (HTTP ${startRes.status}): ${errText.slice(0, 200)}`);
+      }
+
+      const startJson: any = await startRes.json();
+      runId = startJson.data?.id;
+      defaultDatasetId = startJson.data?.defaultDatasetId;
+
+      if (!runId) {
+        throw new Error('Identificador da execução externa não foi retornado pela Apify.');
+      }
+
+      // Persiste imediatamente o apifyRunId no banco para garantir rastreabilidade e idempotência
+      await prisma.companySearch.update({
+        where: { id: searchId },
+        data: {
+          apifyRunId: runId,
+          apifyActorId: 'compass~crawler-google-places'
+        }
+      }).catch(err => console.warn('[PERSIST APIFY RUN ID WARNING]', err?.message));
+    }
+
+    // 3. Aguarda a conclusão da execução com polling seguro e timeout explícito
+    const startTime = Date.now();
+    const maxWaitMs = 120000; // Máximo 2 minutos
+    let status = 'RUNNING';
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const pollRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`, {
+        signal: AbortSignal.timeout(45000)
+      });
+
+      if (!pollRes.ok) {
+        const errText = await pollRes.text().catch(() => '');
+        throw new Error(`Falha ao verificar status do run na Apify (HTTP ${pollRes.status}): ${errText.slice(0, 200)}`);
+      }
+
+      const pollJson: any = await pollRes.json();
+      status = pollJson.data?.status || 'UNKNOWN';
+      defaultDatasetId = pollJson.data?.defaultDatasetId || defaultDatasetId;
+
+      if (status === 'SUCCEEDED') {
+        break;
+      }
+
+      if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
+        throw new Error(`Execução externa na Apify terminou sem sucesso (status: ${status}).`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    if (status !== 'SUCCEEDED') {
+      throw new Error(`Tempo limite excedido aguardando conclusão da extração na Apify (status: ${status}).`);
+    }
+
+    if (!defaultDatasetId) {
+      throw new Error('Dataset ID não encontrado na execução da Apify.');
+    }
+
+    // 4. Obtém os dados extraídos do dataset
+    const datasetRes = await fetch(
+      `https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${apifyToken}&clean=true`,
+      { signal: AbortSignal.timeout(45000) }
+    );
+
+    if (!datasetRes.ok) {
+      const errText = await datasetRes.text().catch(() => '');
+      throw new Error(`Falha ao obter itens do dataset Apify (HTTP ${datasetRes.status}): ${errText.slice(0, 200)}`);
+    }
+
+    const items: any = await datasetRes.json();
 
     if (!Array.isArray(items)) {
       throw new Error('Resposta inválida do provedor Apify: esperado um array de resultados.');

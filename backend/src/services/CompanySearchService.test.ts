@@ -224,6 +224,7 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
   });
 
   mockMethod(t, ContactPolicyService, 'isBlacklisted', async () => false);
+  mockMethod(t, prisma.companySearchResult, 'findFirst', async () => null);
 
   const places = [
     { title: 'Padaria Antiga (histórico)', phone: '11999990001', website: 'https://site1.com' },

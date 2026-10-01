@@ -174,7 +174,7 @@ export function getPlanById(planId?: string | null): PlanDefinition | null {
 }
 
 export function isLegacyPlan(planId?: string | null): boolean {
-  if (!planId) return true; // Contas pré-existentes sem plano são tratadas como legadas
+  if (!planId) return false;
   const upper = planId.trim().toUpperCase();
   return upper === 'LEGACY_DAVI' || upper === 'LEGACY';
 }
@@ -213,14 +213,15 @@ export function getUserCapabilities(user?: { role?: string | null; planId?: stri
 
   const isAdmin = user.role === 'ADMIN';
   const isLegacy = !isAdmin && isLegacyPlan(user.planId);
-  const isNewPlan = !isAdmin && !isLegacy; // START, PRO, SCALE
+  const plan = getPlanById(user.planId);
+  const isKnownNewPlan = !isAdmin && !isLegacy && Boolean(plan); // START, PRO, SCALE
 
   return {
     canUpload: isAdmin || isLegacy,
-    canUseSearch: isAdmin || isNewPlan,
-    canUseAi: isAdmin || isNewPlan,
+    canUseSearch: isAdmin || isKnownNewPlan,
+    canUseAi: isAdmin || isKnownNewPlan,
     isUnlimited: isAdmin,
-    requiresCredits: !isAdmin && isNewPlan,
+    requiresCredits: !isAdmin && isKnownNewPlan,
     isLegacy,
     planId: user.planId || (isLegacy ? 'LEGACY_DAVI' : null),
   };

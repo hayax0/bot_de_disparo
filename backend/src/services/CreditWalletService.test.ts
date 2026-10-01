@@ -208,13 +208,13 @@ test('CreditWalletService: reserva de créditos cria CreditReservation persistid
   );
 });
 
-test('CreditWalletService: liquidação consome mensal antes de comprado e libera sobra da reserva', async (t) => {
+test('CreditWalletService: liquidação consome mensal antes de comprado e desfaz o hold da reserva', async (t) => {
   let wallet = {
     id: 'w-priority',
     userId: 'u-prio',
-    monthlyBalance: 0, // 30 estavam retidos na reserva
-    purchasedBalance: 20, // 30 dos 50 estavam retidos na reserva (50 - 30 = 20)
-    reservedBalance: 60, // 60 reservados anteriormente
+    monthlyBalance: 30, // Saldo mensal bruto
+    purchasedBalance: 50, // Saldo comprado bruto
+    reservedBalance: 60, // 60 créditos em hold
     monthlyExpiresAt: new Date(Date.now() + 86400000)
   };
 
@@ -229,7 +229,8 @@ test('CreditWalletService: liquidação consome mensal antes de comprado e liber
     monthlyAmount: 30,
     purchasedAmount: 30,
     consumedAmount: 0,
-    status: 'PENDING'
+    status: 'PENDING',
+    monthlyExpiresAt: new Date(Date.now() + 86400000)
   };
 
   const user = {
@@ -248,6 +249,13 @@ test('CreditWalletService: liquidação consome mensal antes de comprado e liber
       $executeRaw: async () => 1,
       creditReservation: {
         findUnique: async () => reservation,
+        updateMany: async ({ where, data }: any) => {
+          if (reservation.status === 'PENDING') {
+            Object.assign(reservation, data);
+            return { count: 1 };
+          }
+          return { count: 0 };
+        },
         update: async ({ data }: any) => {
           Object.assign(reservation, data);
           return reservation;
@@ -280,8 +288,8 @@ test('CreditWalletService: liquidação consome mensal antes de comprado e liber
   });
 
   // Consumir 45 créditos de uma reserva de 60:
-  // Deve consumir: 30 do saldo mensal (esgotando-o) + 15 do saldo comprado (restando 35)
-  // E liberar 15 não utilizados da reserva
+  // Deve consumir: 30 do saldo mensal + 15 do saldo comprado (restando 35)
+  // E desfaz o hold integral de 60
   const settleRes = await CreditWalletService.settleReservation({
     reservationId: 'res-settle-1',
     actualConsumedAmount: 45,
@@ -293,10 +301,13 @@ test('CreditWalletService: liquidação consome mensal antes de comprado e liber
   assert.equal(settleRes.releasedAmount, 15);
   assert.equal(reservation.status, 'SETTLED');
 
-  // Saldos finais
-  assert.equal(wallet.monthlyBalance, 0); // 30 - 30
-  assert.equal(wallet.purchasedBalance, 35); // 50 - 15
-  assert.equal(wallet.reservedBalance, 0); // 60 - 60
+  // Saldos finais na carteira (Clean Hold):
+  // monthlyBalance: 30 - 30 = 0
+  // purchasedBalance: 50 - 15 = 35
+  // reservedBalance: 60 - 60 = 0
+  assert.equal(wallet.monthlyBalance, 0);
+  assert.equal(wallet.purchasedBalance, 35);
+  assert.equal(wallet.reservedBalance, 0);
 
   // Repetição da liquidação é idempotente
   const settleRepeat = await CreditWalletService.settleReservation({
@@ -333,6 +344,13 @@ test('CreditWalletService: liberação total de reserva estorna valor exato e é
       $executeRaw: async () => 1,
       creditReservation: {
         findUnique: async () => reservation,
+        updateMany: async ({ where, data }: any) => {
+          if (reservation.status === 'PENDING') {
+            Object.assign(reservation, data);
+            return { count: 1 };
+          }
+          return { count: 0 };
+        },
         update: async ({ data }: any) => {
           Object.assign(reservation, data);
           return reservation;
@@ -341,13 +359,9 @@ test('CreditWalletService: liberação total de reserva estorna valor exato e é
       creditWallet: {
         findUnique: async () => wallet,
         update: async ({ data }: any) => {
-          const monthlyDelta = (data.monthlyBalance?.increment || 0) - (data.monthlyBalance?.decrement || 0);
-          const purchasedDelta = (data.purchasedBalance?.increment || 0) - (data.purchasedBalance?.decrement || 0);
           const reservedDelta = (data.reservedBalance?.increment || 0) - (data.reservedBalance?.decrement || 0);
           wallet = {
             ...wallet,
-            monthlyBalance: wallet.monthlyBalance + monthlyDelta,
-            purchasedBalance: wallet.purchasedBalance + purchasedDelta,
             reservedBalance: wallet.reservedBalance + reservedDelta
           };
           return wallet;

@@ -262,6 +262,7 @@ model CreditReservation {
   settledAt       DateTime?
   releasedAt      DateTime?
   expiresAt       DateTime?
+  monthlyExpiresAt DateTime?    // Validade do ciclo mensal original no momento da retenção
   metadata        String?       @db.Text
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -326,6 +327,7 @@ model CompanySearch {
   userId          String
   targetCampaignId String?
   reservationId   String?
+  idempotencyKey  String?               @unique
   query           String
   segment         String?
   location        String?

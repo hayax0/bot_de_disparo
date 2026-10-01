@@ -5,6 +5,8 @@ import { CreditWalletService } from '../services/CreditWalletService';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
+import { getUserCapabilities } from '../config/plans';
+
 const router = Router();
 
 router.use(authenticate);
@@ -15,6 +17,7 @@ const searchSchema = z.object({
   location: z.string().min(2, 'A localização/cidade deve ter ao menos 2 caracteres.'),
   requestedCount: z.coerce.number().min(5, 'Mínimo de 5 empresas por busca.').max(200, 'Máximo de 200 empresas por busca.').default(20),
   targetCampaignId: z.string().uuid().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 /**
@@ -23,6 +26,18 @@ const searchSchema = z.object({
 router.post('/', async (req: Request, res: Response): Promise<any> => {
   const userId = req.user!.userId;
   const workspaceId = req.user!.workspaceId;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, planId: true }
+  });
+  const caps = getUserCapabilities(user);
+  if (!caps.canUseSearch) {
+    return res.status(403).json({
+      error: 'O seu plano atual não possui acesso à busca integrada de empresas.',
+      code: 'SEARCH_NOT_ALLOWED'
+    });
+  }
 
   const parsed = searchSchema.safeParse(req.body);
   if (!parsed.success) {

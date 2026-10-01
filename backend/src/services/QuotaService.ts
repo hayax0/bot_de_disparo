@@ -77,17 +77,38 @@ export class QuotaService {
     };
   }
 
+  // Rastreador em memória por envio/ciclo para garantir idempotência em retries
+  private static dispatchTracker = new Map<string, { status: 'RESERVED' | 'CONFIRMED'; userId: string; timestamp: number }>();
+
   /**
    * Reserva e consome 1 disparo na franquia mensal de forma ATÔMICA no banco de dados.
-   * Impede que múltiplos workers concorrentes ultrapassem a cota contratada.
+   * Suporta dispatchKey idempotente para evitar consumo duplicado em retries do worker.
    */
-  static async tryConsumeDispatchQuota(userId: string): Promise<{
+  static async tryConsumeDispatchQuota(userOrParams: string | {
+    userId: string;
+    dispatchKey?: string;
+  }): Promise<{
     allowed: boolean;
     isUnlimited?: boolean;
     used?: number;
     quota?: number;
     reason?: string;
+    isIdempotent?: boolean;
   }> {
+    const userId = typeof userOrParams === 'string' ? userOrParams : userOrParams.userId;
+    const dispatchKey = typeof userOrParams === 'string' ? undefined : userOrParams.dispatchKey;
+
+    // Se houver dispatchKey e já foi consumido/confirmado para este envio, retorna idempotente sem re-debitar
+    if (dispatchKey && this.dispatchTracker.has(dispatchKey)) {
+      const existing = this.dispatchTracker.get(dispatchKey)!;
+      if (existing.userId === userId) {
+        return {
+          allowed: true,
+          isIdempotent: true
+        };
+      }
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -106,11 +127,14 @@ export class QuotaService {
 
     // Administradores e Legado Davi possuem envio irrestrito sem bloqueio por cota
     if (isUserUnlimited(user) || isLegacyPlan(user.planId)) {
-      // Registra contagem métrica sem bloqueio
       await prisma.user.update({
         where: { id: userId },
         data: { dispatchesUsedInCycle: { increment: 1 } }
       }).catch(() => {});
+
+      if (dispatchKey) {
+        this.dispatchTracker.set(dispatchKey, { status: 'CONFIRMED', userId, timestamp: Date.now() });
+      }
 
       return { allowed: true, isUnlimited: true };
     }
@@ -139,11 +163,43 @@ export class QuotaService {
       };
     }
 
+    if (dispatchKey) {
+      this.dispatchTracker.set(dispatchKey, { status: 'RESERVED', userId, timestamp: Date.now() });
+    }
+
     return {
       allowed: true,
       used: updatedRows[0].dispatchesUsedInCycle,
       quota
     };
+  }
+
+  /**
+   * Confirma definitivamente o consumo do disparo quando a transmissão é iniciada.
+   * Preserva a proteção contra reenvio incerto se houver timeout posterior.
+   */
+  static confirmDispatchQuota(params: { userId: string; dispatchKey?: string }): void {
+    const { userId, dispatchKey } = params;
+    if (dispatchKey) {
+      this.dispatchTracker.set(dispatchKey, { status: 'CONFIRMED', userId, timestamp: Date.now() });
+    }
+  }
+
+  /**
+   * Libera a cota reservada caso o envio seja abortado antes de qualquer transmissão efetiva
+   * (ex: mensagem vazia, validação de blacklist ou erro pré-transmissão).
+   */
+  static async releaseDispatchQuota(params: { userId: string; dispatchKey?: string }): Promise<void> {
+    const { userId, dispatchKey } = params;
+    if (dispatchKey) {
+      const tracked = this.dispatchTracker.get(dispatchKey);
+      if (tracked && tracked.status === 'CONFIRMED') {
+        // Já confirmado como transmitido: não estorna para preservar proteção contra reenvio incerto
+        return;
+      }
+      this.dispatchTracker.delete(dispatchKey);
+    }
+    await this.refundDispatchQuota(userId);
   }
 
   /**
