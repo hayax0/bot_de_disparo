@@ -160,6 +160,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     userId: quotaUserId,
     dispatchKey
   });
+  const dispatchReservationId = quota.reservationId;
 
   if (!quota.allowed) {
     console.warn(`[WORKER] Job ${job.id} bloqueado: Franquia de disparos esgotada para ${user.email}. Pausando campanha ${campaignId}.`);
@@ -188,7 +189,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       });
       if (claimed.count !== 1) throw new Error('Envio interrompido ou já iniciado.');
       sendStarted = true;
-      await QuotaService.confirmDispatchQuota({ userId: user.id, dispatchKey });
+      await QuotaService.confirmDispatchQuota({ userId: user.id, dispatchKey, reservationId: dispatchReservationId });
     });
     sentSuccessfully = true;
 

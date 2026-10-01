@@ -5,22 +5,56 @@ import { CreditWalletService, InsufficientCreditsError } from './CreditWalletSer
 import { CompanySearchService, setTestPlacesProvider } from './CompanySearchService';
 import { QuotaService } from './QuotaService';
 import { companySearchQueue } from './queue';
+import { ENV } from '../config/env';
 
-// Validação estrita de isolamento de segurança: BLOQUEIA se não for banco explicitamente de teste
-const currentDbUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || '';
-const isExplicitTestDb =
-  currentDbUrl.includes('_test') ||
-  currentDbUrl.includes('test_') ||
-  currentDbUrl.includes('/bot_prospeccao_test');
+/**
+ * Extrai o nome exato do banco de dados a partir da URL de conexão.
+ * Ignora trechos de usuário, host ou parâmetros para evitar falsos positivos com '_test'.
+ */
+export function extractDatabaseName(connectionUrl: string): string {
+  if (!connectionUrl) return '';
+  try {
+    const urlObj = new URL(connectionUrl.replace(/^postgres:/, 'http:').replace(/^postgresql:/, 'http:'));
+    return urlObj.pathname.replace(/^\//, '').split('?')[0];
+  } catch {
+    const match = connectionUrl.match(/\/([^/?#]+)(\?.*)?$/);
+    return match ? match[1] : '';
+  }
+}
 
-if (!isExplicitTestDb) {
-  throw new Error(
-    `[SEGURANÇA BLOQUEADA] Tentativa de executar testes destrutivos com TRUNCATE em banco que não é explicitamente de teste! ` +
-    `Configure TEST_DATABASE_URL apontando para uma base de testes (ex: bot_prospeccao_test). URL detectada: ${currentDbUrl.replace(/:[^:@]+@/, ':***@')}`
-  );
+/**
+ * Validação de segurança estrita antes de qualquer TRUNCATE.
+ * Valida o destino EFETIVAMENTE CONECTADO no PostgreSQL via SELECT current_database()
+ * e verifica o nome exato do banco ('bot_prospeccao_test').
+ */
+export async function assertConnectedToTestDatabase(client: typeof testPrisma): Promise<string> {
+  const result = await client.$queryRaw<Array<{ current_database: string }>>`SELECT current_database()`;
+  const connectedDb = result[0]?.current_database || '';
+
+  // O nome exato do banco de teste DEVE ser 'bot_prospeccao_test'
+  if (connectedDb !== 'bot_prospeccao_test') {
+    throw new Error(
+      `[SEGURANÇA BLOQUEADA] O banco de dados conectado no PostgreSQL é "${connectedDb}". ` +
+      `Operações destrutivas com TRUNCATE só são permitidas no banco de teste "bot_prospeccao_test".`
+    );
+  }
+
+  // Verifica se a URL configurada aponta para o mesmo banco exato
+  const activeUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || '';
+  const urlDbName = extractDatabaseName(activeUrl);
+  if (urlDbName && urlDbName !== connectedDb) {
+    throw new Error(
+      `[SEGURANÇA BLOQUEADA] Divergência detectada: a URL aponta para "${urlDbName}", mas o PostgreSQL está conectado em "${connectedDb}".`
+    );
+  }
+
+  return connectedDb;
 }
 
 test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Idempotencia', async (t) => {
+  // Valida conexão efetiva com banco de teste no PostgreSQL antes de qualquer TRUNCATE (Item 2)
+  await assertConnectedToTestDatabase(testPrisma);
+
   // Limpeza inicial do banco de testes descartável
   await testPrisma.$executeRawUnsafe(`
     TRUNCATE TABLE 
@@ -566,5 +600,420 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     });
     assert.equal(walletAfterRollback?.monthlyBalance, 50, 'Saldo mensal deve permanecer 50');
     assert.equal(walletAfterRollback?.reservedBalance, 20, 'ReservedBalance deve permanecer 20');
+  });
+
+  // =========================================================================
+  // CENÁRIO 7: Reconciliação da Apify vincula inequivocamente e não contamina buscas próximas (Item 1)
+  // Duas buscas diferentes ("Restaurantes" vs "Dentistas") iniciadas próximas não reutilizam execução alheia
+  // =========================================================================
+  await t.test('Cenario 7: Duas buscas diferentes proximas nao compartilham execucao na Apify por reconciliacao temporal', async () => {
+    const user = await testPrisma.user.create({
+      data: {
+        email: `apify_reconcile_${Date.now()}@test.com`,
+        password: 'hash',
+        role: 'USER',
+        planId: 'PRO',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: new Date(Date.now() + 30 * 86400000),
+      }
+    });
+
+    const workspace = await testPrisma.workspace.create({
+      data: { name: 'WS Apify Test', userId: user.id }
+    });
+
+    await testPrisma.creditWallet.create({
+      data: {
+        userId: user.id,
+        monthlyBalance: 200,
+        purchasedBalance: 0,
+        reservedBalance: 0,
+        monthlyExpiresAt: new Date(Date.now() + 30 * 86400000)
+      }
+    });
+
+    // Garante que o provider mock não desvie a chamada da Apify
+    setTestPlacesProvider(null);
+    const originalToken = ENV.APIFY_API_TOKEN;
+    (ENV as any).APIFY_API_TOKEN = 'test-apify-token';
+
+    // Mock realista de chamadas HTTP à API da Apify para simular execuções externas
+    const apifyRuns = new Map<string, any>();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const urlStr = String(url);
+
+      // POST para criar novo run na Apify
+      if (urlStr.includes('/acts/compass~crawler-google-places/runs') && init?.method === 'POST') {
+        const body = JSON.parse(init.body);
+        const runId = `run_${body.customData?.segment || 'search'}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const datasetId = `dataset_${runId}`;
+
+        const runRecord = {
+          id: runId,
+          status: 'SUCCEEDED',
+          startedAt: new Date().toISOString(),
+          defaultDatasetId: datasetId,
+          input: body
+        };
+        apifyRuns.set(runId, runRecord);
+
+        return new Response(JSON.stringify({
+          data: { id: runId, defaultDatasetId: datasetId }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // GET lista de runs recentes (reconciliação)
+      if (urlStr.includes('/acts/compass~crawler-google-places/runs') && (!init?.method || init.method === 'GET')) {
+        const items = Array.from(apifyRuns.values()).map(r => ({
+          id: r.id,
+          status: r.status,
+          startedAt: r.startedAt,
+          defaultDatasetId: r.defaultDatasetId
+        }));
+        return new Response(JSON.stringify({
+          data: { items }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // GET input do run específico
+      if (urlStr.includes('/actor-runs/') && urlStr.endsWith('/input')) {
+        const match = urlStr.match(/\/actor-runs\/([^/?]+)\/input/);
+        const runId = match ? match[1] : '';
+        const run = apifyRuns.get(runId);
+        if (run) {
+          return new Response(JSON.stringify(run.input), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      }
+
+      // GET status do run
+      if (urlStr.includes('/actor-runs/')) {
+        const match = urlStr.match(/\/actor-runs\/([^/?]+)/);
+        const runId = match ? match[1] : '';
+        const run = apifyRuns.get(runId);
+        if (run) {
+          return new Response(JSON.stringify({
+            data: { status: run.status, defaultDatasetId: run.defaultDatasetId }
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('Not found', { status: 404 });
+      }
+
+      // GET itens do dataset
+      if (urlStr.includes('/datasets/') && urlStr.includes('/items')) {
+        const match = urlStr.match(/\/datasets\/([^/?]+)\/items/);
+        const datasetId = match ? match[1] : '';
+
+        if (datasetId.includes('Restaurantes')) {
+          return new Response(JSON.stringify([
+            { title: 'Restaurante Sabor Paulista', phone: '5511999991111', category: 'Restaurante', address: 'Av Paulista, 100' }
+          ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        } else if (datasetId.includes('Dentistas')) {
+          return new Response(JSON.stringify([
+            { title: 'Clinica Odonto Sorriso', phone: '5541988882222', category: 'Dentista', address: 'Rua das Flores, 200' }
+          ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      return originalFetch(url, init);
+    }) as any;
+
+    try {
+      // 1. Inicia Busca A: "Restaurantes" em "Sao Paulo"
+      const searchA = await CompanySearchService.initiateSearch({
+        userId: user.id,
+        workspaceId: workspace.id,
+        segment: 'Restaurantes',
+        location: 'Sao Paulo',
+        requestedCount: 10,
+        idempotencyKey: `apify_reconcile_A_${Date.now()}`
+      });
+
+      assert.ok(searchA, 'searchA deve existir');
+      assert.equal(searchA.status, 'COMPLETED');
+      assert.ok(searchA.apifyRunId, 'Busca A deve possuir um apifyRunId gerado');
+
+      // 2. Imediatamente após, inicia Busca B: "Dentistas" em "Curitiba"
+      // Quando a Busca B roda, a lista de runs recentes da Apify contém o run da Busca A (recente e concluído)
+      const searchB = await CompanySearchService.initiateSearch({
+        userId: user.id,
+        workspaceId: workspace.id,
+        segment: 'Dentistas',
+        location: 'Curitiba',
+        requestedCount: 10,
+        idempotencyKey: `apify_reconcile_B_${Date.now()}`
+      });
+
+      assert.ok(searchB, 'searchB deve existir');
+      assert.equal(searchB.status, 'COMPLETED');
+      assert.ok(searchB.apifyRunId, 'Busca B deve possuir um apifyRunId gerado');
+
+      // 3. Validação estrita:
+      // A Busca B NÃO DEVE reutilizar o run da Busca A apenas por proximidade temporal!
+      assert.notEqual(
+        searchA.apifyRunId,
+        searchB.apifyRunId,
+        'Busca B NÃO pode reutilizar a execução da Busca A por reconciliação indevida'
+      );
+
+      // 4. Os resultados não podem ter sido cruzados:
+      const resultsA = await testPrisma.companySearchResult.findMany({ where: { searchId: searchA.id } });
+      const resultsB = await testPrisma.companySearchResult.findMany({ where: { searchId: searchB.id } });
+
+      assert.equal(resultsA[0]?.name, 'Restaurante Sabor Paulista');
+      assert.equal(resultsB[0]?.name, 'Clinica Odonto Sorriso');
+    } finally {
+      globalThis.fetch = originalFetch;
+      (ENV as any).APIFY_API_TOKEN = originalToken;
+      setTestPlacesProvider(null);
+    }
+  });
+
+  // =========================================================================
+  // CENÁRIO 8: Validação estrita de isolamento de banco de teste e tolerância a NODE_ENV ausente (Item 2)
+  // Rejeita URLs com '_test' no usuário e opera com segurança mesmo com NODE_ENV ausente
+  // =========================================================================
+  await t.test('Cenario 8: Validacao estrita de banco conectado, rejeicao de falsos positivos e teste com NODE_ENV ausente', async () => {
+    // 1. Comprova extração exata do nome do banco (não aceita _test em outros trechos)
+    const dangerousUrl = 'postgresql://admin_test:segredo123@db.producao.com:5432/bot_prospeccao_producao?ssl=true';
+    const extractedDb = extractDatabaseName(dangerousUrl);
+    assert.equal(extractedDb, 'bot_prospeccao_producao', 'Deve extrair o nome exato do banco e ignorar o usuario admin_test');
+
+    // 2. Valida que o banco conectado atualmente no PostgreSQL é estritamente 'bot_prospeccao_test'
+    const connectedDb = await assertConnectedToTestDatabase(testPrisma);
+    assert.equal(connectedDb, 'bot_prospeccao_test', 'Banco conectado deve ser estritamente bot_prospeccao_test');
+
+    // 3. Simula execução com NODE_ENV ausente (delete process.env.NODE_ENV)
+    const originalNodeEnv = process.env.NODE_ENV;
+    try {
+      delete process.env.NODE_ENV;
+      assert.equal(process.env.NODE_ENV, undefined, 'NODE_ENV deve estar ausente');
+
+      // Executa query de banco e validação: deve funcionar perfeitamente e continuar conectado no banco de teste
+      const dbWithoutEnv = await assertConnectedToTestDatabase(testPrisma);
+      assert.equal(dbWithoutEnv, 'bot_prospeccao_test', 'Mesmo com NODE_ENV ausente, continua conectado na base de teste');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    // 4. Simula tentativa de conexão em banco que não é de teste: deve abortar com SEGURANÇA BLOQUEADA
+    const fakePrismaMock: any = {
+      $queryRaw: async () => [{ current_database: 'bot_prospeccao_producao' }]
+    };
+
+    await assert.rejects(
+      async () => {
+        await assertConnectedToTestDatabase(fakePrismaMock);
+      },
+      /\[SEGURANÇA BLOQUEADA\] O banco de dados conectado no PostgreSQL é "bot_prospeccao_producao"/
+    );
+  });
+
+  // =========================================================================
+  // CENÁRIO 9: Reenfileiramento recupera reserva liberada e P2002 valida payload completo (Item 3)
+  // Se queue.add falhar e liberar a reserva, a repetição recupera a reserva e conclui com sucesso
+  // =========================================================================
+  await t.test('Cenario 9: Reenfileiramento de busca com reserva liberada aloca nova reserva e P2002 valida payload completo', async () => {
+    const user = await testPrisma.user.create({
+      data: {
+        email: `re_enqueue_recov_${Date.now()}@test.com`,
+        password: 'hash',
+        role: 'USER',
+        planId: 'PRO',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: new Date(Date.now() + 30 * 86400000),
+      }
+    });
+
+    const workspace = await testPrisma.workspace.create({
+      data: { name: 'WS Recovery Test', userId: user.id }
+    });
+
+    await testPrisma.creditWallet.create({
+      data: {
+        userId: user.id,
+        monthlyBalance: 100,
+        purchasedBalance: 0,
+        reservedBalance: 0,
+        monthlyExpiresAt: new Date(Date.now() + 30 * 86400000)
+      }
+    });
+
+    setTestPlacesProvider(async () => [
+      { title: 'Auto Eletrica Central', phone: '5511999993333' }
+    ]);
+
+    const idempotencyKey = `orphaned_res_test_${Date.now()}`;
+
+    // 1. Simula estado resultante de falha no queue.add:
+    // Cria reserva inicial e libera-a imediatamente (simulando o catch de falha na fila)
+    const initialRes = await CreditWalletService.reserveCredits({
+      userId: user.id,
+      amount: 10,
+      idempotencyKey,
+      sourceType: 'COMPANY_SEARCH'
+    });
+
+    await CreditWalletService.releaseReservation({
+      reservationId: initialRes.reservationId,
+      reason: 'Falha simulada na fila queue.add'
+    });
+
+    // Cria o registro da busca como PENDING com a reserva já em RELEASED
+    await testPrisma.companySearch.create({
+      data: {
+        workspaceId: workspace.id,
+        userId: user.id,
+        idempotencyKey,
+        reservationId: initialRes.reservationId,
+        query: 'Auto Eletrica em Sao Paulo',
+        segment: 'Auto Eletrica',
+        location: 'Sao Paulo',
+        requestedCount: 10,
+        creditsReserved: 10,
+        status: 'PENDING'
+      }
+    });
+
+    // Confere que a reserva original está de fato RELEASED
+    const oldReservation = await testPrisma.creditReservation.findUnique({
+      where: { id: initialRes.reservationId }
+    });
+    assert.equal(oldReservation?.status, 'RELEASED', 'Reserva original deve estar RELEASED');
+
+    // 2. Chama initiateSearch novamente com a MESMA chave (repetição ou re-enfileiramento)
+    // O sistema DEVE recuperar a reserva, gerando uma nova reserva PENDING e liquidando com sucesso!
+    const completedSearch = await CompanySearchService.initiateSearch({
+      userId: user.id,
+      workspaceId: workspace.id,
+      segment: 'Auto Eletrica',
+      location: 'Sao Paulo',
+      requestedCount: 10,
+      idempotencyKey
+    });
+
+    assert.ok(completedSearch, 'completedSearch deve existir');
+    assert.equal(completedSearch.status, 'COMPLETED');
+    assert.notEqual(
+      completedSearch.reservationId,
+      initialRes.reservationId,
+      'A busca recuperada deve ter um novo reservationId ativo'
+    );
+
+    const newRes = await testPrisma.creditReservation.findUnique({
+      where: { id: completedSearch.reservationId! }
+    });
+    assert.equal(newRes?.status, 'SETTLED', 'A nova reserva recuperada deve ser liquidada (SETTLED) com sucesso');
+
+    // 3. Validação do conflito P2002 com payload divergente:
+    // Tenta usar a mesma chave de idempotência com parâmetros diferentes
+    await assert.rejects(
+      async () => {
+        await CompanySearchService.initiateSearch({
+          userId: user.id,
+          workspaceId: workspace.id,
+          segment: 'Padarias', // Segmento diferente!
+          location: 'Sao Paulo',
+          requestedCount: 10,
+          idempotencyKey
+        });
+      },
+      /Chave de idempotência já utilizada com parâmetros de busca diferentes/
+    );
+  });
+
+  // =========================================================================
+  // CENÁRIO 10: Ciclo original nos disparos (QuotaService) (Item 4)
+  // Liberação atrasada do ciclo anterior NÃO diminui o contador do ciclo novo
+  // =========================================================================
+  await t.test('Cenario 10: Reserva anterior a renovacao seguida de liberacao atrasada nao afeta o contador do novo ciclo', async () => {
+    const user = await testPrisma.user.create({
+      data: {
+        email: `cycle_preserve_${Date.now()}@test.com`,
+        password: 'hash',
+        role: 'USER',
+        planId: 'PRO',
+        monthlyDispatchQuota: 100,
+        dispatchesUsedInCycle: 0,
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: new Date(Date.now() + 60 * 86400000),
+        cycleResetAt: new Date(Date.now() + 30 * 86400000)
+      }
+    });
+
+    // 1. Disparo no Ciclo 1
+    const quota1 = await QuotaService.tryConsumeDispatchQuota({
+      userId: user.id,
+      dispatchKey: 'dispatch_cycle_1'
+    });
+
+    assert.equal(quota1.allowed, true);
+    assert.ok(quota1.reservationId, 'Deve gerar reservationId no ciclo 1');
+    const reservationIdCycle1 = quota1.reservationId;
+
+    const userAfterDis1 = await testPrisma.user.findUnique({ where: { id: user.id } });
+    assert.equal(userAfterDis1?.dispatchesUsedInCycle, 1, 'Contador do ciclo 1 deve ser 1');
+
+    // 2. Simula renovação do ciclo (avança para Ciclo 2 e zera contador)
+    const newCycleDate = new Date(Date.now() + 60 * 86400000);
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: {
+        dispatchesUsedInCycle: 0,
+        cycleResetAt: newCycleDate
+      }
+    });
+
+    // 3. Disparo no Ciclo 2
+    const quota2 = await QuotaService.tryConsumeDispatchQuota({
+      userId: user.id,
+      dispatchKey: 'dispatch_cycle_2'
+    });
+
+    assert.equal(quota2.allowed, true);
+    assert.ok(quota2.reservationId, 'Deve gerar reservationId no ciclo 2');
+    const reservationIdCycle2 = quota2.reservationId;
+
+    const userAfterDis2 = await testPrisma.user.findUnique({ where: { id: user.id } });
+    assert.equal(userAfterDis2?.dispatchesUsedInCycle, 1, 'Contador do ciclo 2 deve ser 1');
+
+    // 4. Chega uma liberação atrasada da reserva do Ciclo 1 (após a renovação)
+    await QuotaService.releaseDispatchQuota({
+      userId: user.id,
+      reservationId: reservationIdCycle1
+    });
+
+    // Confere no banco: a reserva do Ciclo 1 foi marcada como RELEASED
+    const res1Db = await testPrisma.dispatchReservation.findUnique({
+      where: { id: reservationIdCycle1 }
+    });
+    assert.equal(res1Db?.status, 'RELEASED', 'Reserva do ciclo 1 deve ter status RELEASED');
+
+    // O contador do Ciclo 2 NÃO pode ter sido diminuído para 0! Deve continuar 1!
+    const userAfterStaleRelease = await testPrisma.user.findUnique({ where: { id: user.id } });
+    assert.equal(
+      userAfterStaleRelease?.dispatchesUsedInCycle,
+      1,
+      'Liberacao de reserva do ciclo anterior NÃO pode diminuir o contador do novo ciclo'
+    );
+
+    // 5. Agora libera a reserva do próprio Ciclo 2
+    await QuotaService.releaseDispatchQuota({
+      userId: user.id,
+      reservationId: reservationIdCycle2
+    });
+
+    const userAfterCurrentRelease = await testPrisma.user.findUnique({ where: { id: user.id } });
+    assert.equal(
+      userAfterCurrentRelease?.dispatchesUsedInCycle,
+      0,
+      'Liberacao de reserva do ciclo atual deve diminuir o contador para 0'
+    );
   });
 });

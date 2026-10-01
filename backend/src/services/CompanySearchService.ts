@@ -123,6 +123,35 @@ export class CompanySearchService {
         }
 
         // Recupera buscas gravadas cujo enfileiramento falhou ou foi perdido (Item 3)
+        let currentReservationId = existingSearch.reservationId;
+        const existingReservation = currentReservationId
+          ? await prisma.creditReservation.findUnique({
+              where: { id: currentReservationId }
+            })
+          : null;
+
+        // Se a reserva foi liberada (ex: por falha no queue.add anterior) ou não existe, recupera coerentemente
+        if (!existingReservation || existingReservation.status === 'RELEASED') {
+          console.log(`[COMPANY SEARCH RECOVERY] Reserva associada à busca ${existingSearch.id} está ${existingReservation?.status || 'AUSENTE'}. Recuperando nova reserva...`);
+          const recoveredReservation = await CreditWalletService.reserveCredits({
+            userId,
+            amount: count,
+            idempotencyKey: `recovery_${existingSearch.id}_${Date.now()}`,
+            sourceType: 'COMPANY_SEARCH',
+            description: `Recuperação de reserva para busca de empresas: ${cleanSegment} em ${cleanLocation}`
+          });
+          currentReservationId = recoveredReservation.reservationId;
+          await prisma.companySearch.update({
+            where: { id: existingSearch.id },
+            data: {
+              reservationId: recoveredReservation.reservationId,
+              creditsReserved: recoveredReservation.reservedAmount
+            }
+          });
+          existingSearch.reservationId = recoveredReservation.reservationId;
+          existingSearch.creditsReserved = recoveredReservation.reservedAmount;
+        }
+
         const isTest = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));
         if (!isTest && existingSearch.status === 'PENDING') {
           try {
@@ -144,6 +173,13 @@ export class CompanySearchService {
           } catch (qErr: any) {
             console.warn('[COMPANY SEARCH RE-ENQUEUE WARNING]', qErr?.message);
           }
+        } else if (isTest && existingSearch.status === 'PENDING') {
+          // Em testes automatizados, processa de forma síncrona
+          await this.processSearchJob(existingSearch.id, { isLastAttempt: true });
+          return await prisma.companySearch.findUnique({
+            where: { id: existingSearch.id },
+            include: { results: true }
+          });
         }
 
         return existingSearch;
@@ -207,13 +243,34 @@ export class CompanySearchService {
       return searchRecord;
     } catch (createErr: any) {
       // Se duas requisições concorrentes tentarem criar com a mesma chave:
-      // A perdedora recebe P2002. NÃO libera a reserva da vencedora! Retorna a busca criada pela vencedora.
+      // A perdedora recebe P2002. Libera a reserva desta tentativa e valida payload completo da vencedora!
       if (createErr instanceof Prisma.PrismaClientKnownRequestError && createErr.code === 'P2002') {
         const winnerSearch = await prisma.companySearch.findUnique({
           where: { idempotencyKey: finalIdempotencyKey },
           include: { results: true }
         });
+
+        // Só libera a reserva se for uma reserva distinta desta requisição perdedora
+        // Se for a mesma reserva compartilhada via idempotência com a vencedora, NÃO libera!
+        if (winnerSearch && reservation?.reservationId && reservation.reservationId !== winnerSearch.reservationId) {
+          await CreditWalletService.releaseReservation({
+            reservationId: reservation.reservationId,
+            reason: 'Corrida concorrente: chave já registrada pela busca vencedora'
+          }).catch(() => {});
+        }
+
         if (winnerSearch) {
+          const isSameTargetCampaign = (winnerSearch.targetCampaignId || null) === (targetCampaignId || null);
+          if (
+            winnerSearch.workspaceId !== workspaceId ||
+            winnerSearch.segment !== cleanSegment ||
+            winnerSearch.location !== cleanLocation ||
+            winnerSearch.requestedCount !== count ||
+            !isSameTargetCampaign
+          ) {
+            throw new Error('Chave de idempotência já utilizada com parâmetros de busca diferentes.');
+          }
+
           return winnerSearch;
         }
       }
@@ -717,6 +774,42 @@ export class CompanySearchService {
   }
 
   /**
+   * Inspeciona o input de uma execução na Apify para verificar vínculo inequívoco com a busca.
+   * Não reutiliza uma execução apenas por proximidade temporal ou status; exige identidade exata da operação (searchId).
+   */
+  public static async isApifyRunBoundToSearch(params: {
+    runId: string;
+    defaultKeyValueStoreId?: string | null;
+    searchId: string;
+    apifyToken: string;
+  }): Promise<boolean> {
+  const { runId, defaultKeyValueStoreId, searchId, apifyToken } = params;
+  try {
+    let input: any = null;
+    const inputRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/input?token=${apifyToken}`, {
+      signal: AbortSignal.timeout(10000)
+    });
+    if (inputRes.ok) {
+      input = await inputRes.json();
+    } else if (defaultKeyValueStoreId) {
+      const kvRes = await fetch(`https://api.apify.com/v2/key-value-stores/${defaultKeyValueStoreId}/records/INPUT?token=${apifyToken}`, {
+        signal: AbortSignal.timeout(10000)
+      });
+      if (kvRes.ok) {
+        input = await kvRes.json();
+      }
+    }
+
+    if (!input || typeof input !== 'object') return false;
+
+    // Vínculo inequívoco obrigatório: searchId gravado em customData no POST original
+    return input.customData?.searchId === searchId;
+  } catch {
+    return false;
+  }
+}
+
+  /**
    * Consulta a API oficial da Apify com persistência do runId, timeouts explícitos de 45s
    * e capacidade de reconectar ao run existente em caso de retry do BullMQ.
    * NUNCA substitui falhas por contatos inventados ou fictícios.
@@ -760,35 +853,43 @@ export class CompanySearchService {
       }
     }
 
-    // 2. Se não existe runId, reconcilia antes de disparar nova execução paga (Item 4)
+    // 2. Se não existe runId, reconcilia antes de disparar nova execução paga (Item 1)
     if (!runId) {
       const searchString = `${segment} em ${location}`;
 
-      // Checa se já existe um run recente na Apify para os mesmos termos (ex: resposta perdida em timeout anterior)
+      // Checa se já existe um run recente na Apify vinculado inequivocamente a esta busca específica (searchId)
       try {
         const recentRes = await fetch(
-          `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=5&desc=1`,
+          `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=10&desc=1`,
           { signal: AbortSignal.timeout(15000) }
         );
         if (recentRes.ok) {
           const recentJson: any = await recentRes.json();
           const items = recentJson.data?.items || [];
           const threeMinutesAgo = Date.now() - 180000;
-          const candidate = items.find((r: any) =>
-            new Date(r.startedAt).getTime() > threeMinutesAgo &&
-            ['RUNNING', 'READY', 'SUCCEEDED'].includes(r.status)
-          );
-          if (candidate) {
-            console.log(`[APIFY RECONCILIATION] Reconciliado com execução recente em andamento ${candidate.id}`);
-            runId = candidate.id;
-            defaultDatasetId = candidate.defaultDatasetId || null;
+          for (const item of items) {
+            const startedAtTime = new Date(item.startedAt).getTime();
+            if (startedAtTime > threeMinutesAgo && ['RUNNING', 'READY', 'SUCCEEDED'].includes(item.status)) {
+              const isBound = await this.isApifyRunBoundToSearch({
+                runId: item.id,
+                defaultKeyValueStoreId: item.defaultKeyValueStoreId,
+                searchId,
+                apifyToken
+              });
+              if (isBound) {
+                console.log(`[APIFY RECONCILIATION] Reconciliado com execução vinculada à busca ${searchId}: ${item.id}`);
+                runId = item.id;
+                defaultDatasetId = item.defaultDatasetId || null;
+                break;
+              }
+            }
           }
         }
       } catch (recErr: any) {
         console.warn('[APIFY RECONCILIATION CHECK WARNING]', recErr?.message);
       }
 
-      // Se não havia execução recente compatível, inicia nova chamada externa
+      // Se não havia execução recente vinculada a esta busca, inicia nova chamada externa
       if (!runId) {
         console.log(`[APIFY SEARCH] Iniciando consulta para "${segment}" em "${location}" (máx ${requestedCount})...`);
 
@@ -804,25 +905,43 @@ export class CompanySearchService {
                 maxCrawledPlacesPerSearch: requestedCount,
                 language: 'pt-BR',
                 countryCode: 'BR',
-                skipClosedPlaces: true
+                skipClosedPlaces: true,
+                customData: {
+                  searchId,
+                  segment,
+                  location,
+                  requestedCount
+                }
               }),
               signal: AbortSignal.timeout(45000)
             }
           );
         } catch (postErr: any) {
-          // Em caso de timeout ou erro de rede no POST (estado incerto), tenta capturar o run recém-criado
+          // Em caso de timeout ou erro de rede no POST (estado incerto), verifica se o run desta busca foi criado
           console.warn('[APIFY POST WARNING] Timeout/erro na criação externa. Verificando estado incerto...', postErr?.message);
           try {
             const checkRes = await fetch(
-              `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=3&desc=1`,
+              `https://api.apify.com/v2/acts/compass~crawler-google-places/runs?token=${apifyToken}&limit=5&desc=1`,
               { signal: AbortSignal.timeout(15000) }
             );
             if (checkRes.ok) {
               const checkJson: any = await checkRes.json();
-              const latest = checkJson.data?.items?.[0];
-              if (latest && (Date.now() - new Date(latest.startedAt).getTime() < 60000)) {
-                runId = latest.id;
-                defaultDatasetId = latest.defaultDatasetId;
+              const recentRuns = checkJson.data?.items || [];
+              for (const candidate of recentRuns) {
+                if (Date.now() - new Date(candidate.startedAt).getTime() < 60000) {
+                  const isBound = await this.isApifyRunBoundToSearch({
+                    runId: candidate.id,
+                    defaultKeyValueStoreId: candidate.defaultKeyValueStoreId,
+                    searchId,
+                    apifyToken
+                  });
+                  if (isBound) {
+                    console.log(`[APIFY POST RECOVERY] Recuperada execução criada para busca ${searchId}: ${candidate.id}`);
+                    runId = candidate.id;
+                    defaultDatasetId = candidate.defaultDatasetId || null;
+                    break;
+                  }
+                }
               }
             }
           } catch (_) {}

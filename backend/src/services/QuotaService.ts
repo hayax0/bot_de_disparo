@@ -99,6 +99,8 @@ export class QuotaService {
     quota?: number;
     reason?: string;
     isIdempotent?: boolean;
+    reservationId?: string;
+    cycleKey?: string;
   }> {
     const userId = typeof userOrParams === 'string' ? userOrParams : userOrParams.userId;
     const dispatchKey = typeof userOrParams === 'string' ? undefined : userOrParams.dispatchKey;
@@ -145,7 +147,9 @@ export class QuotaService {
               allowed: true,
               isIdempotent: true,
               used: user.dispatchesUsedInCycle,
-              isUnlimited: isUserUnlimited(user) || isLegacyPlan(user.planId)
+              isUnlimited: isUserUnlimited(user) || isLegacyPlan(user.planId),
+              reservationId: existing.id,
+              cycleKey: existing.cycleKey
             };
           }
         }
@@ -207,8 +211,9 @@ export class QuotaService {
       }
 
       // 5. Persiste a reserva de disparo no banco com status RESERVED
+      let createdReservation: any = null;
       if (dispatchKey) {
-        await tx.dispatchReservation.upsert({
+        createdReservation = await tx.dispatchReservation.upsert({
           where: {
             userId_cycleKey_dispatchKey: {
               userId,
@@ -231,23 +236,44 @@ export class QuotaService {
       return {
         allowed: true,
         used: updatedRows[0].dispatchesUsedInCycle,
-        quota
+        quota,
+        reservationId: createdReservation?.id,
+        cycleKey
       };
     }, { timeout: 15000 });
   }
 
   /**
    * Confirma definitivamente o consumo do disparo quando a transmissão é iniciada.
-   * Transição atômica persistida no PostgreSQL. Preserva a proteção contra reenvio incerto.
+   * Opera pelo identificador da reserva ou chave do envio.
    */
-  static async confirmDispatchQuota(params: { userId: string; dispatchKey?: string }): Promise<void> {
-    const { userId, dispatchKey } = params;
-    if (!dispatchKey) return;
+  static async confirmDispatchQuota(params: {
+    userId: string;
+    dispatchKey?: string | undefined;
+    reservationId?: string | undefined;
+  }): Promise<void> {
+    const { userId, dispatchKey, reservationId } = params;
+    if (!reservationId && !dispatchKey) return;
+
+    if (reservationId) {
+      await prisma.dispatchReservation.updateMany({
+        where: { id: reservationId, status: 'RESERVED' },
+        data: { status: 'CONFIRMED' }
+      });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { cycleResetAt: true, createdAt: true }
+    });
+    const currentCycleKey = user ? getCycleKey(user) : undefined;
 
     await prisma.dispatchReservation.updateMany({
       where: {
         userId,
-        dispatchKey,
+        dispatchKey: dispatchKey!,
+        ...(currentCycleKey ? { cycleKey: currentCycleKey } : {}),
         status: 'RESERVED'
       },
       data: {
@@ -258,22 +284,53 @@ export class QuotaService {
 
   /**
    * Libera atomicamente a cota reservada caso o envio seja abortado antes de qualquer transmissão efetiva.
-   * Totalmente idempotente: liberação repetida não estorna duas vezes.
+   * Respeita rigorosamente o ciclo da reserva: estornos de ciclos anteriores NÃO diminuem a franquia do ciclo novo.
    */
-  static async releaseDispatchQuota(params: { userId: string; dispatchKey?: string }): Promise<void> {
-    const { userId, dispatchKey } = params;
+  static async releaseDispatchQuota(params: {
+    userId: string;
+    dispatchKey?: string | undefined;
+    reservationId?: string | undefined;
+  }): Promise<void> {
+    const { userId, dispatchKey, reservationId } = params;
 
-    if (!dispatchKey) {
+    if (!reservationId && !dispatchKey) {
       await this.refundDispatchQuota(userId);
       return;
     }
 
     await prisma.$transaction(async (tx) => {
-      // Transição atômica condicional: só transiciona de RESERVED para RELEASED
+      // 1. Localiza a reserva pendente exata
+      let reservation: any = null;
+      if (reservationId) {
+        reservation = await tx.dispatchReservation.findUnique({
+          where: { id: reservationId }
+        });
+      } else if (dispatchKey) {
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { cycleResetAt: true, createdAt: true }
+        });
+        const currentCycleKey = user ? getCycleKey(user) : undefined;
+        reservation = await tx.dispatchReservation.findFirst({
+          where: {
+            userId,
+            dispatchKey: dispatchKey!,
+            ...(currentCycleKey ? { cycleKey: currentCycleKey } : {}),
+            status: 'RESERVED'
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+      }
+
+      if (!reservation || reservation.status !== 'RESERVED') {
+        // Já confirmada ou já liberada (proteção contra estorno repetido ou incerto)
+        return;
+      }
+
+      // 2. Transição atômica condicional para RELEASED
       const updateResult = await tx.dispatchReservation.updateMany({
         where: {
-          userId,
-          dispatchKey,
+          id: reservation.id,
           status: 'RESERVED'
         },
         data: {
@@ -281,13 +338,27 @@ export class QuotaService {
         }
       });
 
-      // Se atualizou 1 linha, estorna 1 disparo da cota do usuário
-      if (updateResult.count > 0) {
+      if (updateResult.count === 0) return;
+
+      // 3. Verifica se o ciclo da reserva corresponde ao ciclo vigente do usuário
+      const user = await tx.user.findUnique({
+        where: { id: reservation.userId },
+        select: { id: true, cycleResetAt: true, createdAt: true, dispatchesUsedInCycle: true }
+      });
+
+      if (!user) return;
+
+      const currentCycleKey = getCycleKey(user);
+
+      // Só estorna do contador do ciclo atual se a reserva pertencer ao ciclo ATUAL (Item 4)
+      if (reservation.cycleKey === currentCycleKey) {
         await tx.$executeRaw`
           UPDATE "User"
           SET "dispatchesUsedInCycle" = GREATEST(0, "dispatchesUsedInCycle" - 1)
-          WHERE "id" = ${userId}
+          WHERE "id" = ${reservation.userId}
         `;
+      } else {
+        console.log(`[QUOTA RELEASE] Reserva ${reservation.id} pertencente ao ciclo anterior (${reservation.cycleKey}) liberada após renovação para o ciclo (${currentCycleKey}). Contador do novo ciclo mantido intacto.`);
       }
     }, { timeout: 15000 });
   }
