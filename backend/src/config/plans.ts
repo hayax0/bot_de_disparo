@@ -16,6 +16,9 @@ export interface PlanDefinition {
   isUnlimited?: boolean;
   description: string;
   features: string[];
+  checkoutUrl?: string;
+  caktoOfferId?: string;
+  caktoOfferCode?: string;
 }
 
 export interface CreditPackageDefinition {
@@ -27,6 +30,9 @@ export interface CreditPackageDefinition {
   pricePerCreditFormatted: string;
   isPopular?: boolean;
   description: string;
+  checkoutUrl: string;
+  caktoOfferId: string;
+  caktoOfferCode?: string;
 }
 
 export const OPERATION_CREDIT_COSTS = {
@@ -43,6 +49,9 @@ export const PLANS: Record<string, PlanDefinition> = {
     monthlyDispatches: 1000,
     monthlyCredits: 50,
     maxWhatsappConnections: 1,
+    checkoutUrl: 'https://pay.cakto.com.br/3ejxmar_1165260',
+    caktoOfferId: '1165260',
+    caktoOfferCode: '3ejxmar',
     description: 'Ideal para profissionais autônomos e pequenos negócios iniciando a prospecção.',
     features: [
       '1.000 disparos por mês',
@@ -62,6 +71,9 @@ export const PLANS: Record<string, PlanDefinition> = {
     monthlyCredits: 150,
     maxWhatsappConnections: 1,
     isPopular: true,
+    checkoutUrl: 'https://pay.cakto.com.br/9gwgit3_1165278',
+    caktoOfferId: '1165278',
+    caktoOfferCode: '9gwgit3',
     description: 'Para empresas em crescimento que precisam de fluxo diário consistente de leads.',
     features: [
       '3.000 disparos por mês',
@@ -80,6 +92,9 @@ export const PLANS: Record<string, PlanDefinition> = {
     monthlyDispatches: 6000,
     monthlyCredits: 300,
     maxWhatsappConnections: 1,
+    checkoutUrl: 'https://pay.cakto.com.br/33zk2g2_1165304',
+    caktoOfferId: '1165304',
+    caktoOfferCode: '33zk2g2',
     description: 'Para operações comerciais ativas com alto volume de prospecção consultiva.',
     features: [
       '6.000 disparos por mês',
@@ -134,6 +149,9 @@ export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
     priceCents: 999,
     priceFormatted: '9,99',
     pricePerCreditFormatted: 'R$ 0,0999',
+    checkoutUrl: 'https://pay.cakto.com.br/zmvfpjf_1165355',
+    caktoOfferId: '1165355',
+    caktoOfferCode: 'zmvfpjf',
     description: 'Ideal para testes rápidos, geração e refinamento de mensagens com IA.',
   },
   PACKAGE_MEDIUM: {
@@ -144,6 +162,9 @@ export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
     priceFormatted: '24,99',
     pricePerCreditFormatted: 'R$ 0,0833',
     isPopular: true,
+    checkoutUrl: 'https://pay.cakto.com.br/dqywaqn_1165367',
+    caktoOfferId: '1165367',
+    caktoOfferCode: 'dqywaqn',
     description: 'Melhor relação custo-benefício para abastecer campanhas semanais de prospecção.',
   },
   PACKAGE_LARGE: {
@@ -153,6 +174,9 @@ export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
     priceCents: 4999,
     priceFormatted: '49,99',
     pricePerCreditFormatted: 'R$ 0,0714',
+    checkoutUrl: 'https://pay.cakto.com.br/cbd2uec_1165374',
+    caktoOfferId: '1165374',
+    caktoOfferCode: 'cbd2uec',
     description: 'Máximo desconto por crédito para geração de mensagens com IA.',
   },
 };
@@ -223,13 +247,117 @@ export function getCreditPackageById(packageId: string): CreditPackageDefinition
   return CREDIT_PACKAGES[upper] || null;
 }
 
-/** Catálogo apenas informativo: nenhuma URL de pagamento legada é reutilizada. */
 export function getCommercialCatalog() {
   return {
-    purchaseEnabled: false as const,
-    unavailableReason: 'Novas assinaturas e recargas estarão disponíveis em breve.',
+    purchaseEnabled: true as const,
     plans: Object.values(PLANS).filter(plan => !plan.isLegacy && !plan.isUnlimited),
     packages: Object.values(CREDIT_PACKAGES),
     creditCostPerMessage: OPERATION_CREDIT_COSTS.AI_ASSISTANT_QUERY,
   };
+}
+
+export type CommercialItemType = 'PLAN' | 'PACKAGE' | 'LEGACY' | 'UNKNOWN';
+
+export interface CommercialResolution {
+  type: CommercialItemType;
+  plan?: PlanDefinition;
+  package?: CreditPackageDefinition;
+  planId?: string;
+  packageId?: string;
+}
+
+/**
+ * Resolução ultra-resiliente do item adquirido via Cakto:
+ * Analisa offer_id, offer code, URL de checkout e nome do produto.
+ */
+export function resolveCommercialItem(item: any): CommercialResolution {
+  if (!item) return { type: 'UNKNOWN' };
+
+  const offerId = String(
+    item.offer_id ||
+    item.offer?.id ||
+    item.offerId ||
+    item.product?.offer_id ||
+    item.product?.offerId ||
+    ''
+  ).trim();
+
+  const offerCode = String(
+    item.offer?.code ||
+    item.offer_code ||
+    item.code ||
+    item.product?.code ||
+    ''
+  ).trim().toLowerCase();
+
+  const checkoutUrl = String(
+    item.checkout_url ||
+    item.payment_url ||
+    item.url ||
+    ''
+  ).trim().toLowerCase();
+
+  const rawName = String(
+    item.product?.name ||
+    item.product_name ||
+    item.name ||
+    item.title ||
+    ''
+  ).trim().toLowerCase();
+
+  const matchesIdentifier = (targetOfferId?: string, targetCode?: string) => {
+    if (targetOfferId && offerId && (offerId === targetOfferId || offerId.includes(targetOfferId))) return true;
+    if (targetCode && offerCode && (offerCode === targetCode || offerCode.includes(targetCode))) return true;
+    if (targetCode && checkoutUrl && checkoutUrl.includes(targetCode)) return true;
+    if (targetOfferId && checkoutUrl && checkoutUrl.includes(targetOfferId)) return true;
+    return false;
+  };
+
+  // 1. Identificação de Planos Comerciais por ID / Código
+  for (const plan of Object.values(PLANS)) {
+    if (plan.isLegacy || plan.isUnlimited) continue;
+    if (matchesIdentifier(plan.caktoOfferId, plan.caktoOfferCode)) {
+      return { type: 'PLAN', plan, planId: plan.id };
+    }
+  }
+
+  // 2. Identificação de Pacotes de Recarga por ID / Código
+  for (const pkg of Object.values(CREDIT_PACKAGES)) {
+    if (matchesIdentifier(pkg.caktoOfferId, pkg.caktoOfferCode)) {
+      return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
+    }
+  }
+
+  // 3. Fallback por nome/descrição
+  if (rawName.includes('700') || (rawName.includes('recarga') && rawName.includes('700'))) {
+    const pkg = CREDIT_PACKAGES.PACKAGE_LARGE;
+    return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
+  }
+  if (rawName.includes('300') || (rawName.includes('recarga') && rawName.includes('300'))) {
+    const pkg = CREDIT_PACKAGES.PACKAGE_MEDIUM;
+    return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
+  }
+  if (rawName.includes('100') || (rawName.includes('recarga') && rawName.includes('100'))) {
+    const pkg = CREDIT_PACKAGES.PACKAGE_SMALL;
+    return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
+  }
+  if (rawName.includes('essencial') || rawName.includes('start')) {
+    const plan = PLANS.START;
+    return { type: 'PLAN', plan, planId: plan.id };
+  }
+  if (rawName.includes('profissional') || rawName.includes('pro')) {
+    const plan = PLANS.PRO;
+    return { type: 'PLAN', plan, planId: plan.id };
+  }
+  if (rawName.includes('premium') || rawName.includes('scale')) {
+    const plan = PLANS.SCALE;
+    return { type: 'PLAN', plan, planId: plan.id };
+  }
+
+  // 4. Produto Legado (ex: "Disparo WhatsApp - Mensal")
+  if (rawName.includes('disparo') || rawName.includes('legado') || rawName.includes('davi') || rawName.includes('mensal')) {
+    return { type: 'LEGACY', planId: 'LEGACY_DAVI' };
+  }
+
+  return { type: 'UNKNOWN' };
 }

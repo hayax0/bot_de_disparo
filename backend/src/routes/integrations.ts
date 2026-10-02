@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
 import { AiCopyService } from '../services/AiCopyService';
-import { getCommercialCatalog, getPlanById, isLegacyPlan, isUserUnlimited } from '../config/plans';
+import { getCommercialCatalog, getPlanById, getCreditPackageById, isLegacyPlan, isUserUnlimited } from '../config/plans';
 import { QuotaService } from '../services/QuotaService';
 
 const router = Router();
@@ -24,9 +24,26 @@ router.get('/plans', async (req, res) => {
     });
   } catch { res.status(500).json({ error: 'Não foi possível carregar os planos. Tente novamente.' }); }
 });
-// A indisponibilidade também é aplicada no servidor: não basta desabilitar botões.
-router.post('/checkout', (_req, res) => {
-  res.status(503).json({ code: 'CHECKOUT_UNAVAILABLE', error: getCommercialCatalog().unavailableReason });
+
+router.post('/checkout', (req, res) => {
+  const { planId, packageId } = req.body || {};
+  if (planId) {
+    const plan = getPlanById(planId);
+    if (!plan || plan.isLegacy || plan.isUnlimited || !plan.checkoutUrl) {
+      return res.status(400).json({ error: 'Plano inválido para checkout.' });
+    }
+    return res.json({ checkoutUrl: plan.checkoutUrl, planId: plan.id });
+  }
+
+  if (packageId) {
+    const pkg = getCreditPackageById(packageId);
+    if (!pkg || !pkg.checkoutUrl) {
+      return res.status(400).json({ error: 'Pacote de créditos inválido para checkout.' });
+    }
+    return res.json({ checkoutUrl: pkg.checkoutUrl, packageId: pkg.id });
+  }
+
+  return res.status(400).json({ error: 'Informe um plano ou pacote para checkout.' });
 });
 const limiter = rateLimit({ windowMs: 60000, limit: 10, keyGenerator: req => req.user!.userId, message: { error: 'Muitas tentativas. Aguarde um minuto.' } });
 const failure = (res: any, error: unknown) => res.status(error instanceof IntegrationError ? error.status : 500)

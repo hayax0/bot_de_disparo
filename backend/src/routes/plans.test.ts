@@ -34,29 +34,37 @@ async function setup(t: any, overrides = {}) {
   return { base, headers };
 }
 
-test('catálogo autenticado: planos e pacotes aprovados sem links de checkout', async t => {
+test('catálogo autenticado: planos e pacotes aprovados com links de checkout oficiais', async t => {
   const { base, headers } = await setup(t);
   assert.equal((await fetch(`${base}/plans`)).status, 401);
   const response = await fetch(`${base}/plans`, { headers });
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.equal(data.purchaseEnabled, false);
+  assert.equal(data.purchaseEnabled, true);
   assert.deepEqual(data.plans.map((p: any) => [p.id, p.name, p.priceCents, p.monthlyDispatches, p.monthlyCredits, p.maxWhatsappConnections]), [
     ['START', 'Essencial', 2799, 1000, 50, 1], ['PRO', 'Profissional', 5599, 3000, 150, 1], ['SCALE', 'Premium', 9599, 6000, 300, 1],
   ]);
   assert.deepEqual(data.packages.map((p: any) => [p.credits, p.priceCents]), [[100, 999], [300, 2499], [700, 4999]]);
   assert.equal(data.currentPlan.id, 'PRO');
   assert.equal(data.dispatch.remaining, 2875);
-  assert.ok(!JSON.stringify(data).includes('checkoutUrl'));
+  assert.ok(data.plans[0].checkoutUrl.includes('pay.cakto.com.br'));
+  assert.ok(data.packages[0].checkoutUrl.includes('pay.cakto.com.br'));
 });
 
-test('checkout bloqueado no servidor mesmo com valores manipulados', async t => {
+test('checkout gera URLs oficiais validadas no servidor', async t => {
   const { base, headers } = await setup(t);
-  for (const body of [{ planId: 'START' }, { packageId: 'PACKAGE_SMALL', credits: 999999, priceCents: 0 }]) {
-    const response = await fetch(`${base}/checkout`, { method: 'POST', headers, body: JSON.stringify(body) });
-    assert.equal(response.status, 503);
-    assert.equal((await response.json()).code, 'CHECKOUT_UNAVAILABLE');
-  }
+  const planRes = await fetch(`${base}/checkout`, { method: 'POST', headers, body: JSON.stringify({ planId: 'START' }) });
+  assert.equal(planRes.status, 200);
+  const planData = await planRes.json();
+  assert.equal(planData.checkoutUrl, 'https://pay.cakto.com.br/3ejxmar_1165260');
+
+  const pkgRes = await fetch(`${base}/checkout`, { method: 'POST', headers, body: JSON.stringify({ packageId: 'PACKAGE_MEDIUM' }) });
+  assert.equal(pkgRes.status, 200);
+  const pkgData = await pkgRes.json();
+  assert.equal(pkgData.checkoutUrl, 'https://pay.cakto.com.br/dqywaqn_1165367');
+
+  const invalidRes = await fetch(`${base}/checkout`, { method: 'POST', headers, body: JSON.stringify({ planId: 'INEXISTENTE' }) });
+  assert.equal(invalidRes.status, 400);
 });
 
 test('catálogo preserva benefício vitalício por papel ADMIN', async t => {

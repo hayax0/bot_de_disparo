@@ -5,6 +5,8 @@ import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { EmailService } from './EmailService';
 import { processCaktoWebhook, validateWebhookSecret } from './SubscriptionManager';
+import { QuotaService } from './QuotaService';
+import { CreditWalletService } from './CreditWalletService';
 
 const secret = 'Test-Secret-With-Exact-Case';
 const payload = (id = 'event-1') => ({ secret, event: 'purchase_approved', data: { id, customer: { email: 'buyer@example.test' } } });
@@ -118,4 +120,126 @@ test('Webhook concorrente: lock por cliente evita aplicar duas vezes o mesmo eve
   assert.ok(responses.every(result => result.success));
   assert.equal(updates, 1);
   assert.equal(logs.length, 1);
+});
+
+test('Webhook comercial: compra de plano atualiza planoId, franquia de disparos e concede creditos mensais', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let updatedUser: any = null;
+  let grantedCredits: any = null;
+  let resetQuota: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: {
+        findFirst: async () => null,
+        create: async () => ({}),
+      },
+      user: {
+        findUnique: async () => ({
+          id: 'u-subscriber',
+          email: 'pro@example.test',
+          role: 'USER',
+          planId: 'START',
+          subscriptionStatus: 'ACTIVE',
+        }),
+        update: async ({ data }: any) => {
+          updatedUser = data;
+          return { id: 'u-subscriber', email: 'pro@example.test', ...data };
+        },
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, QuotaService, 'resetCycleDispatches', async (_userId: string, quota?: number) => {
+    resetQuota = quota;
+  });
+
+  mockMethod(t, CreditWalletService, 'grantMonthlyCredits', async (params: any) => {
+    grantedCredits = params;
+    return { success: true, grantedAmount: params.amount };
+  });
+
+  mockMethod(t, prisma.subscriptionNotification, 'findUnique', async () => ({ id: 'already' }));
+
+  const planPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-plan-pro',
+      offer_id: '1165278', // PRO offer id
+      product: { name: 'Plano Profissional' },
+      customer: { email: 'pro@example.test', name: 'Pro User' },
+    },
+  };
+
+  const res = await processCaktoWebhook(planPayload);
+  assert.equal(res.success, true);
+  assert.equal(updatedUser.planId, 'PRO');
+  assert.equal(updatedUser.monthlyDispatchQuota, 3000);
+  assert.equal(resetQuota, 3000);
+  assert.equal(grantedCredits.amount, 150);
+});
+
+test('Webhook comercial: compra de recarga concede creditos comprados e cria pedido', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let grantedPackage: any = null;
+  let purchaseOrder: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: {
+        findFirst: async () => null,
+        create: async () => ({}),
+      },
+      creditPurchaseOrder: {
+        upsert: async ({ create }: any) => {
+          purchaseOrder = create;
+          return create;
+        },
+      },
+      user: {
+        findUnique: async () => ({
+          id: 'u-credits',
+          email: 'credits@example.test',
+          role: 'USER',
+          planId: 'PRO',
+          subscriptionStatus: 'ACTIVE',
+        }),
+        update: async ({ data }: any) => ({ id: 'u-credits', ...data }),
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, CreditWalletService, 'grantPurchasedCredits', async (params: any) => {
+    grantedPackage = params;
+    return { success: true, newPurchasedBalance: params.amount };
+  });
+
+  const pkgPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-pkg-300',
+      offer_id: '1165367', // PACKAGE_MEDIUM offer id (300 créditos)
+      product: { name: '300 Créditos de IA — Recarga Avulsa' },
+      customer: { email: 'credits@example.test', name: 'Credit Buyer' },
+    },
+  };
+
+  const res = await processCaktoWebhook(pkgPayload);
+  assert.equal(res.success, true);
+  assert.equal(grantedPackage.amount, 300);
+  assert.equal(purchaseOrder.packageId, 'PACKAGE_MEDIUM');
+  assert.equal(purchaseOrder.credits, 300);
+  assert.equal(purchaseOrder.priceCents, 2499);
 });

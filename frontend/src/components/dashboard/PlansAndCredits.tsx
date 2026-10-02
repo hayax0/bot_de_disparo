@@ -6,10 +6,11 @@ import { api } from '@/lib/api';
 type Plan = {
   id: string; name: string; priceFormatted: string; monthlyCredits: number;
   monthlyDispatches: number; maxWhatsappConnections: number; isPopular?: boolean;
+  checkoutUrl?: string;
 };
-type CreditPackage = { id: string; name: string; credits: number; priceFormatted: string };
+type CreditPackage = { id: string; name: string; credits: number; priceFormatted: string; checkoutUrl?: string };
 type Catalog = {
-  purchaseEnabled: false; unavailableReason: string; plans: Plan[]; packages: CreditPackage[];
+  purchaseEnabled: boolean; plans: Plan[]; packages: CreditPackage[];
   currentPlan: Plan | null; isUnlimited: boolean; isLegacy: boolean;
   dispatch: { quota?: number; used?: number; remaining?: number; isUnlimited?: boolean };
 };
@@ -43,33 +44,59 @@ export function PlansAndCredits() {
           {' '}{number(catalog.dispatch.remaining ?? 0)} disponíveis.</p>
       </>}
     </div>
-    <p className="text-sm text-amber-200">{catalog.unavailableReason} Nenhuma compra está habilitada nesta etapa.</p>
-    <details>
-      <summary className="text-emerald-400 cursor-pointer text-sm font-medium">Comparar os três planos</summary>
+    <p className="text-sm text-emerald-400 font-medium">Liberação automática imediata via PIX ou Cartão de Crédito.</p>
+    <details open>
+      <summary className="text-emerald-400 cursor-pointer text-sm font-medium">Planos disponíveis</summary>
       <div className="grid md:grid-cols-3 gap-3 mt-4">
-        {catalog.plans.map(plan => <article key={plan.id} className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3">
-          <h3 className="text-white font-semibold">{plan.name}{catalog.currentPlan?.id === plan.id && <span className="text-xs text-emerald-400 ml-2">Atual</span>}</h3>
-          <p className="text-xl text-white font-semibold">R$ {plan.priceFormatted}<span className="text-xs text-slate-400 font-normal"> /mês</span></p>
-          <ul className="text-sm text-slate-300 space-y-2">
-            <li>{number(plan.monthlyDispatches)} disparos por mês</li>
-            <li>{number(plan.monthlyCredits)} créditos mensais de IA</li>
-            <li>{plan.maxWhatsappConnections} conexão WhatsApp</li>
-            <li>Busca com sua própria conta Apify</li>
-            <li>Campanhas e histórico de contatos</li>
-          </ul>
-          <button disabled className="w-full rounded-lg border border-white/10 p-2 text-sm text-slate-500 cursor-not-allowed">Assinaturas em breve</button>
+        {catalog.plans.map(plan => <article key={plan.id} className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 flex flex-col justify-between">
+          <div className="space-y-2">
+            <h3 className="text-white font-semibold">{plan.name}{catalog.currentPlan?.id === plan.id && <span className="text-xs text-emerald-400 ml-2">(Atual)</span>}</h3>
+            <p className="text-xl text-white font-semibold">R$ {plan.priceFormatted}<span className="text-xs text-slate-400 font-normal"> /mês</span></p>
+            <ul className="text-sm text-slate-300 space-y-2 pt-2">
+              <li>• {number(plan.monthlyDispatches)} disparos por mês</li>
+              <li>• {number(plan.monthlyCredits)} créditos mensais de IA</li>
+              <li>• {plan.maxWhatsappConnections} conexão WhatsApp</li>
+              <li>• Busca com sua conta Apify</li>
+              <li>• Campanhas e histórico permanente</li>
+            </ul>
+          </div>
+          {plan.checkoutUrl ? (
+            <a
+              href={plan.checkoutUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full block text-center rounded-lg bg-emerald-500 hover:bg-emerald-400 p-2.5 text-sm font-semibold text-slate-950 transition shadow-sm mt-3"
+            >
+              {catalog.currentPlan?.id === plan.id ? 'Renovar Plano' : 'Assinar Plano'}
+            </a>
+          ) : (
+            <button disabled className="w-full rounded-lg border border-white/10 p-2 text-sm text-slate-500 cursor-not-allowed">Indisponível</button>
+          )}
         </article>)}
       </div>
     </details>
     {!catalog.isUnlimited && <div>
       <h3 className="text-white font-medium">Créditos extras de IA</h3>
-      <p className="text-sm text-slate-400 mt-1">Pagamento único, em qualquer plano. Recargas não aumentam sua franquia de disparos.</p>
+      <p className="text-sm text-slate-400 mt-1">Pagamento único. Os créditos comprados não expiram e não alteram sua franquia de disparos.</p>
       <div className="grid md:grid-cols-3 gap-3 mt-3">
-        {catalog.packages.map(pack => <article key={pack.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <h4 className="text-white font-medium">{pack.name}</h4>
-          <p className="text-lg text-emerald-400 mt-1">R$ {pack.priceFormatted}</p>
-          <p className="text-xs text-slate-400 mt-1">Não expiram</p>
-          <button disabled className="w-full rounded-lg border border-white/10 p-2 text-sm text-slate-500 mt-3 cursor-not-allowed">Recargas em breve</button>
+        {catalog.packages.map(pack => <article key={pack.id} className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-col justify-between">
+          <div>
+            <h4 className="text-white font-medium">{pack.name}</h4>
+            <p className="text-lg text-emerald-400 mt-1 font-semibold">R$ {pack.priceFormatted}</p>
+            <p className="text-xs text-slate-400 mt-1">Não expiram</p>
+          </div>
+          {pack.checkoutUrl ? (
+            <a
+              href={pack.checkoutUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full block text-center rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 p-2 text-sm font-semibold text-emerald-300 transition mt-3"
+            >
+              Comprar Créditos
+            </a>
+          ) : (
+            <button disabled className="w-full rounded-lg border border-white/10 p-2 text-sm text-slate-500 mt-3 cursor-not-allowed">Indisponível</button>
+          )}
         </article>)}
       </div>
     </div>}
