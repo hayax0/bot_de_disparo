@@ -12,7 +12,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Como funciona o Agente de IA para criação das mensagens?",
     answer:
-      "Nosso assistente utiliza inteligência artificial avançada (Google Gemini Flash) para analisar o nicho da empresa, o nome do contato e o objetivo da sua campanha. Ele cria abordagens comerciais altamente persuasivas, personalizadas e naturais para cada lead, aumentando drasticamente as taxas de resposta. Cada geração ou refinamento com sucesso consome apenas 1 crédito de IA.",
+      "Nosso assistente utiliza inteligência artificial avançada de alta conversão para analisar o nicho da empresa, o nome do contato e o objetivo da sua campanha. Ele cria abordagens comerciais altamente persuasivas, personalizadas e naturais para cada lead, aumentando drasticamente as taxas de resposta. Cada geração ou refinamento com sucesso consome apenas 1 crédito de IA.",
   },
   {
     question: "Como funciona a Busca Integrada de Empresas no Google Maps?",

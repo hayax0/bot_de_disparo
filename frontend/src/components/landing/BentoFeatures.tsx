@@ -51,8 +51,8 @@ export function BentoFeatures() {
 
             <div className="mt-8 pt-5 border-t border-white/[0.06] grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-3 bg-black/40 rounded-xl border border-white/[0.05]">
-                <span className="text-[10px] text-slate-500 block font-mono">Modelo</span>
-                <span className="text-sm font-bold text-emerald-400 font-mono">Google Gemini Flash</span>
+                <span className="text-[10px] text-slate-500 block font-mono">Tecnologia</span>
+                <span className="text-sm font-bold text-emerald-400 font-mono">Motor de IA Integrado</span>
               </div>
               <div className="p-3 bg-black/40 rounded-xl border border-white/[0.05]">
                 <span className="text-[10px] text-slate-500 block font-mono">Consumo</span>

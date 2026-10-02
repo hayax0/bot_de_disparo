@@ -88,7 +88,6 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className={`dark ${inter.variable} antialiased`}>
       <head>
-        <link rel="alternate" type="text/markdown" href="https://botdisparo.cmpx.tec.br/plataforma.md" title="Guia oficial da plataforma" />
         <link rel="icon" href="/icon.png?v=3" type="image/png" />
         <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
         <link rel="shortcut icon" href="/icon.png?v=3" />
