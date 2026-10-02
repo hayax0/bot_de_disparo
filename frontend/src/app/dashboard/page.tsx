@@ -53,6 +53,7 @@ import {
 import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
 import { AdminTab } from '@/components/dashboard/AdminTab';
 import { AiWallet } from '@/components/dashboard/AiWallet';
+import { PlansAndCredits } from '@/components/dashboard/PlansAndCredits';
 import { CompanySearchTab, type SearchCampaignSelection } from '@/components/dashboard/CompanySearchTab';
 import { AiGenerateModal, LeadMessageModal } from '@/components/dashboard/AiCampaignAssistant';
 
@@ -1658,6 +1659,7 @@ export default function Dashboard() {
         </div>
 
         {!isLegacyUser && <AiWallet />}
+        {!isLegacyUser && <PlansAndCredits />}
         {/* Status do WhatsApp Minimalista com LED */}
         <section className="dash-card rounded-2xl p-5 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

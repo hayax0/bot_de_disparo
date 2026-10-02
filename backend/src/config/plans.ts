@@ -1,14 +1,6 @@
 /**
- * Configuração dos Planos Comerciais, Franquias, Carteira e Pacotes de Créditos.
- * 
- * NOTA COMERCIAL IMPORTANTE:
- * Os preços mensais são fixos conforme definido pelo proprietário:
- * - Plano Start: R$ 27,99/mês
- * - Plano Pro: R$ 55,99/mês
- * - Plano Scale: R$ 95,99/mês
- * 
- * Quantidades de créditos, disparos e pacotes de recarga são propostas técnicas
- * e aguardam validação comercial final antes de publicação oficial.
+ * Catálogo aprovado em 02/10/2026. IDs internos preservados para compatibilidade.
+ * Novas compras permanecem desativadas até integração e validação da Cakto.
  */
 
 export interface PlanDefinition {
@@ -45,59 +37,57 @@ export const OPERATION_CREDIT_COSTS = {
 export const PLANS: Record<string, PlanDefinition> = {
   START: {
     id: 'START',
-    name: 'Start',
+    name: 'Essencial',
     priceCents: 2799,
     priceFormatted: '27,99',
-    monthlyDispatches: 1500,
-    monthlyCredits: 150,
+    monthlyDispatches: 1000,
+    monthlyCredits: 50,
     maxWhatsappConnections: 1,
     description: 'Ideal para profissionais autônomos e pequenos negócios iniciando a prospecção.',
     features: [
-      '1.500 disparos mensais no WhatsApp (~50/dia)',
-      '150 créditos mensais para IA',
-      '1 Conexão WhatsApp ativa via QR Code',
-      'Motor Spintax e cadência anti-bloqueio',
-      'Histórico persistente e filtro anti-recontato',
-      'Recarga de créditos avulsos disponível a qualquer momento',
+      '1.000 disparos por mês',
+      '50 créditos mensais de IA',
+      '1 conexão WhatsApp',
+      'Busca integrada com sua própria conta Apify',
+      'Campanhas e histórico de contatos',
+      'Mensagens personalizadas com IA',
     ],
   },
   PRO: {
     id: 'PRO',
-    name: 'Pro',
+    name: 'Profissional',
     priceCents: 5599,
     priceFormatted: '55,99',
-    monthlyDispatches: 5000,
-    monthlyCredits: 400,
+    monthlyDispatches: 3000,
+    monthlyCredits: 150,
     maxWhatsappConnections: 1,
     isPopular: true,
     description: 'Para empresas em crescimento que precisam de fluxo diário consistente de leads.',
     features: [
-      '5.000 disparos mensais no WhatsApp (~170/dia)',
-      '400 créditos mensais para IA',
-      '1 Conexão WhatsApp ativa com reconexão automática',
-      'Assistente de IA para geração de copies personalizadas',
-      'Filtros inteligentes por categoria e região na busca',
-      'Histórico completo e relatórios de entrega',
-      'Recarga de créditos avulsos disponível a qualquer momento',
+      '3.000 disparos por mês',
+      '150 créditos mensais de IA',
+      '1 conexão WhatsApp',
+      'Busca integrada com sua própria conta Apify',
+      'Campanhas e histórico de contatos',
+      'Mensagens personalizadas com IA',
     ],
   },
   SCALE: {
     id: 'SCALE',
-    name: 'Scale',
+    name: 'Premium',
     priceCents: 9599,
     priceFormatted: '95,99',
-    monthlyDispatches: 15000,
-    monthlyCredits: 1000,
-    maxWhatsappConnections: 2,
+    monthlyDispatches: 6000,
+    monthlyCredits: 300,
+    maxWhatsappConnections: 1,
     description: 'Para operações comerciais ativas com alto volume de prospecção consultiva.',
     features: [
-      '15.000 disparos mensais no WhatsApp (~500/dia)',
-      '1.000 créditos mensais para IA',
-      'Até 2 Conexões WhatsApp ativas',
-      'Assistente de IA avançado para campanhas completas',
-      'Prioridade na fila de buscas assíncronas',
-      'Histórico corporativo sem limite de leads',
-      'Recarga de créditos avulsos disponível a qualquer momento',
+      '6.000 disparos por mês',
+      '300 créditos mensais de IA',
+      '1 conexão WhatsApp',
+      'Busca integrada com sua própria conta Apify',
+      'Campanhas e histórico de contatos',
+      'Mensagens personalizadas com IA',
     ],
   },
   LEGACY_DAVI: {
@@ -139,30 +129,30 @@ export const PLANS: Record<string, PlanDefinition> = {
 export const CREDIT_PACKAGES: Record<string, CreditPackageDefinition> = {
   PACKAGE_SMALL: {
     id: 'PACKAGE_SMALL',
-    name: 'Pacote Pequeno',
-    credits: 200,
-    priceCents: 1990,
-    priceFormatted: '19,90',
-    pricePerCreditFormatted: 'R$ 0,099',
+    name: '100 créditos de IA',
+    credits: 100,
+    priceCents: 999,
+    priceFormatted: '9,99',
+    pricePerCreditFormatted: 'R$ 0,0999',
     description: 'Ideal para testes rápidos, geração e refinamento de mensagens com IA.',
   },
   PACKAGE_MEDIUM: {
     id: 'PACKAGE_MEDIUM',
-    name: 'Pacote Médio (Popular)',
-    credits: 600,
-    priceCents: 4990,
-    priceFormatted: '49,90',
-    pricePerCreditFormatted: 'R$ 0,083',
+    name: '300 créditos de IA',
+    credits: 300,
+    priceCents: 2499,
+    priceFormatted: '24,99',
+    pricePerCreditFormatted: 'R$ 0,0833',
     isPopular: true,
     description: 'Melhor relação custo-benefício para abastecer campanhas semanais de prospecção.',
   },
   PACKAGE_LARGE: {
     id: 'PACKAGE_LARGE',
-    name: 'Pacote Grande (Econômico)',
-    credits: 1500,
-    priceCents: 9990,
-    priceFormatted: '99,90',
-    pricePerCreditFormatted: 'R$ 0,066',
+    name: '700 créditos de IA',
+    credits: 700,
+    priceCents: 4999,
+    priceFormatted: '49,99',
+    pricePerCreditFormatted: 'R$ 0,0714',
     description: 'Máximo desconto por crédito para geração de mensagens com IA.',
   },
 };
@@ -231,4 +221,15 @@ export function getCreditPackageById(packageId: string): CreditPackageDefinition
   if (!packageId) return null;
   const upper = packageId.trim().toUpperCase();
   return CREDIT_PACKAGES[upper] || null;
+}
+
+/** Catálogo apenas informativo: nenhuma URL de pagamento legada é reutilizada. */
+export function getCommercialCatalog() {
+  return {
+    purchaseEnabled: false as const,
+    unavailableReason: 'Novas assinaturas e recargas estarão disponíveis em breve.',
+    plans: Object.values(PLANS).filter(plan => !plan.isLegacy && !plan.isUnlimited),
+    packages: Object.values(CREDIT_PACKAGES),
+    creditCostPerMessage: OPERATION_CREDIT_COSTS.AI_ASSISTANT_QUERY,
+  };
 }

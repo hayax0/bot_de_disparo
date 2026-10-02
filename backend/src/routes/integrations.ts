@@ -7,9 +7,27 @@ import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
 import { AiCopyService } from '../services/AiCopyService';
+import { getCommercialCatalog, getPlanById, isLegacyPlan, isUserUnlimited } from '../config/plans';
+import { QuotaService } from '../services/QuotaService';
 
 const router = Router();
 router.use(authenticate);
+router.get('/plans', async (req, res) => {
+  try {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId },
+      select: { id: true, role: true, planId: true, monthlyDispatchQuota: true, dispatchesUsedInCycle: true } });
+    const isUnlimited = isUserUnlimited(user);
+    const isLegacy = isLegacyPlan(user.planId);
+    res.json({ ...getCommercialCatalog(),
+      currentPlan: getPlanById(isUnlimited ? 'ADMIN_LIFETIME' : isLegacy ? 'LEGACY_DAVI' : user.planId),
+      isUnlimited, isLegacy, dispatch: await QuotaService.canDispatch(user),
+    });
+  } catch { res.status(500).json({ error: 'Não foi possível carregar os planos. Tente novamente.' }); }
+});
+// A indisponibilidade também é aplicada no servidor: não basta desabilitar botões.
+router.post('/checkout', (_req, res) => {
+  res.status(503).json({ code: 'CHECKOUT_UNAVAILABLE', error: getCommercialCatalog().unavailableReason });
+});
 const limiter = rateLimit({ windowMs: 60000, limit: 10, keyGenerator: req => req.user!.userId, message: { error: 'Muitas tentativas. Aguarde um minuto.' } });
 const failure = (res: any, error: unknown) => res.status(error instanceof IntegrationError ? error.status : 500)
   .json({ error: error instanceof IntegrationError ? error.message : 'Não foi possível carregar ou atualizar a integração.' });
