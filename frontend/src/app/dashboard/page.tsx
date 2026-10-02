@@ -238,7 +238,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'admin'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -1481,6 +1481,29 @@ export default function Dashboard() {
               )}
             </button>
 
+            {!isLegacyUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('billing');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                  activeTab === 'billing'
+                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Sparkles size={15} className={activeTab === 'billing' ? 'text-emerald-400' : 'text-slate-500'} />
+                  <span>Plano & Créditos</span>
+                </div>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  IA
+                </span>
+              </button>
+            )}
+
             {user?.role === 'ADMIN' && (
               <button
                 type="button"
@@ -1530,14 +1553,21 @@ export default function Dashboard() {
                   VIP
                 </span>
               ) : user.subscriptionStatus === 'ACTIVE' ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('billing')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold shrink-0 hover:bg-emerald-500/20 cursor-pointer"
+                  title="Ver plano e recargas"
+                >
                   <CheckCircle2 size={10} className="text-emerald-400" />
                   Ativo
-                </span>
+                </button>
               ) : (
                 <button
-                  onClick={() => setIsSubscriptionModalOpen(true)}
+                  type="button"
+                  onClick={() => setActiveTab('billing')}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold shrink-0 hover:bg-amber-500/20 cursor-pointer focus-visible:outline-none"
+                  title="Renovar assinatura"
                 >
                   <AlertTriangle size={10} className="text-amber-400" />
                   Renovar
@@ -1631,6 +1661,20 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
+            {!isLegacyUser && (
+              <button 
+                onClick={() => setActiveTab('billing')}
+                className={`px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer rounded-xl transition-all focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                  activeTab === 'billing'
+                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold'
+                    : 'dash-btn-secondary text-slate-300 hover:text-white'
+                }`}
+                title="Acessar carteira de IA, planos e recargas"
+              >
+                <Sparkles size={14} className="text-emerald-400" />
+                <span>Plano & Recargas</span>
+              </button>
+            )}
             {canUseUpload ? (
               <button 
                 onClick={() => setIsTutorialOpen(true)}
@@ -1658,8 +1702,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {!isLegacyUser && <AiWallet />}
-        {!isLegacyUser && <PlansAndCredits />}
         {/* Status do WhatsApp Minimalista com LED */}
         <section className="dash-card rounded-2xl p-5 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1921,6 +1963,24 @@ export default function Dashboard() {
               </span>
             )}
           </button>
+
+          {!isLegacyUser && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('billing')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                activeTab === 'billing'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <Sparkles size={14} className={activeTab === 'billing' ? 'text-emerald-400' : 'text-slate-500'} />
+              <span>Plano & Créditos</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
+                IA
+              </span>
+            </button>
+          )}
 
           {user?.role === 'ADMIN' && (
             <button
@@ -2420,6 +2480,27 @@ export default function Dashboard() {
         currentUserId={user?.id}
         addToast={addToast}
       />
+    )}
+
+    {activeTab === 'billing' && !isLegacyUser && (
+      <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              <Sparkles className="text-emerald-400" size={22} />
+              Plano & Créditos de IA
+            </h2>
+            <p className="text-xs text-slate-400 font-normal mt-1">
+              Acompanhe sua franquia de disparos, consulte o saldo e extrato da carteira de IA e adquira recargas avulsas que nunca expiram.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <PlansAndCredits />
+          <AiWallet />
+        </div>
+      </div>
     )}
 
       </main>
