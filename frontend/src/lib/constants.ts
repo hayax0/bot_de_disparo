@@ -1,7 +1,7 @@
 /**
  * Constantes oficiais do produto para garantir consistência em toda a aplicação.
  */
-export const CAKTO_CHECKOUT_URL = "https://pay.cakto.com.br/at474et_1080517";
+export const CAKTO_CHECKOUT_URL = "https://pay.cakto.com.br/9gwgit3_1165278";
 
 export interface LandingPlan {
   id: string;

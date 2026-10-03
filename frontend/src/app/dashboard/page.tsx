@@ -1575,15 +1575,14 @@ export default function Dashboard() {
                 <p className="text-[11px] text-slate-400 font-normal">Ative seu plano para liberar a conexão do WhatsApp, importação de leads e disparos.</p>
               </div>
             </div>
-            <a
-              href="https://pay.cakto.com.br/at474et_1080517"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setIsSubscriptionModalOpen(true)}
               className="dash-btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-2 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <Zap size={14} />
-              <span>Assinar Plano Mensal</span>
-            </a>
+              <span>Escolher Plano</span>
+            </button>
           </div>
         )}
 

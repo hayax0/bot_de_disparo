@@ -49,7 +49,7 @@ export const ENV = {
   RESEND_REPLY_TO: process.env.RESEND_REPLY_TO || 'cmpxsuporte@gmail.com',
   PLATFORM_URL: process.env.PLATFORM_URL || (isProduction ? '' : 'http://localhost:3000'),
   CRON_SECRET: process.env.CRON_SECRET || (isProduction ? '' : 'cmpx_cron_dev_secret'),
-  CAKTO_CHECKOUT_URL: process.env.CAKTO_CHECKOUT_URL || 'https://pay.cakto.com.br/at474et_1080517',
+  CAKTO_CHECKOUT_URL: process.env.CAKTO_CHECKOUT_URL || 'https://pay.cakto.com.br/9gwgit3_1165278',
   CAKTO_LEGACY_OFFER_ID: process.env.CAKTO_LEGACY_OFFER_ID || '1080517',
   CAKTO_LEGACY_OFFER_CODE: process.env.CAKTO_LEGACY_OFFER_CODE || 'at474et',
   APIFY_API_TOKEN: process.env.APIFY_API_TOKEN || '',
