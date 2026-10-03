@@ -148,6 +148,24 @@ export async function processCaktoWebhook(payload: CaktoWebhookPayload, headers?
   return { success: result.success, message: result.message };
 }
 
+// Contas provisórias são reivindicadas pelo cadastro com verificação de e-mail.
+// Uma compra avulsa nunca concede assinatura ou prazo de acesso.
+async function createCreditBuyer(tx: Prisma.TransactionClient, email: string, name: string) {
+  return tx.user.create({
+    data: {
+      email,
+      name,
+      password: `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}`,
+      role: 'USER',
+      subscriptionStatus: 'INACTIVE',
+      subscriptionExpiresAt: null,
+      subscriptionStartedAt: null,
+      planId: null,
+      workspaces: { create: { name: 'Minha Empresa' } },
+    },
+  });
+}
+
 async function applyCaktoWebhook(
   payload: CaktoWebhookPayload,
   prisma: Prisma.TransactionClient,
@@ -275,6 +293,9 @@ async function applyCaktoWebhook(
         : null;
 
       if (existingOrder) {
+        if (!existingUser || existingOrder.userId !== existingUser.id) {
+          throw new WebhookError('Pedido de recarga não pertence ao comprador informado no webhook.', 400);
+        }
         // Bloqueador 2: Aprovação atrasada não pode reabrir pedido reembolsado nem conceder benefícios
         if (existingOrder.status === 'REFUNDED') {
           console.warn(`[CAKTO WEBHOOK] Aprovação atrasada ignorada para pedido já reembolsado: ${transactionId}.`);
@@ -289,22 +310,7 @@ async function applyCaktoWebhook(
 
       let targetUser: any = existingUser;
       if (!targetUser) {
-        const hashedPassword = `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}`;
-        targetUser = await prisma.user.create({
-          data: {
-            email,
-            name,
-            password: hashedPassword,
-            role: 'USER',
-            subscriptionStatus: 'ACTIVE',
-            subscriptionExpiresAt: calculatedExpiresAt,
-            subscriptionStartedAt: now,
-            caktoCustomerId: customerId || null,
-            caktoOrderId: transactionId,
-            subscriptionInterval,
-            workspaces: { create: { name: 'Minha Empresa' } }
-          }
-        });
+        targetUser = await createCreditBuyer(prisma, email, name);
       }
 
       const rawAmount = primaryItem.amount ?? primaryItem.paid_amount ?? primaryItem.price ?? primaryItem.value;
@@ -769,7 +775,17 @@ async function applyCaktoWebhook(
     normalizedEvent.includes('refund') ||
     normalizedEvent.includes('chargeback')
   ) {
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    let existingUser = await prisma.user.findUnique({ where: { email } });
+    if (commercial.type === 'PACKAGE') {
+      if (!transactionId) {
+        throw new WebhookError('Reembolso de recarga sem identificador da transação.', 400);
+      }
+      // Persistir o pedido terminal mesmo quando o reembolso precede o cadastro.
+      // O lock account:${email} também serializa este caminho com o cadastro.
+      if (!existingUser) {
+        existingUser = await createCreditBuyer(prisma, email, name);
+      }
+    }
     if (existingUser) {
       if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta admin não afetada' };
