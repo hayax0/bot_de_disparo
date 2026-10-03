@@ -95,19 +95,25 @@ export function PricingSection() {
                   </div>
                 </div>
 
-                {/* Botão de Ação: novos checkouts mantidos indisponíveis até validação */}
+                {/* Botão de Ação: Checkout oficial Cakto */}
                 <div className="pt-4 space-y-3">
-                  <button
-                    type="button"
-                    disabled
-                    className="w-full py-3.5 text-sm font-medium rounded-xl flex items-center justify-center gap-2 text-center bg-white/5 text-slate-400 border border-white/10 cursor-not-allowed transition-all"
+                  <a
+                    href={plan.checkoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`w-full py-3.5 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 text-center transition-all cursor-pointer ${
+                      isPopular
+                        ? "dash-btn-primary shadow-lg shadow-emerald-500/20"
+                        : "bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/10"
+                    }`}
                   >
-                    <span>Indisponível no momento</span>
-                  </button>
+                    <Zap size={15} />
+                    <span>Assinar Plano {plan.name}</span>
+                  </a>
 
                   <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 text-center">
                     <ShieldCheck size={13} className="text-emerald-400" />
-                    <span>Em homologação com a Cakto</span>
+                    <span>{plan.paymentNote}</span>
                   </div>
                 </div>
               </div>

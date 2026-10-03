@@ -50,7 +50,7 @@ import {
   Sparkles,
   FileCheck
 } from 'lucide-react';
-import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
+import { LANDING_PLANS } from '@/lib/constants';
 import { AdminTab } from '@/components/dashboard/AdminTab';
 import { AiWallet } from '@/components/dashboard/AiWallet';
 import { PlansAndCredits } from '@/components/dashboard/PlansAndCredits';
@@ -253,6 +253,7 @@ export default function Dashboard() {
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [selectedPaywallPlanId, setSelectedPaywallPlanId] = useState<string>('PRO');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [isAiBatchModalOpen, setIsAiBatchModalOpen] = useState(false);
   const [selectedLeadForMessage, setSelectedLeadForMessage] = useState<Lead | null>(null);
@@ -3334,73 +3335,101 @@ export default function Dashboard() {
       )}
 
       {/* Modal: Assinatura Necessária / Cakto */}
-      {isSubscriptionModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="dash-card border border-emerald-500/20 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 relative">
-            <button 
-              onClick={() => setIsSubscriptionModalOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-            >
-              <X size={18} />
-            </button>
+      {isSubscriptionModalOpen && (() => {
+        const modalPlan = LANDING_PLANS.find(p => p.id === selectedPaywallPlanId) || LANDING_PLANS[1];
 
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/10">
-                <Crown size={24} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-white text-base">Ativação de Assinatura</h3>
-                <p className="text-xs text-slate-400">Acesso ilimitado à plataforma de disparos</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Disparos inteligentes com delay anti-bloqueio</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Importação direta de leads do Google Maps / Apify</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Motor de Spintax e personalização por lead</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Execução 24/7 em segundo plano na nuvem</span>
-                </div>
-              </div>
-
-              <div className="text-center p-3 rounded-2xl bg-white/[0.02] border border-white/[0.08]">
-                <span className="text-[11px] text-slate-400 font-medium block">Plano Mensal Recorrente</span>
-                <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">R$ 145,99 <span className="text-xs font-normal text-slate-400">/mês</span></div>
-                <span className="text-[10px] text-emerald-400 block mt-1">Liberação instantânea via PIX ou Cartão</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <a
-                href={CAKTO_CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full dash-btn-primary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Zap size={15} />
-                <span>Assinar Agora</span>
-              </a>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+            <div className="dash-card border border-emerald-500/20 rounded-3xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 relative">
               <button 
                 onClick={() => setIsSubscriptionModalOpen(false)}
-                className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
+                className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
-                Talvez mais tarde
+                <X size={18} />
               </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/10">
+                  <Crown size={24} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white text-base">Ativação de Assinatura</h3>
+                  <p className="text-xs text-slate-400">Escolha o plano ideal para suas campanhas</p>
+                </div>
+              </div>
+
+              {/* Seletor rápido dos 3 planos */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {LANDING_PLANS.map((plan) => {
+                  const isSelected = plan.id === modalPlan.id;
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => setSelectedPaywallPlanId(plan.id)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-500/10 text-white shadow-sm'
+                          : 'border-white/10 bg-white/[0.02] text-slate-400 hover:text-white hover:border-white/20'
+                      }`}
+                    >
+                      <span className="text-[11px] font-semibold block">{plan.name}</span>
+                      <span className="text-xs font-bold font-mono text-emerald-400 block mt-0.5">R$ {plan.price}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-3 mb-6">
+                <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>{modalPlan.monthlyDispatches}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>{modalPlan.monthlyCredits}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>1 Conexão WhatsApp com anti-bloqueio inteligente</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>Execução contínua 24/7 na nuvem</span>
+                  </div>
+                </div>
+
+                <div className="text-center p-3 rounded-2xl bg-white/[0.02] border border-white/[0.08]">
+                  <span className="text-[11px] text-slate-400 font-medium block">Plano Selecionado: {modalPlan.name}</span>
+                  <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">
+                    {modalPlan.currency} {modalPlan.price} <span className="text-xs font-normal text-slate-400">{modalPlan.period}</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 block mt-1">{modalPlan.paymentNote}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <a
+                  href={modalPlan.checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full dash-btn-primary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Zap size={15} />
+                  <span>Assinar Plano {modalPlan.name}</span>
+                </a>
+                <button 
+                  onClick={() => setIsSubscriptionModalOpen(false)}
+                  className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  Talvez mais tarde
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal: Visualizar Última Mensagem Enviada no Histórico */}
       {selectedHistoryMessage && (
@@ -3463,108 +3492,196 @@ export default function Dashboard() {
       )}
 
       {/* Paywall Overlay Intransponível: bloqueia visualização e interação para usuários sem assinatura ativa */}
-      {isHydrated && user && !isSubscriptionActive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#08090D]/95 backdrop-blur-2xl animate-in fade-in select-none">
-          <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl relative text-center">
-            
-            {/* Ícone de bloqueio */}
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/10">
-              <Lock size={24} />
-            </div>
+      {isHydrated && user && !isSubscriptionActive && (() => {
+        const activePlan = LANDING_PLANS.find(p => p.id === selectedPaywallPlanId) || LANDING_PLANS[1];
 
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full dash-badge-neutral text-xs font-semibold mb-2">
-              <span>Assinatura Necessária</span>
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#08090D]/95 backdrop-blur-2xl animate-in fade-in select-none overflow-y-auto">
+            <div className="w-full max-w-3xl dash-card rounded-3xl p-5 sm:p-8 border border-white/10 shadow-2xl relative text-center my-auto">
+              
+              {/* Ícone de bloqueio */}
+              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-500/10">
+                <Lock size={24} />
+              </div>
 
-            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Acesso Bloqueado
-            </h2>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full dash-badge-neutral text-xs font-semibold mb-2">
+                <span>Assinatura Necessária</span>
+              </div>
 
-            <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
-              {user.subscriptionStatus === 'PAST_DUE'
-                ? 'Sua assinatura anterior venceu ou está com pagamento pendente.'
-                : user.subscriptionExpiresAt && clientTime !== null && new Date(user.subscriptionExpiresAt).getTime() <= clientTime
-                ? 'O período da sua assinatura mensal expirou.'
-                : 'Sua conta ainda não possui uma assinatura ativa para utilizar a plataforma.'}
-            </p>
+              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                Acesso Bloqueado
+              </h2>
 
-            {/* Box do Plano Oficial */}
-            <div className="my-5 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-left">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                    {OFFICIAL_PLAN.name}
-                  </span>
-                  <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">
-                    {OFFICIAL_PLAN.currency} {OFFICIAL_PLAN.price}{' '}
-                    <span className="text-xs font-normal text-slate-400">{OFFICIAL_PLAN.period}</span>
+              <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed max-w-lg mx-auto">
+                {user.subscriptionStatus === 'PAST_DUE'
+                  ? 'Sua assinatura anterior venceu ou está com pagamento pendente.'
+                  : user.subscriptionExpiresAt && clientTime !== null && new Date(user.subscriptionExpiresAt).getTime() <= clientTime
+                  ? 'O período da sua assinatura mensal expirou.'
+                  : 'Sua conta ainda não possui uma assinatura ativa para utilizar a plataforma. Selecione o plano ideal abaixo para desbloquear seu acesso imediatamente.'}
+              </p>
+
+              {/* Seletor dos 3 Planos Oficiais */}
+              <div className="my-6 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
+                {LANDING_PLANS.map((plan) => {
+                  const isSelected = plan.id === activePlan.id;
+                  const isPopular = plan.isPopular;
+
+                  return (
+                    <div
+                      key={plan.id}
+                      onClick={() => setSelectedPaywallPlanId(plan.id)}
+                      className={`relative rounded-2xl p-4 sm:p-5 flex flex-col justify-between cursor-pointer transition-all duration-200 ${
+                        isSelected
+                          ? 'bg-emerald-500/[0.08] border-2 border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/40'
+                          : 'bg-white/[0.02] border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      {/* Badge Mais Escolhido */}
+                      {isPopular && (
+                        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 shadow-md">
+                          <Sparkles size={11} />
+                          <span>Mais Escolhido</span>
+                        </div>
+                      )}
+
+                      <div>
+                        {/* Topo do Card: Nome e Indicador de Seleção */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-bold text-white tracking-tight">
+                            {plan.name}
+                          </span>
+                          <div
+                            className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                              isSelected
+                                ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                                : 'border border-white/20 bg-transparent'
+                            }`}
+                          >
+                            {isSelected && <Check size={12} strokeWidth={3} />}
+                          </div>
+                        </div>
+
+                        {/* Preço */}
+                        <div className="mb-3">
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-xs font-semibold text-slate-400">{plan.currency}</span>
+                            <span className="text-2xl sm:text-3xl font-bold text-white font-mono tabular-nums">
+                              {plan.price}
+                            </span>
+                            <span className="text-xs font-normal text-slate-400">{plan.period}</span>
+                          </div>
+                          <span className="text-[10px] text-emerald-400 font-medium block mt-0.5">
+                            {plan.paymentNote}
+                          </span>
+                        </div>
+
+                        {/* Franquias Rápidas */}
+                        <div className="space-y-1.5 pt-2.5 border-t border-white/[0.06] text-xs">
+                          <div className="flex items-center gap-1.5 text-slate-300">
+                            <Zap size={13} className="text-emerald-400 shrink-0" />
+                            <span>{plan.monthlyDispatches}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-slate-300">
+                            <Sparkles size={13} className="text-emerald-400 shrink-0" />
+                            <span>{plan.monthlyCredits}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botão de seleção visual */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPaywallPlanId(plan.id);
+                        }}
+                        className={`mt-4 w-full py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          isSelected
+                            ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
+                            : 'bg-white/[0.05] text-slate-300 hover:bg-white/[0.1] hover:text-white'
+                        }`}
+                      >
+                        {isSelected ? 'Plano Selecionado' : 'Selecionar Plano'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Caixa Informativa do Plano Selecionado */}
+              <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-left">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      Incluso no Plano {activePlan.name}
+                    </span>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                      {activePlan.description}
+                    </p>
+                  </div>
+                  <div className="px-2.5 py-1 rounded-lg dash-badge-emerald font-semibold text-xs whitespace-nowrap self-start sm:self-auto">
+                    Liberação Imediata
                   </div>
                 </div>
-                <div className="px-2.5 py-1 rounded-lg dash-badge-emerald font-semibold">
-                  Liberação Imediata
+              </div>
+
+              {/* Feedback da verificação de pagamento */}
+              {verifyPaymentFeedback && (
+                <div
+                  className={`mb-4 p-3 rounded-xl text-xs font-medium border text-left leading-relaxed ${
+                    verifyPaymentFeedback.type === 'success'
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : verifyPaymentFeedback.type === 'error'
+                      ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
+                >
+                  {verifyPaymentFeedback.message}
                 </div>
+              )}
+
+              {/* Botões de Ação */}
+              <div className="space-y-2.5 max-w-md mx-auto">
+                <a
+                  href={activePlan.checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full dash-btn-primary py-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/15"
+                >
+                  <Zap size={16} />
+                  <span>Ativar Plano {activePlan.name} — {activePlan.currency} {activePlan.price}{activePlan.period}</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={handleVerifyPayment}
+                  disabled={verifyingPayment}
+                  className="w-full py-3 rounded-xl text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={verifyingPayment ? 'animate-spin' : ''} />
+                  <span>{verifyingPayment ? 'Consultando servidor...' : 'Verificar Pagamento'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
+                    router.push('/login');
+                  }}
+                  className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <LogOut size={13} />
+                  <span>Encerrar Sessão</span>
+                </button>
               </div>
-              <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                Libera conexão WhatsApp, fila inteligente com delay anti-bloqueio, spintax e execução contínua 24/7 na nuvem.
-              </p>
-            </div>
 
-            {/* Feedback da verificação de pagamento */}
-            {verifyPaymentFeedback && (
-              <div
-                className={`mb-4 p-3 rounded-xl text-xs font-medium border text-left leading-relaxed ${
-                  verifyPaymentFeedback.type === 'success'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : verifyPaymentFeedback.type === 'error'
-                    ? 'bg-red-500/10 border-red-500/30 text-red-300'
-                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                }`}
-              >
-                {verifyPaymentFeedback.message}
+              <div className="mt-5 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500 font-mono">
+                Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
               </div>
-            )}
-
-            {/* Botões de Ação */}
-            <div className="space-y-2.5">
-              <a
-                href={CAKTO_CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full dash-btn-primary py-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Zap size={16} />
-                <span>Ativar Assinatura</span>
-              </a>
-
-              <button
-                type="button"
-                onClick={handleVerifyPayment}
-                disabled={verifyingPayment}
-                className="w-full py-3 rounded-xl text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw size={14} className={verifyingPayment ? 'animate-spin' : ''} />
-                <span>{verifyingPayment ? 'Consultando servidor...' : 'Verificar Pagamento'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  logout();
-                  router.push('/login');
-                }}
-                className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <LogOut size={13} />
-                <span>Encerrar Sessão</span>
-              </button>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500 font-mono">
-              Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal: Editar Nome da Empresa ({minhaEmpresa}) */}
       {isWorkspaceModalOpen && (
