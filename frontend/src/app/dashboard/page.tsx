@@ -2728,9 +2728,17 @@ export default function Dashboard() {
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
                     Mensagem do Disparo
                   </label>
-                  <span className="text-[10px] text-slate-400 bg-white/[0.05] px-2 py-0.5 rounded border border-white/[0.08]">
-                    Texto Padrão
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign(prev => ({
+                      ...prev,
+                      message: "Olá, {nome}! Tudo bem?\n\nMe chamo {meuNome}, da {minhaEmpresa}. Encontrei o contato de vocês aqui em {bairro} e gostaria de saber se vocês têm interesse em conhecer mais sobre os nossos serviços.\n\nVocê teria disponibilidade para conversarmos essa semana?"
+                    }))}
+                    className="text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-2.5 py-1 rounded-xl font-medium transition-all active:scale-[0.98] cursor-pointer flex items-center gap-1.5"
+                    title="Preencher com um modelo básico padrão de mensagem"
+                  >
+                    <span>📄 Inserir modelo padrão básico</span>
+                  </button>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
@@ -2760,6 +2768,9 @@ export default function Dashboard() {
                   className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
                   placeholder="Digite sua mensagem de abordagem... Ex: Olá {nome}, tudo bem? Me chamo {meuNome} da empresa {minhaEmpresa}..."
                 />
+                <p className="text-[10px] text-slate-500">
+                  💡 Este é um modelo básico simples. Se quiser copys persuasivas e personalizadas para cada lead com base em site e nicho, use o <b>Assistente de IA</b>.
+                </p>
               </div>
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-white/[0.08]">
