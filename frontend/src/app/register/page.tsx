@@ -1,15 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useAuth } from '@/store/useAuth';
-import { useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Mail, Lock, User, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, AlertCircle, CheckCircle2, Zap } from 'lucide-react';
 import axios from 'axios';
 import { api } from '@/lib/api';
+import { LANDING_PLANS } from '@/lib/constants';
 
-export default function RegisterPage() {
+function RegisterForm() {
+  const searchParams = useSearchParams();
+  const planQuery = searchParams.get('plan')?.toUpperCase();
+  const selectedPlan = LANDING_PLANS.find(p => p.id === planQuery) || LANDING_PLANS[1];
+  const hasExplicitPlan = Boolean(LANDING_PLANS.find(p => p.id === planQuery));
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,7 +29,6 @@ export default function RegisterPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
   const setAuth = useAuth(state => state.setAuth);
-  const router = useRouter();
 
   // Contador de feedback de 60s (a restrição real é mantida no backend)
   useEffect(() => {
@@ -82,15 +87,29 @@ export default function RegisterPage() {
     setLoading(true);
     setLoadingAction('register');
     try {
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanName = name.trim();
+
       const res = await api.post('/auth/register', { 
-        email: email.trim().toLowerCase(), 
+        email: cleanEmail, 
         password, 
-        name,
+        name: cleanName,
         termsAccepted: true,
         verificationCode: verificationCode.trim(),
+        planId: selectedPlan.id,
       });
+
       setAuth(res.data.token, res.data.user);
-      router.push('/dashboard');
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('last_selected_plan', selectedPlan.id);
+      }
+
+      // Redireciona imediatamente para o checkout da Cakto correspondente ao plano escolhido
+      const checkoutBase = res.data.checkoutUrl || selectedPlan.checkoutUrl;
+      const redirectUrl = `${checkoutBase}?email=${encodeURIComponent(cleanEmail)}&name=${encodeURIComponent(cleanName)}`;
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign(redirectUrl);
     } catch (err: unknown) {
       let msg = 'Falha ao criar conta. Verifique os dados informados.';
       if (axios.isAxiosError(err) && err.response?.data?.error) {
@@ -113,16 +132,40 @@ export default function RegisterPage() {
       <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/[0.02] blur-[140px] pointer-events-none" />
 
       <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
-        <div className="flex flex-col items-center mb-8">
+        <div className="flex flex-col items-center mb-6">
           <Link href="/" className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5 hover:border-emerald-500/40 transition-colors">
             <Image src="/logo.png" alt="Logo Disparador" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </Link>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             Criar sua conta
           </h1>
-          <p className="text-xs text-slate-400 mt-1.5 text-center font-normal">
-            Cadastre-se para iniciar sua prospecção automatizada via WhatsApp
+          <p className="text-xs text-slate-400 mt-1 text-center font-normal">
+            Cadastre-se para ativar sua assinatura e iniciar os disparos
           </p>
+        </div>
+
+        {/* Card do Plano Escolhido */}
+        <div className="mb-6 p-3.5 sm:p-4 rounded-2xl bg-emerald-500/[0.08] border border-emerald-500/30 flex items-center justify-between gap-3 text-left animate-in fade-in">
+          <div>
+            <div className="flex items-center gap-1.5">
+              <Zap size={13} className="text-emerald-400 shrink-0" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/25">
+                {hasExplicitPlan ? 'Plano Selecionado' : 'Plano Recomendado'}
+              </span>
+            </div>
+            <p className="text-sm sm:text-base font-bold text-white mt-1">
+              {selectedPlan.name} — <span className="font-mono text-emerald-300">{selectedPlan.currency} {selectedPlan.price}{selectedPlan.period}</span>
+            </p>
+            <p className="text-xs text-slate-300 mt-0.5">
+              {selectedPlan.monthlyDispatches} • {selectedPlan.monthlyCredits}
+            </p>
+          </div>
+          <Link
+            href="/#planos"
+            className="text-xs text-slate-400 hover:text-emerald-400 underline transition-colors shrink-0 whitespace-nowrap"
+          >
+            Trocar
+          </Link>
         </div>
 
         {errorMessage && (
@@ -189,7 +232,7 @@ export default function RegisterPage() {
               <div className="flex items-start gap-2">
                 <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
                 <p className="text-xs text-slate-200 leading-relaxed font-normal">
-                  Enviamos um código de 6 dígitos para seu e-mail. Digite-o abaixo para concluir o cadastro.
+                  Enviamos um código de 6 dígitos para seu e-mail. Digite-o abaixo para concluir o cadastro e prosseguir ao pagamento.
                 </p>
               </div>
 
@@ -262,16 +305,16 @@ export default function RegisterPage() {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full dash-btn-primary py-3 mt-6 group cursor-pointer flex items-center justify-center text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
+            className="w-full dash-btn-primary py-3.5 mt-6 group cursor-pointer flex items-center justify-center text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none shadow-lg shadow-emerald-500/20"
           >
             {loading ? (
               <span className="flex items-center gap-2">
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                {loadingAction === 'code' ? 'Enviando código...' : 'Criando conta...'}
+                {loadingAction === 'code' ? 'Enviando código...' : 'Criando conta e gerando pagamento...'}
               </span>
             ) : verificationRequired ? (
               <>
-                <span>Confirmar Código e Criar Conta</span>
+                <span>Confirmar Código e Ir para Pagamento</span>
                 <ArrowRight size={15} className="ml-2 group-hover:translate-x-1 transition-transform" />
               </>
             ) : (
@@ -296,5 +339,17 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 text-slate-400 text-xs">
+        Carregando...
+      </div>
+    }>
+      <RegisterForm />
+    </Suspense>
   );
 }

@@ -253,7 +253,15 @@ export default function Dashboard() {
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
-  const [selectedPaywallPlanId, setSelectedPaywallPlanId] = useState<string>('PRO');
+  const [selectedPaywallPlanId, setSelectedPaywallPlanId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('last_selected_plan');
+      if (saved && (saved === 'START' || saved === 'PRO' || saved === 'SCALE')) {
+        return saved;
+      }
+    }
+    return 'PRO';
+  });
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [isAiBatchModalOpen, setIsAiBatchModalOpen] = useState(false);
   const [selectedLeadForMessage, setSelectedLeadForMessage] = useState<Lead | null>(null);

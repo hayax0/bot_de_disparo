@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CheckCircle2, Zap, ShieldCheck, Sparkles } from "lucide-react";
 import { LANDING_PLANS } from "@/lib/constants";
 
@@ -95,12 +96,10 @@ export function PricingSection() {
                   </div>
                 </div>
 
-                {/* Botão de Ação: Checkout oficial Cakto */}
+                {/* Botão de Ação: Criar Conta e Assinar Plano */}
                 <div className="pt-4 space-y-3">
-                  <a
-                    href={plan.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <Link
+                    href={`/register?plan=${plan.id}`}
                     className={`w-full py-3.5 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 text-center transition-all cursor-pointer ${
                       isPopular
                         ? "dash-btn-primary shadow-lg shadow-emerald-500/20"
@@ -108,12 +107,12 @@ export function PricingSection() {
                     }`}
                   >
                     <Zap size={15} />
-                    <span>Assinar Plano {plan.name}</span>
-                  </a>
+                    <span>Começar com {plan.name}</span>
+                  </Link>
 
                   <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 text-center">
                     <ShieldCheck size={13} className="text-emerald-400" />
-                    <span>{plan.paymentNote}</span>
+                    <span>Crie sua conta • Ativação imediata</span>
                   </div>
                 </div>
               </div>

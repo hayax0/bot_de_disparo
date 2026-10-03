@@ -24,7 +24,7 @@ import {
   updateWorkspaceSchema
 } from '../lib/validation';
 import { PasswordResetService, PasswordResetError } from '../services/PasswordResetService';
-import { getUserCapabilities } from '../config/plans';
+import { getUserCapabilities, getPlanById } from '../config/plans';
 
 const router = Router();
 
@@ -51,8 +51,11 @@ router.post(
   registerLimiter,
   validateBody(registerSchema),
   async (req: Request, res: Response): Promise<any> => {
-    const { email, password, name, verificationCode } = req.body;
+    const { email, password, name, verificationCode, planId } = req.body;
     const cleanEmail = email;
+    const selectedPlan = getPlanById(planId);
+    const targetPlanId = selectedPlan && !selectedPlan.isLegacy && !selectedPlan.isUnlimited ? selectedPlan.id : null;
+    const targetCheckoutUrl = selectedPlan && selectedPlan.checkoutUrl ? selectedPlan.checkoutUrl : ENV.CAKTO_CHECKOUT_URL;
 
     try {
       // Exigência universal: todo cadastro exige o código de 6 dígitos enviado ao e-mail
@@ -82,7 +85,7 @@ router.post(
                 termsVersion: '1.0',
                 authVersion: { increment: 1 },
                 emailVerifiedAt: new Date(),
-                ...(isAdmin ? { role: 'ADMIN', subscriptionStatus: 'LIFETIME' } : {}),
+                ...(isAdmin ? { role: 'ADMIN', subscriptionStatus: 'LIFETIME' } : (targetPlanId && !existingUser.planId ? { planId: targetPlanId } : {})),
               },
             });
             if (changed.count !== 1) throw new RegistrationError('Esta conta já foi ativada. Faça login.', 409);
@@ -105,6 +108,7 @@ router.post(
             password: hashedPassword,
             name: name ? String(name).trim() : null,
             role: isAdmin ? 'ADMIN' : 'USER',
+            planId: isAdmin ? 'ADMIN_LIFETIME' : targetPlanId,
             subscriptionStatus: isAdmin ? 'LIFETIME' : 'INACTIVE',
             termsAcceptedAt: new Date(),
             termsVersion: '1.0',
@@ -136,7 +140,7 @@ router.post(
         EmailService.sendRegistrationInvitationEmail({
           email: user.email,
           name: user.name,
-          checkoutUrl: ENV.CAKTO_CHECKOUT_URL
+          checkoutUrl: targetCheckoutUrl
         }).then(async (emailResult) => {
           await prisma.subscriptionNotification.create({
             data: {
@@ -156,6 +160,7 @@ router.post(
 
       return res.status(result.isNew ? 201 : 200).json({
         token,
+        checkoutUrl: targetCheckoutUrl,
         user: {
           id: user.id,
           email: user.email,
