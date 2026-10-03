@@ -66,7 +66,7 @@ router.get('/ai-wallet', async (req, res) => {
     const summary = await CreditWalletService.getWalletSummary(userId);
     const transactions = await prisma.creditTransaction.findMany({ where: { userId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50,
       select: { id: true, amount: true, type: true, sourceType: true, description: true, createdAt: true } });
-    res.json({ ...summary, transactions, purchaseEnabled: false, aiEnabled: AiCopyService.isAvailable() });
+    res.json({ ...summary, transactions, purchaseEnabled: true, aiEnabled: AiCopyService.isAvailable() });
   } catch (error) { failure(res, error); }
 });
 export default router;

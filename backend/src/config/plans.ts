@@ -255,7 +255,7 @@ export function getCreditPackageById(packageId: string): CreditPackageDefinition
 
 export function getCommercialCatalog() {
   return {
-    purchaseEnabled: false as const,
+    purchaseEnabled: true,
     plans: Object.values(PLANS).filter(plan => !plan.isLegacy && !plan.isUnlimited),
     packages: Object.values(CREDIT_PACKAGES),
     creditCostPerMessage: OPERATION_CREDIT_COSTS.AI_ASSISTANT_QUERY,
