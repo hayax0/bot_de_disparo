@@ -248,8 +248,6 @@ export default function Dashboard() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedHistoryMessage, setSelectedHistoryMessage] = useState<DispatchHistoryItem | null>(null);
 
-  // Persistência da última copy utilizada
-  const [lastUsedCopy, setLastUsedCopy] = useState<{ messageComSite: string | null; messageSemSite: string | null } | null>(null);
 
   // Modais e Drawers
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
@@ -309,19 +307,6 @@ export default function Dashboard() {
   const campaignCreationId = useRef<string | null>(null);
   const creatingCampaign = useRef(false);
 
-  // Estados do Simulador de Mensagem (WhatsApp Web)
-  const [messagePreviewTab, setMessagePreviewTab] = useState<'semSite' | 'comSite'>('semSite');
-  const [messagePreviewLoading, setMessagePreviewLoading] = useState(false);
-  const [messagePreviewData, setMessagePreviewData] = useState<{
-    valid: boolean;
-    warnings: string[];
-    notice: string;
-    previews: {
-      comSite: { rendered: string; lead: { title?: string; neighborhood?: string; website?: string | null }; warnings: string[] };
-      semSite: { rendered: string; lead: { title?: string; neighborhood?: string; website?: string | null }; warnings: string[] };
-    };
-  } | null>(null);
-  const [spintaxSeed, setSpintaxSeed] = useState(0);
 
   // Estado de Rascunho Restaurado
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
@@ -463,17 +448,6 @@ export default function Dashboard() {
     }
   }, [addToast]);
 
-  // Carregar última copy utilizada no Workspace
-  const fetchLastCopy = useCallback(async () => {
-    try {
-      const res = await api.get('/campaigns/last-copy');
-      if (res.data) {
-        setLastUsedCopy(res.data);
-      }
-    } catch (err) {
-      console.warn('Falha ao carregar última copy:', err);
-    }
-  }, []);
 
   // Carregar dados da empresa/workspace
   const fetchWorkspace = useCallback(async () => {
@@ -563,7 +537,6 @@ export default function Dashboard() {
           fetchStatus(),
           fetchCampaigns(),
           fetchHistory(1, ''),
-          fetchLastCopy(),
           fetchWorkspace()
         ]);
       }
@@ -573,7 +546,7 @@ export default function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchLastCopy, fetchWorkspace, router]);
+  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchWorkspace, router]);
 
   // Polling adaptativo contínuo de campanhas: 5s se houver campanha RUNNING ou STARTING, 20s em repouso
   // Pausa com aba oculta e atualiza imediatamente ao voltar
@@ -922,9 +895,6 @@ export default function Dashboard() {
     setDetailsSyncWarning(null);
   }, []);
 
-  const defaultComSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava analisando a estrutura de vocês e vi que vocês já possuem um site ativo ({website}). Mas me diz uma coisa: quanto tempo a sua equipe perde na semana respondendo mensagem de curioso no WhatsApp que só quer saber preço e não tem perfil pra fechar?\n\nA gente implementou uma camada de triagem automática que roda no próprio site de vocês, educa o cliente, filtra o orçamento e só joga pro seu WhatsApp quem tá pronto pra fechar contrato.\n\nFaria sentido eu te mandar um áudio de 45 segundos mostrando como aplicar isso na {nome}?";
-  const defaultSemSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava dando uma olhada na presença de vocês em {bairro} e vi que vocês ainda não têm um site próprio no ar. Como o cliente de maior ticket sempre pesquisa a credibilidade da empresa no Google antes de fechar, eu montei uma demonstração prática de como ficaria a página da {nome} no ar com filtro de clientes automático.\n\nFaria sentido eu te mandar o link desse protótipo pra você dar uma olhada em 1 minuto?";
-  const defaultB2B = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Como vai}?\n\nVi a atuação de vocês em {bairro} e achei muito interessante o trabalho da {nome}. Nós ajudamos empresas do seu segmento a aumentarem o volume de contatos qualificados todos os meses através da internet.\n\nVocê teria 2 minutinhos essa semana para batermos um papo rápido e eu te apresentar uma ideia simples que pode gerar mais clientes para a {nome}?";
 
   const [newCampaign, setNewCampaign] = useState({ 
     name: '', 
@@ -1049,8 +1019,8 @@ export default function Dashboard() {
     if (!loadedFromDraft) {
       setNewCampaign(prev => ({
         ...prev,
-        messageComSite: prev.messageComSite || lastUsedCopy?.messageComSite || '',
-        messageSemSite: prev.messageSemSite || lastUsedCopy?.messageSemSite || ''
+        messageComSite: '',
+        messageSemSite: ''
       }));
       setHasRestoredDraft(false);
     }
@@ -1084,28 +1054,6 @@ export default function Dashboard() {
     }
   };
 
-  // Prévia da Mensagem (WhatsApp Simulator) com debounce e sorteio de Spintax
-  useEffect(() => {
-    if (!isModalOpen) return;
-    const timer = setTimeout(async () => {
-      setMessagePreviewLoading(true);
-      try {
-        const sampleLead = importPreview.diagnostic?.sampleLeads?.[0] || undefined;
-        const res = await api.post('/campaigns/preview-message', {
-          messageComSite: newCampaign.messageComSite,
-          messageSemSite: newCampaign.messageSemSite,
-          sampleLead
-        });
-        setMessagePreviewData(res.data);
-      } catch {
-        // silencioso
-      } finally {
-        setMessagePreviewLoading(false);
-      }
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [newCampaign.messageComSite, newCampaign.messageSemSite, isModalOpen, spintaxSeed, importPreview.diagnostic]);
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1189,7 +1137,6 @@ export default function Dashboard() {
       setImportPreview({ loading: false, error: null, diagnostic: null });
       fetchCampaigns();
       fetchHistory(1, historySearch);
-      fetchLastCopy();
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
         setIsSubscriptionModalOpen(true);
@@ -2728,70 +2675,24 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Sugestões de Copys de Alta Conversão */}
-              <div className="dash-card p-4 rounded-2xl border border-white/[0.08] space-y-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                    💡 Sugestões de Copys Validadas
+              {/* Assistente de IA de Alta Conversão (Incentivo / Upsell Inteligente) */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-500/5 to-transparent border border-emerald-500/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-emerald-400" />
+                    Prefere uma abordagem de alta conversão gerada por IA?
                   </span>
-                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                    Clique para Inserir
+                  <span className="text-[10px] text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 font-medium">
+                    ⚡ 1 Crédito por Lead
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mb-2">
-                  Escreva seu próprio texto ou use uma das copys validadas abaixo:
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Em vez de mensagens genéricas ou ter trabalho de redigir manualmente, você pode utilizar nossa Inteligência Artificial para analisar o nicho, o bairro e a presença online de cada lead, gerando copys hiperpersonalizadas com 1 clique direto na lista de contatos.
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {lastUsedCopy && (lastUsedCopy.messageComSite || lastUsedCopy.messageSemSite) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewCampaign(prev => ({
-                          ...prev,
-                          messageComSite: lastUsedCopy.messageComSite || '',
-                          messageSemSite: lastUsedCopy.messageSemSite || ''
-                        }));
-                        addToast('info', 'Última copy usada restaurada!');
-                      }}
-                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 active:scale-[0.98] transition-all cursor-pointer"
-                      title="Restaurar a última abordagem personalizada que você utilizou"
-                    >
-                      <RefreshCw size={12} />
-                      <span>🔄 Restaurar última copy usada</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({
-                      ...newCampaign,
-                      messageSemSite: defaultSemSite,
-                      messageComSite: defaultComSite
-                    })}
-                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 hover:border-emerald-500/40 text-slate-200 rounded-xl text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    🚀 Kit Completo (Com e Sem Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultSemSite })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    ✨ Venda de Site (Sem Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageComSite: defaultComSite })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    🎯 Triagem WhatsApp (Com Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultB2B })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    💼 Prospecção B2B Direta
-                  </button>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <span className="text-[10px] text-slate-400 italic">
+                    💡 Digite abaixo sua mensagem padrão de disparo caso prefira redigir manualmente:
+                  </span>
                 </div>
               </div>
 
@@ -2841,7 +2742,6 @@ export default function Dashboard() {
                     { tag: '{bairro}', label: 'Bairro' },
                     { tag: '{meuNome}', label: 'Meu Nome' },
                     { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
                   ].map(item => (
                     <button
                       key={item.tag}
@@ -2859,7 +2759,7 @@ export default function Dashboard() {
                   value={newCampaign.messageSemSite}
                   onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
                   className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
-                  placeholder="Escreva sua mensagem personalizada ou clique em um dos modelos acima..."
+                  placeholder="Digite sua mensagem padrão de abordagem... Ex: Olá {nome}, tudo bem? Me chamo {meuNome}..."
                 />
               </div>
 
@@ -2882,7 +2782,6 @@ export default function Dashboard() {
                     { tag: '{bairro}', label: 'Bairro' },
                     { tag: '{meuNome}', label: 'Meu Nome' },
                     { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
                   ].map(item => (
                     <button
                       key={item.tag}
@@ -2900,103 +2799,9 @@ export default function Dashboard() {
                   value={newCampaign.messageComSite}
                   onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
                   className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
-                  placeholder="Se deixar em branco, o robô enviará a mensagem principal para todos os leads..."
+                  placeholder="Opcional: Digite uma abordagem específica para contatos com site ({website}). Deixe em branco para usar a mensagem principal para todos..."
                 />
               </div>
-
-              {/* Simulador WhatsApp Web Dark */}
-              {(newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim()) && (
-                <div className="dash-card rounded-2xl border border-emerald-500/20 bg-[#0B141A]/95 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 text-xs font-bold">
-                        WA
-                      </div>
-                      <div>
-                        <span className="text-xs font-semibold text-slate-200 block">Simulador WhatsApp Web</span>
-                        <span className="text-[10px] text-emerald-400 font-mono">Disparo Real Simulado</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSpintaxSeed(s => s + 1)}
-                        className="px-2.5 py-1 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-lg text-[10px] font-semibold text-slate-300 flex items-center gap-1 active:scale-[0.98] transition-all cursor-pointer"
-                        title="Gera uma nova variação para demonstrar a alternância dinâmica de palavras"
-                      >
-                        <RefreshCw size={10} className={messagePreviewLoading ? 'animate-spin' : ''} />
-                        <span>Sortear Spintax</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Alternador Com Site vs Sem Site */}
-                  <div className="flex gap-1 bg-black/40 p-1 rounded-xl border border-white/[0.06] text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setMessagePreviewTab('semSite')}
-                      className={`flex-1 py-1.5 rounded-lg font-medium active:scale-[0.98] transition-all cursor-pointer ${
-                        messagePreviewTab === 'semSite'
-                          ? 'bg-white/[0.1] text-white border border-white/[0.15] shadow-sm font-semibold'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Ver Sem Site (Principal)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMessagePreviewTab('comSite')}
-                      className={`flex-1 py-1.5 rounded-lg font-medium active:scale-[0.98] transition-all cursor-pointer ${
-                        messagePreviewTab === 'comSite'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm font-semibold'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Ver Com Site Próprio
-                    </button>
-                  </div>
-
-                  {/* Balão de Mensagem WhatsApp Dark */}
-                  <div className="p-3.5 rounded-2xl bg-[#111B21] border border-white/[0.04] space-y-2">
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 pb-1 border-b border-white/[0.04]">
-                      <span>Para: <b>{messagePreviewTab === 'comSite' ? (messagePreviewData?.previews.comSite.lead.title || 'Empresa Exemplo') : (messagePreviewData?.previews.semSite.lead.title || 'Empresa Exemplo')}</b></span>
-                      <span>Remetente: <b>{user?.name || workspaceName || 'Minha Empresa'}</b></span>
-                    </div>
-
-                    <div className="flex justify-start">
-                      <div className="max-w-[90%] sm:max-w-[80%] rounded-2xl rounded-tl-sm bg-[#005c4b] text-slate-100 p-3 text-xs leading-relaxed shadow-md relative">
-                        <div className="whitespace-pre-wrap font-sans">
-                          {messagePreviewTab === 'comSite' 
-                            ? (messagePreviewData?.previews.comSite.rendered || (newCampaign.messageComSite.trim() || newCampaign.messageSemSite.trim() || 'Digite uma mensagem...'))
-                            : (messagePreviewData?.previews.semSite.rendered || (newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim() || 'Digite uma mensagem...'))
-                          }
-                        </div>
-                        <div className="flex items-center justify-end gap-1 text-[9px] text-emerald-200/70 mt-1">
-                          <span>14:35</span>
-                          <CheckCheck size={12} className="text-cyan-300" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Avisos de Validação (Variáveis desconhecidas ou Spintax quebrado) */}
-                  {messagePreviewData?.warnings && messagePreviewData.warnings.length > 0 && (
-                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1 text-[11px] text-amber-200">
-                      <span className="font-bold flex items-center gap-1 text-amber-300">
-                        <AlertTriangle size={13} className="shrink-0" /> Avisos na Mensagem:
-                      </span>
-                      {messagePreviewData.warnings.map((w, idx) => (
-                        <p key={idx} className="text-[10px] pl-4">{w}</p>
-                      ))}
-                    </div>
-                  )}
-
-                  <p className="text-[10px] text-slate-400 italic">
-                    💡 A variação exibida é uma amostra: no momento do envio real, o Spintax sorteará uma opção diferente para cada contato da fila.
-                  </p>
-                </div>
-              )}
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-white/[0.08]">
                 <button 
