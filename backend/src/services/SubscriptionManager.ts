@@ -256,6 +256,21 @@ async function applyCaktoWebhook(
   }); // Faz parte da mesma transação das alterações abaixo; falhas causam rollback.
 
   // 4. Tratamento de Eventos e Validação de Produto
+  // 4.0 Detecção de Ping de Teste do Painel da Cakto (botão "Testar" na Cakto)
+  const isCaktoTestPing =
+    primaryItem.product?.name === 'Produto Teste' ||
+    primaryItem.customer?.email === 'john.doe@example.com' ||
+    primaryItem.refId === 'VZ3Z5LT' ||
+    String(primaryItem.checkoutUrl || '').includes('/EXAMPLE');
+
+  if (isCaktoTestPing) {
+    console.log(`[CAKTO WEBHOOK] Ping de teste do painel da Cakto recebido e aprovado com sucesso. Evento: "${normalizedEvent}".`);
+    return {
+      success: true,
+      message: 'Ping de teste da Cakto recebido com sucesso',
+    };
+  }
+
   const commercial = resolveCommercialItem(primaryItem);
   if (commercial.type === 'UNKNOWN') {
     console.warn(`[CAKTO WEBHOOK] Produto desconhecido ou não homologado. Evento: "${normalizedEvent}". Dados do item:`, JSON.stringify(primaryItem));

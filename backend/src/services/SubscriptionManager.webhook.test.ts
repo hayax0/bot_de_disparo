@@ -426,3 +426,41 @@ test('Webhook comercial: suporta payload real da Cakto com refId e nome oficial 
   assert.equal(updatedUser.monthlyDispatchQuota, 3000);
 });
 
+test('Webhook comercial: responde 200 OK para ping de teste do painel da Cakto', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null },
+    };
+    return await operation(tx);
+  });
+
+  const testPingPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'test-ping-id',
+      refId: 'VZ3Z5LT',
+      customer: {
+        name: 'John Doe',
+        email: 'john.doe@example.com',
+      },
+      product: {
+        name: 'Produto Teste',
+        id: 'ff3fdf61-e88f-43b5-982a-32d50f112414',
+      },
+      checkoutUrl: 'https://pay.cakto.com.br/EXAMPLE',
+    },
+  };
+
+  const res = await processCaktoWebhook(testPingPayload);
+  assert.equal(res.success, true);
+  assert.match(res.message, /ping de teste/i);
+});
+
+
