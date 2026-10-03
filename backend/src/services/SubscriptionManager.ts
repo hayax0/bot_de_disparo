@@ -456,7 +456,50 @@ async function applyCaktoWebhook(
       return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: targetUser };
     }
 
-    // 2. Proteção do Davi (LEGACY_DAVI): Não pode ser migrado para novos produtos
+    // 2. Davi (davianicetofirme@hotmail.com): Renovação promove e mantém no Plano PRO com 1 mês de cortesia/acesso
+    const isOfficialDavi = existingUser && existingUser.email.toLowerCase() === 'davianicetofirme@hotmail.com';
+    if (isOfficialDavi && (commercial.type === 'LEGACY' || commercial.type === 'PLAN')) {
+      const planPro = getPlanById('PRO')!;
+      let newExpiresAt: Date;
+      if (existingUser.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
+        const base = new Date(existingUser.subscriptionExpiresAt);
+        const { expiresAt } = calculateSubscriptionPeriod(primaryItem, base);
+        newExpiresAt = expiresAt;
+      } else {
+        newExpiresAt = calculatedExpiresAt;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          subscriptionStatus: 'ACTIVE',
+          subscriptionExpiresAt: newExpiresAt,
+          subscriptionRenewedAt: now,
+          planId: 'PRO',
+          monthlyDispatchQuota: planPro.monthlyDispatches,
+          caktoOrderId: transactionId,
+          caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
+          subscriptionInterval
+        }
+      });
+
+      await QuotaService.resetCycleDispatches(existingUser.id, planPro.monthlyDispatches, prisma);
+
+      await CreditWalletService.grantMonthlyCredits({
+        userId: existingUser.id,
+        amount: planPro.monthlyCredits,
+        expiresAt: newExpiresAt,
+        idempotencyKey: cycleFinancialKey,
+        description: `Créditos mensais do Plano ${planPro.name} (Davi)`,
+        tx: prisma
+      });
+
+      console.log(`[CAKTO WEBHOOK] Davi renovado com sucesso no Plano PRO até ${newExpiresAt.toISOString()}`);
+      afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({ email, name: existingUser.name, expiresAt: newExpiresAt, planId: 'PRO' }));
+      return { success: true, message: 'Davi renovado no Plano PRO com sucesso', user: { ...existingUser, ...updated } };
+    }
+
+    // 3. Proteção de Contas Legadas Genéricas: Não podem ser migradas por novos produtos sem consentimento
     if (isExistingLegacy) {
       const wallet = await CreditWalletService.getOrCreateWallet(existingUser.id, prisma);
       if (commercial.type === 'PLAN') {
@@ -943,3 +986,58 @@ async function applyCaktoWebhook(
 
   return { success: true, message: `Evento "${event}" processado (sem alteração de status)` };
 }
+
+/**
+ * Rotina automática de boot: Garante que a conta do Davi receba o upgrade
+ * imediato para o Plano PRO (+ 150 créditos de IA e 3.000 disparos) assim
+ * que o novo sistema for iniciado, aproveitando a renovação ativa do ciclo.
+ */
+export async function autoMigrateDaviToProIfRenewed(): Promise<void> {
+  try {
+    const davi = await prisma.user.findFirst({
+      where: {
+        email: 'davianicetofirme@hotmail.com'
+      }
+    });
+
+    if (!davi) return;
+
+    const now = new Date();
+    const isActivelySubscribed = davi.subscriptionStatus === 'ACTIVE' &&
+      davi.subscriptionExpiresAt &&
+      new Date(davi.subscriptionExpiresAt).getTime() > now.getTime();
+
+    // Se possui assinatura ativa e ainda não migrou para o Plano PRO
+    if (isActivelySubscribed && davi.planId !== 'PRO') {
+      const expirationDate = davi.subscriptionExpiresAt!;
+      const cycleKey = `davi_auto_pro_${expirationDate.toISOString().slice(0, 10)}`;
+
+      console.log(`[BOOT UPGRADE DAVI] Assinatura ativa detectada até ${expirationDate.toISOString()}. Migrando automaticamente para o Plano PRO com 150 créditos de IA.`);
+
+      await prisma.user.update({
+        where: { id: davi.id },
+        data: {
+          planId: 'PRO',
+          monthlyDispatchQuota: 3000,
+          dispatchesUsedInCycle: 0
+        }
+      });
+
+      await QuotaService.resetCycleDispatches(davi.id, 3000, prisma);
+
+      await CreditWalletService.grantMonthlyCredits({
+        userId: davi.id,
+        amount: 150,
+        expiresAt: expirationDate,
+        idempotencyKey: cycleKey,
+        description: 'Upgrade automático para o Plano PRO (Novo Sistema)',
+        tx: prisma
+      });
+
+      console.log(`[BOOT UPGRADE DAVI] Conta ${davi.email} migrada para o Plano PRO com sucesso!`);
+    }
+  } catch (err) {
+    console.error('[BOOT UPGRADE DAVI] Falha ao verificar migração automática do Davi:', err);
+  }
+}
+

@@ -43,6 +43,7 @@ import { WhatsappManager } from './services/WhatsappManager';
 import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
 import { startAiGenerationWorker, aiGenerationWorker } from './workers/aiGenerationWorker';
 import { AiCopyService } from './services/AiCopyService';
+import { autoMigrateDaviToProIfRenewed } from './services/SubscriptionManager';
 
 const app = express();
 
@@ -215,6 +216,8 @@ const server = app.listen(ENV.PORT, async () => {
   await AiCopyService.recoverOrphanedAiOperations();
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
+  // Migração e ativação automática do Davi para o Plano PRO se renovado
+  await autoMigrateDaviToProIfRenewed();
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────

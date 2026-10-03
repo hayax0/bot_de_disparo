@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma as testPrisma } from '../lib/prisma';
 import { ENV } from '../config/env';
-import { processCaktoWebhook, WebhookError } from './SubscriptionManager';
+import { processCaktoWebhook, WebhookError, autoMigrateDaviToProIfRenewed } from './SubscriptionManager';
 import { CreditWalletService } from './CreditWalletService';
 import { QuotaService } from './QuotaService';
 import { getUserCapabilities } from '../config/plans';
@@ -1095,6 +1095,66 @@ test('CommercialIntegration PostgreSQL: Validacao dos 4 Bloqueadores no Banco Re
     assert.equal(daviRenewed.monthlyDispatchQuota, 3000);
     assert.equal(daviRenewed.dispatchesUsedInCycle, 0);
   });
+
+  // =========================================================================
+  // BOOT MIGRATION & RENOVAÇÃO DO DAVI: Upgrade automático e renovação direta
+  // =========================================================================
+  await t.test('autoMigrateDaviToProIfRenewed: migra Davi no boot se renovado e webhook direto renova no Plano PRO', async () => {
+    const daviOfficialEmail = 'davianicetofirme@hotmail.com';
+    
+    // 1. Simula conta oficial do Davi que acabou de renovar na VPS antiga (vencimento em nov/2026 e ainda em LEGACY_DAVI)
+    const november = new Date(Date.now() + 32 * 24 * 60 * 60 * 1000);
+    const daviOfficial = await testPrisma.user.create({
+      data: {
+        email: daviOfficialEmail,
+        name: 'Davi Oficial',
+        password: '$WEBHOOK_TEMP$official',
+        role: 'USER',
+        planId: 'LEGACY_DAVI',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: november,
+        monthlyDispatchQuota: 0,
+        dispatchesUsedInCycle: 50,
+        emailVerifiedAt: new Date(),
+        workspaces: { create: { name: 'Empresa Davi Oficial' } }
+      }
+    });
+
+    // 2. O servidor inicia (boot): autoMigrateDaviToProIfRenewed detecta a renovação e faz o upgrade automático!
+    await autoMigrateDaviToProIfRenewed();
+
+    const daviAfterBoot = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
+    assert.equal(daviAfterBoot.planId, 'PRO');
+    assert.equal(daviAfterBoot.monthlyDispatchQuota, 3000);
+    assert.equal(daviAfterBoot.dispatchesUsedInCycle, 0);
+
+    const wallet = await CreditWalletService.getWalletSummary(daviOfficial.id);
+    assert.equal(wallet.totalBalance, 150);
+    assert.equal(wallet.monthlyBalance, 150);
+
+    // 3. Webhook de renovação futura da Cakto processa e renova diretamente o Plano PRO
+    const renewalTx = 'tx_davi_official_renew_cakto_1';
+    const renewalPayload = {
+      secret: testWebhookSecret,
+      event: 'subscription_renewed',
+      event_id: 'evt_davi_official_renew_1',
+      data: {
+        id: renewalTx,
+        offer_id: '1080517', // oferta da Cakto
+        offer_code: 'at474et',
+        customer: { email: daviOfficialEmail, name: 'Davi Oficial' }
+      }
+    };
+
+    const resRenew = await processCaktoWebhook(renewalPayload);
+    assert.equal(resRenew.success, true);
+    assert.match(resRenew.message, /Plano PRO/);
+
+    const daviAfterRenewal = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
+    assert.equal(daviAfterRenewal.planId, 'PRO');
+    assert.equal(daviAfterRenewal.monthlyDispatchQuota, 3000);
+  });
 });
+
 
 
