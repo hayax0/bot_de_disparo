@@ -898,8 +898,7 @@ export default function Dashboard() {
 
   const [newCampaign, setNewCampaign] = useState({ 
     name: '', 
-    messageComSite: '', 
-    messageSemSite: '', 
+    message: '', 
     file: null as File | null, 
     delayMin: 90, 
     delayMax: 180,
@@ -908,7 +907,7 @@ export default function Dashboard() {
 
   // Isolamento do rascunho por usuário e workspace com versionamento seguro
   const draftStorageKey = useMemo(() => {
-    return `bot_disparo_draft_v1_${user?.id || 'anon'}_${user?.workspaceId || 'default'}`;
+    return `bot_disparo_draft_v2_${user?.id || 'anon'}_${user?.workspaceId || 'default'}`;
   }, [user?.id, user?.workspaceId]);
 
   const saveDraftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -921,14 +920,13 @@ export default function Dashboard() {
     if (typeof window === 'undefined') return;
     try {
       const data = draftDataRef.current;
-      if (data.name.trim() || data.messageComSite.trim() || data.messageSemSite.trim()) {
+      if (data.name.trim() || data.message.trim()) {
         const payload = {
-          version: 1,
+          version: 2,
           savedAt: Date.now(),
           data: {
             name: data.name,
-            messageComSite: data.messageComSite,
-            messageSemSite: data.messageSemSite,
+            message: data.message,
             delayMin: data.delayMin,
             delayMax: data.delayMax,
           }
@@ -948,6 +946,7 @@ export default function Dashboard() {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(draftStorageKey);
+        localStorage.removeItem(draftStorageKey.replace('draft_v2_', 'draft_v1_'));
       } catch {}
     }
     setHasRestoredDraft(false);
@@ -996,15 +995,17 @@ export default function Dashboard() {
     let loadedFromDraft = false;
     if (typeof window !== 'undefined') {
       try {
+        // Limpar rascunhos legados v1 com textos antigos
+        localStorage.removeItem(draftStorageKey.replace('draft_v2_', 'draft_v1_'));
+
         const raw = localStorage.getItem(draftStorageKey);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed && parsed.version === 1 && parsed.data) {
+          if (parsed && parsed.version === 2 && parsed.data) {
             setNewCampaign(prev => ({
               ...prev,
               name: parsed.data.name ?? prev.name,
-              messageComSite: parsed.data.messageComSite ?? prev.messageComSite,
-              messageSemSite: parsed.data.messageSemSite ?? prev.messageSemSite,
+              message: parsed.data.message ?? prev.message,
               delayMin: parsed.data.delayMin ?? prev.delayMin,
               delayMax: parsed.data.delayMax ?? prev.delayMax,
               file: null
@@ -1019,8 +1020,7 @@ export default function Dashboard() {
     if (!loadedFromDraft) {
       setNewCampaign(prev => ({
         ...prev,
-        messageComSite: '',
-        messageSemSite: ''
+        message: ''
       }));
       setHasRestoredDraft(false);
     }
@@ -1077,8 +1077,8 @@ export default function Dashboard() {
       }
     }
 
-    if (!newCampaign.messageSemSite.trim() && !newCampaign.messageComSite.trim()) {
-      addToast('error', 'Por favor, escreva ao menos uma mensagem para a campanha (sem site, com site ou ambas).');
+    if (!newCampaign.message.trim()) {
+      addToast('error', 'Por favor, escreva a mensagem para o disparo da campanha.');
       return;
     }
 
@@ -1090,8 +1090,8 @@ export default function Dashboard() {
       if (!createdCampaignId) {
       const res = await api.post('/campaigns', {
         name: newCampaign.name,
-        messageComSite: newCampaign.messageComSite.trim() || null,
-        messageSemSite: newCampaign.messageSemSite.trim() || null,
+        messageComSite: null,
+        messageSemSite: newCampaign.message.trim(),
         delayMin: newCampaign.delayMin,
         delayMax: newCampaign.delayMax,
       });
@@ -1126,8 +1126,7 @@ export default function Dashboard() {
       setIsModalOpen(false);
       setNewCampaign({ 
         name: '', 
-        messageComSite: '', 
-        messageSemSite: '', 
+        message: '', 
         file: null, 
         delayMin: 90, 
         delayMax: 180,
@@ -2487,8 +2486,7 @@ export default function Dashboard() {
                       clearDraft();
                       setNewCampaign({
                         name: '',
-                        messageComSite: '',
-                        messageSemSite: '',
+                        message: '',
                         file: null,
                         delayMin: 90,
                         delayMax: 180,
@@ -2724,53 +2722,14 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Mensagem Principal / Sem Site */}
+              {/* Mensagem Única da Campanha */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Mensagem Principal <span className="text-emerald-400 font-semibold">(Para Sem Site ou Geral)</span>
-                  </label>
-                  <span className="text-[10px] text-slate-300 bg-white/[0.06] px-2 py-0.5 rounded border border-white/[0.1]">
-                    {newCampaign.messageComSite.trim() ? 'Leads Sem Site' : 'Enviada para Todos'}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
-                  <span className="text-slate-500 text-[10px] mr-1">Inserir:</span>
-                  {[
-                    { tag: '{nome}', label: 'Nome' },
-                    { tag: '{bairro}', label: 'Bairro' },
-                    { tag: '{meuNome}', label: 'Meu Nome' },
-                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                  ].map(item => (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: newCampaign.messageSemSite + item.tag })}
-                      className="px-2 py-0.5 bg-white/[0.04] hover:bg-emerald-500/15 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/25 rounded-md text-[10px] font-mono text-slate-300 active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      +{item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <textarea 
-                  rows={4}
-                  value={newCampaign.messageSemSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
-                  placeholder="Digite sua mensagem padrão de abordagem... Ex: Olá {nome}, tudo bem? Me chamo {meuNome}..."
-                />
-              </div>
-
-              {/* Mensagem Opcional Com Site */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Mensagem Específica para quem <span className="text-emerald-400 font-semibold">TEM SITE PRÓPRIO</span>
+                    Mensagem do Disparo
                   </label>
                   <span className="text-[10px] text-slate-400 bg-white/[0.05] px-2 py-0.5 rounded border border-white/[0.08]">
-                    Opcional
+                    Texto Padrão
                   </span>
                 </div>
 
@@ -2778,15 +2737,15 @@ export default function Dashboard() {
                   <span className="text-slate-500 text-[10px] mr-1">Inserir:</span>
                   {[
                     { tag: '{nome}', label: 'Nome' },
-                    { tag: '{website}', label: 'Website' },
                     { tag: '{bairro}', label: 'Bairro' },
+                    { tag: '{website}', label: 'Website' },
                     { tag: '{meuNome}', label: 'Meu Nome' },
                     { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
                   ].map(item => (
                     <button
                       key={item.tag}
                       type="button"
-                      onClick={() => setNewCampaign({ ...newCampaign, messageComSite: newCampaign.messageComSite + item.tag })}
+                      onClick={() => setNewCampaign({ ...newCampaign, message: newCampaign.message + item.tag })}
                       className="px-2 py-0.5 bg-white/[0.04] hover:bg-emerald-500/15 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/25 rounded-md text-[10px] font-mono text-slate-300 active:scale-[0.98] transition-all cursor-pointer"
                     >
                       +{item.label}
@@ -2795,11 +2754,11 @@ export default function Dashboard() {
                 </div>
 
                 <textarea 
-                  rows={4}
-                  value={newCampaign.messageComSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
+                  rows={5}
+                  value={newCampaign.message}
+                  onChange={e => setNewCampaign({...newCampaign, message: e.target.value})}
                   className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
-                  placeholder="Opcional: Digite uma abordagem específica para contatos com site ({website}). Deixe em branco para usar a mensagem principal para todos..."
+                  placeholder="Digite sua mensagem de abordagem... Ex: Olá {nome}, tudo bem? Me chamo {meuNome} da empresa {minhaEmpresa}..."
                 />
               </div>
 
