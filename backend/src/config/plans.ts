@@ -289,6 +289,7 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     offerId: string;
     offerCode: string;
     checkoutUrl?: string;
+    canonicalNames: string[];
     plan?: PlanDefinition;
     package?: CreditPackageDefinition;
   }
@@ -305,6 +306,11 @@ export function resolveCommercialItem(item: any): CommercialResolution {
         offerId: plan.caktoOfferId,
         offerCode: plan.caktoOfferCode.toLowerCase(),
         checkoutUrl: plan.checkoutUrl || '',
+        canonicalNames: [
+          `plano ${plan.name} (${plan.id})`.toLowerCase(),
+          `plano ${plan.name}`.toLowerCase(),
+          `(${plan.id})`.toLowerCase(),
+        ],
         plan
       });
     }
@@ -318,6 +324,12 @@ export function resolveCommercialItem(item: any): CommercialResolution {
         offerId: pkg.caktoOfferId,
         offerCode: pkg.caktoOfferCode.toLowerCase(),
         checkoutUrl: pkg.checkoutUrl,
+        canonicalNames: [
+          `${pkg.credits} créditos de ia — recarga avulsa`.toLowerCase(),
+          `${pkg.credits} creditos de ia — recarga avulsa`.toLowerCase(),
+          `${pkg.credits} créditos de ia`.toLowerCase(),
+          `${pkg.credits} creditos de ia`.toLowerCase(),
+        ],
         package: pkg
       });
     }
@@ -330,11 +342,16 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     type: 'LEGACY',
     offerId: legacyOfferId,
     offerCode: legacyOfferCode,
-    checkoutUrl: 'https://pay.cakto.com.br/at474et_1080517'
+    checkoutUrl: 'https://pay.cakto.com.br/at474et_1080517',
+    canonicalNames: [
+      'disparo whatsapp - mensal',
+      'disparo whatsapp mensal'
+    ]
   });
 
   const rawOfferIds: string[] = [];
   const rawOfferCodes: string[] = [];
+  const rawNames: string[] = [];
 
   const addId = (val: any) => {
     if (val !== undefined && val !== null) {
@@ -350,16 +367,37 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     }
   };
 
+  const addName = (val: any) => {
+    if (val !== undefined && val !== null) {
+      const s = String(val).trim().toLowerCase();
+      if (s && !rawNames.includes(s)) rawNames.push(s);
+    }
+  };
+
+  // IDs oficiais numéricos de ofertas
   addId(item.offer_id);
-  addId(item.offer?.id);
   addId(item.offerId);
   addId(item.product?.offer_id);
   addId(item.product?.offerId);
+  if (item.offer?.id && /^[0-9]+$/.test(String(item.offer.id).trim())) {
+    addId(item.offer.id);
+  }
 
+  // Códigos de checkout / refId enviados pela Cakto
+  addCode(item.refId);
+  addCode(item.ref_id);
   addCode(item.offer?.code);
   addCode(item.offer_code);
   addCode(item.code);
   addCode(item.product?.code);
+  addCode(item.product?.short_id);
+  addCode(item.offer?.short_id);
+
+  // Nomes de produto homologados
+  addName(item.product?.name);
+  addName(item.product_name);
+  addName(item.name);
+  addName(item.offer?.name);
 
   const rawUrl = String(item.checkout_url || item.payment_url || item.url || '').trim();
   if (rawUrl) {
@@ -381,13 +419,14 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     }
   }
 
-  if (rawOfferIds.length === 0 && rawOfferCodes.length === 0) {
+  if (rawOfferIds.length === 0 && rawOfferCodes.length === 0 && rawNames.length === 0) {
     return { type: 'UNKNOWN' };
   }
 
   // Verificação de consistência: cada identificador fornecido deve corresponder a um produto homologado
   const matchedEntries = new Map<string, CatalogEntry>();
 
+  // 1. Validação de IDs numéricos de oferta informados explicitamente
   for (const id of rawOfferIds) {
     const entry = homologatedEntries.find(e => e.offerId === id);
     if (!entry) {
@@ -397,16 +436,26 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     matchedEntries.set(entry.key, entry);
   }
 
+  // 2. Validação de Códigos de oferta (refId, code, etc.)
   for (const code of rawOfferCodes) {
     const entry = homologatedEntries.find(e => e.offerCode === code);
-    if (!entry) {
-      // Código de oferta desconhecido fornecido
-      return { type: 'UNKNOWN' };
+    if (entry) {
+      matchedEntries.set(entry.key, entry);
     }
-    matchedEntries.set(entry.key, entry);
   }
 
-  // Se múltiplos produtos diferentes foram identificados, há conflito (ex: ID de recarga + Code de plano)
+  // 3. Fallback seguro por Nome Canônico Oficial se nenhum ID/Código foi associado
+  if (matchedEntries.size === 0 && rawOfferIds.length === 0) {
+    for (const rawName of rawNames) {
+      for (const entry of homologatedEntries) {
+        if (entry.canonicalNames.some(cName => rawName === cName || (rawName.includes(cName) && cName.length > 5))) {
+          matchedEntries.set(entry.key, entry);
+        }
+      }
+    }
+  }
+
+  // Se nenhum produto foi identificado ou se múltiplos produtos diferentes foram identificados (conflito)
   if (matchedEntries.size !== 1) {
     return { type: 'UNKNOWN' };
   }

@@ -258,7 +258,7 @@ async function applyCaktoWebhook(
   // 4. Tratamento de Eventos e Validação de Produto
   const commercial = resolveCommercialItem(primaryItem);
   if (commercial.type === 'UNKNOWN') {
-    console.warn(`[CAKTO WEBHOOK] Produto desconhecido ou não homologado. Evento: "${normalizedEvent}".`);
+    console.warn(`[CAKTO WEBHOOK] Produto desconhecido ou não homologado. Evento: "${normalizedEvent}". Dados do item:`, JSON.stringify(primaryItem));
     throw new WebhookError('Produto não reconhecido na plataforma.', 400);
   }
 

@@ -348,3 +348,81 @@ test('Webhook comercial: reembolso de recarga estorna creditos e atualiza pedido
   assert.equal(orderStatus, 'REFUNDED'); // Pedido atualizado para REFUNDED!
   assert.equal(revokedParams.amount, 100);
 });
+
+test('Webhook comercial: suporta payload real da Cakto com refId e nome oficial de produto', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let updatedUser: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: {
+        findUnique: async () => ({
+          id: 'u-cakto-real',
+          email: 'partner@example.test',
+          role: 'USER',
+          subscriptionStatus: 'INACTIVE',
+          planId: null,
+          workspaces: [{ id: 'ws-1', name: 'Minha Empresa' }],
+        }),
+        update: async ({ data }: any) => {
+          updatedUser = data;
+          return { id: 'u-cakto-real', email: 'partner@example.test', ...data };
+        },
+      },
+      creditWallet: {
+        findUnique: async () => null,
+        create: async () => ({}),
+      },
+      creditTransaction: {
+        findUnique: async () => null,
+        create: async () => ({}),
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, QuotaService, 'resetCycleDispatches', async () => {});
+
+  mockMethod(t, CreditWalletService, 'grantMonthlyCredits', async () => ({
+    success: true,
+    grantedAmount: 150
+  }));
+
+  // Payload exatamente no formato enviado pela Cakto em produção:
+  // Contém refId, product.name com (PRO), e offer.id alfanumérico hash
+  const realCaktoPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: '87956abe-940e-4e8b-8a27-82c482920f64',
+      refId: '9gwgit3',
+      customer: {
+        name: 'Socia Teste',
+        email: 'partner@example.test',
+      },
+      offer: {
+        id: 'B8BcHrY',
+        name: 'Plano Profissional',
+        price: 55.99
+      },
+      offer_type: 'main',
+      product: {
+        name: 'Plano Profissional (PRO)',
+        id: 'ff3fdf61-e88f-43b5-982a-32d50f112414',
+        short_id: 'AckhQ75'
+      }
+    }
+  };
+
+  const res = await processCaktoWebhook(realCaktoPayload);
+  assert.equal(res.success, true);
+  assert.equal(updatedUser.planId, 'PRO');
+  assert.equal(updatedUser.subscriptionStatus, 'ACTIVE');
+  assert.equal(updatedUser.monthlyDispatchQuota, 3000);
+});
+
