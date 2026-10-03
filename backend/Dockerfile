@@ -31,4 +31,4 @@ RUN mkdir -p /app/.baileys_auth /app/uploads && chmod -R 777 /app/.baileys_auth 
 ENV NODE_ENV=production
 EXPOSE 3001
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
