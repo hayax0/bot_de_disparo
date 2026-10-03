@@ -310,3 +310,36 @@ test('POST /campaigns/preview-import: conta legada Davi é permitida de importar
   assert.equal(body.validCount, 1);
 });
 
+test('POST /campaigns/preview-import: conta comercial PRO é permitida de importar listas personalizadas', async t => {
+  const proUser = {
+    id: 'u-pro',
+    role: 'USER',
+    planId: 'PRO',
+    authVersion: 0,
+    subscriptionStatus: 'ACTIVE',
+    subscriptionExpiresAt: new Date(Date.now() + 86400000 * 30),
+    emailVerifiedAt: new Date(),
+    workspaces: [{ id: 'w-1' }]
+  };
+  mockMethod(t, prisma.user, 'findUnique', async () => proUser);
+  mockMethod(t, prisma.dispatchHistory, 'findMany', async () => []);
+
+  const token = jwt.sign({ userId: 'u-pro', authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' });
+  const base = await serveCampaigns(t);
+
+  const blob = new Blob(['Empresa,Telefone\nRestaurante Pro,11999990002'], { type: 'text/csv' });
+  const formData = new FormData();
+  formData.append('file', blob, 'pro_leads.csv');
+
+  const res = await fetch(`${base}/preview-import`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: formData
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.validCount, 1);
+});
+
+

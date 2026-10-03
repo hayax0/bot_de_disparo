@@ -371,6 +371,21 @@ async function applyCaktoWebhook(
         }
       }
 
+      afterCommit.push(async () => {
+        const result = await EmailService.sendCreditPurchaseEmail({
+          email, name: targetUser.name, credits: pkg.credits, priceCents: paidCents,
+          orderId: transactionId, subscriptionActive: isSubscriptionActive(targetUser),
+          expiresAt: targetUser.subscriptionExpiresAt, planId: targetUser.planId,
+        });
+        await notificationDb.subscriptionNotification.upsert({
+          where: { userId_type_cycle: { userId: targetUser.id, type: 'CREDIT_PURCHASE', cycle: transactionId } },
+          create: {
+            userId: targetUser.id, type: 'CREDIT_PURCHASE', cycle: transactionId, recipientEmail: email,
+            status: result.success ? 'SENT' : 'FAILED', resendEmailId: result.id || null, errorMessage: result.error || null,
+          },
+          update: { status: result.success ? 'SENT' : 'FAILED', resendEmailId: result.id || null, errorMessage: result.error || null },
+        });
+      });
       console.log(`[CAKTO WEBHOOK] Recarga de ${pkg.credits} créditos concedida para ${email}`);
       return {
         success: true,
@@ -512,6 +527,7 @@ async function applyCaktoWebhook(
           });
         }
 
+        afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({ email, name: existingUser.name, expiresAt: newExpiresAt, planId: 'LEGACY_DAVI' }));
         return { success: true, message: 'Plano legado renovado com sucesso', user: { ...existingUser, ...updated } };
       }
     }
@@ -548,8 +564,14 @@ async function applyCaktoWebhook(
         planUpdateData.planId = commercial.plan!.id;
         planUpdateData.monthlyDispatchQuota = commercial.plan!.monthlyDispatches;
       } else if (commercial.type === 'LEGACY') {
-        planUpdateData.planId = 'LEGACY_DAVI';
-        planUpdateData.monthlyDispatchQuota = 0;
+        if (existingUser.planId && !isLegacyPlan(existingUser.planId)) {
+          const currentPlan = getPlanById(existingUser.planId);
+          planUpdateData.planId = existingUser.planId;
+          planUpdateData.monthlyDispatchQuota = currentPlan?.monthlyDispatches ?? 3000;
+        } else {
+          planUpdateData.planId = 'LEGACY_DAVI';
+          planUpdateData.monthlyDispatchQuota = 0;
+        }
       }
 
       const updated = await prisma.user.update({
@@ -591,17 +613,17 @@ async function applyCaktoWebhook(
       });
     }
 
-    if (commercial.type === 'PLAN') {
-      const plan = commercial.plan!;
-      await QuotaService.resetCycleDispatches(targetUser.id, plan.monthlyDispatches, prisma);
+    const effectivePlan = (commercial.type === 'PLAN' ? commercial.plan : null) || getPlanById(targetUser.planId);
+    if (effectivePlan && !effectivePlan.isLegacy && !effectivePlan.isUnlimited) {
+      await QuotaService.resetCycleDispatches(targetUser.id, effectivePlan.monthlyDispatches, prisma);
 
-      if (plan.monthlyCredits > 0) {
+      if (effectivePlan.monthlyCredits > 0) {
         await CreditWalletService.grantMonthlyCredits({
           userId: targetUser.id,
-          amount: plan.monthlyCredits,
+          amount: effectivePlan.monthlyCredits,
           expiresAt: newExpiresAt,
           idempotencyKey: cycleFinancialKey,
-          description: `Créditos mensais do Plano ${plan.name}`,
+          description: `Créditos mensais do Plano ${effectivePlan.name}`,
           tx: prisma
         });
       } else {
@@ -619,13 +641,13 @@ async function applyCaktoWebhook(
               sourceType: 'SUBSCRIPTION_RENEWAL',
               sourceId: transactionId,
               idempotencyKey: cycleFinancialKey,
-              description: `Ciclo do Plano ${plan.name}`,
+              description: `Ciclo do Plano ${effectivePlan.name}`,
               metadata: JSON.stringify({ transactionId, expiresAt: newExpiresAt })
             }
           });
         }
       }
-      console.log(`[CAKTO WEBHOOK] Plano ${plan.name} ativado/renovado com ${plan.monthlyDispatches} disparos e ${plan.monthlyCredits} créditos IA`);
+      console.log(`[CAKTO WEBHOOK] Plano ${effectivePlan.name} ativado/renovado com ${effectivePlan.monthlyDispatches} disparos e ${effectivePlan.monthlyCredits} créditos IA`);
     } else if (commercial.type === 'LEGACY') {
       const wallet = await CreditWalletService.getOrCreateWallet(targetUser.id, prisma);
       if (wallet && prisma.creditTransaction?.create) {
@@ -667,7 +689,8 @@ async function applyCaktoWebhook(
             const emailResult = await EmailService.sendWelcomeEmail({
               email,
               name,
-              expiresAt: newExpiresAt
+              expiresAt: newExpiresAt,
+              planId: targetUser.planId
             });
 
             await notificationDb.subscriptionNotification.create({
@@ -690,7 +713,8 @@ async function applyCaktoWebhook(
       afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({
         email,
         name: targetUser.name,
-        expiresAt: newExpiresAt
+        expiresAt: newExpiresAt,
+        planId: targetUser.planId
       }));
     }
 
@@ -731,6 +755,7 @@ async function applyCaktoWebhook(
       afterCommit.push(() => EmailService.sendSubscriptionCanceledEmail({
         email,
         name: updated.name,
+        planId: updated.planId,
         expiresAt: updated.subscriptionExpiresAt
       }));
 
@@ -763,7 +788,8 @@ async function applyCaktoWebhook(
 
       afterCommit.push(() => EmailService.sendPaymentFailedEmail({
         email,
-        name: updated.name
+        name: updated.name,
+        planId: updated.planId
       }));
 
       return { success: true, message: 'Falha de pagamento registrada', user: updated };

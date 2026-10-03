@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { ENV } from '../config/env';
+import { getPlanById } from '../config/plans';
 
 interface EmailSendResult {
   success: boolean;
@@ -33,6 +34,24 @@ function formatDatePtBr(date: Date | string | null | undefined): string {
   } catch {
     return String(date);
   }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+}
+
+export function renderPlanDetails(planId?: string | null): string {
+  const plan = getPlanById(planId);
+  if (!plan) return '';
+  if (plan.isLegacy) return '<p><strong>Plano legado:</strong> suas condições anteriores permanecem preservadas. As novas franquias de planos não se aplicam à sua conta.</p>';
+  if (plan.isUnlimited) return '<p><strong>Acesso administrativo vitalício:</strong> sem limites de créditos de IA.</p>';
+  return `<div class="highlight-box">
+    <p><strong>Plano contratado:</strong> ${escapeHtml(plan.name)}</p>
+    <p><strong>Mensalidade do plano:</strong> R$ ${plan.priceFormatted}</p>
+    <p><strong>Franquia mensal:</strong> ${plan.monthlyDispatches.toLocaleString('pt-BR')} disparos e ${plan.monthlyCredits} créditos de IA.</p>
+    <p>Os créditos mensais de IA não acumulam e expiram ao fim do ciclo informado. Créditos extras comprados não expiram, mas exigem assinatura ativa para uso.</p>
+    <p>Créditos são usados na geração de mensagens por IA. Recargas não aumentam a franquia de disparos. Buscas de empresas usam sua própria conta Apify, com custos cobrados pela Apify.</p>
+  </div>`;
 }
 
 function getBaseEmailTemplate(contentHtml: string, previewText: string): string {
@@ -316,6 +335,7 @@ export class EmailService {
     email: string;
     name?: string | null;
     expiresAt?: Date | null;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt } = params;
     const client = getResendClient();
@@ -323,7 +343,7 @@ export class EmailService {
       return { success: false, error: 'RESEND_API_KEY não configurada' };
     }
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
     const loginUrl = `${ENV.PLATFORM_URL}/login`;
 
@@ -332,6 +352,7 @@ export class EmailService {
       <p>Olá, <strong>${cleanName}</strong>!</p>
       <p>Seu pagamento foi confirmado com sucesso e seu acesso à plataforma <strong>Disparador (Prospector SaaS)</strong> já está 100% disponível.</p>
       
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0 0 8px 0;"><strong>Status da Assinatura:</strong> Ativa</p>
         <p style="margin: 0;"><strong>Próxima Renovação / Validade:</strong> ${expiresFormatted}</p>
@@ -375,6 +396,45 @@ export class EmailService {
     }
   }
 
+  static async sendCreditPurchaseEmail(params: {
+    email: string;
+    name?: string | null;
+    credits: number;
+    priceCents: number;
+    orderId: string;
+    subscriptionActive: boolean;
+    expiresAt?: Date | null;
+    planId?: string | null;
+  }): Promise<EmailSendResult> {
+    const client = getResendClient();
+    if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
+    const price = (params.priceCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const subject = `Recarga confirmada: ${params.credits} créditos de IA`;
+    const content = `<h2>${subject}</h2>
+      <p>Olá, <strong>${escapeHtml(params.name || 'Cliente')}</strong>!</p>
+      <div class="highlight-box">
+        <p><strong>Créditos adicionados:</strong> ${params.credits}</p>
+        <p><strong>Valor registrado da recarga:</strong> ${price}</p>
+        <p><strong>Pedido:</strong> ${escapeHtml(params.orderId)}</p>
+        <p><strong>Validade dos créditos extras:</strong> não expiram.</p>
+      </div>
+      <p>${params.subscriptionActive
+        ? `Sua assinatura continua com validade até ${formatDatePtBr(params.expiresAt)}. A recarga não altera esse prazo.`
+        : 'Seus créditos estão guardados. Esta compra não ativa uma assinatura; para usar a IA, é necessário ter um plano ativo.'}</p>
+      <p>Os créditos extras servem para gerar ou refazer mensagens com IA. Não aumentam sua franquia de disparos e não pagam as buscas da sua conta Apify. Os créditos mensais válidos são usados primeiro.</p>
+      <p>Se ainda não possui senha, conclua o cadastro usando o mesmo e-mail da compra e confirme o código recebido.</p>
+      <div class="btn-container"><a href="${ENV.PLATFORM_URL}/login" class="btn">VER PLANO E CRÉDITOS</a></div>`;
+    try {
+      const response = await client.emails.send({
+        from: ENV.RESEND_FROM_EMAIL, replyTo: ENV.RESEND_REPLY_TO, to: [params.email],
+        subject, html: getBaseEmailTemplate(content, subject),
+      }, { idempotencyKey: `credit-purchase-${params.orderId}` });
+      return { success: !response.error, id: response.data?.id, error: response.error?.message };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   /**
    * Envia os avisos de proximidade de vencimento (5 dias ou 1 dia)
    */
@@ -383,6 +443,8 @@ export class EmailService {
     name?: string | null;
     expiresAt: Date;
     daysRemaining: 5 | 1;
+    planId?: string | null;
+    renewalCanceled?: boolean;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt, daysRemaining } = params;
     const client = getResendClient();
@@ -390,7 +452,7 @@ export class EmailService {
       return { success: false, error: 'RESEND_API_KEY não configurada' };
     }
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
     const platformUrl = ENV.PLATFORM_URL;
 
@@ -401,9 +463,11 @@ export class EmailService {
 
     const messageIntro = isFiveDays
       ? 'Passando para avisar que sua assinatura do <strong>Disparador</strong> está próxima da renovação (restam 5 dias).'
-      : `Sua assinatura do <strong>Disparador</strong> está prevista para renovar amanhã, <strong>${expiresFormatted}</strong>.`;
+      : `Sua assinatura do <strong>Disparador</strong> vence amanhã, <strong>${expiresFormatted}</strong>.`;
 
-    const paymentAdvice = isFiveDays
+    const paymentAdvice = params.renewalCanceled
+      ? 'A renovação está cancelada. Seu acesso termina na data informada; os créditos extras permanecem registrados para quando houver uma assinatura ativa.'
+      : isFiveDays
       ? 'Se sua assinatura possui renovação automática, verifique se seu meio de pagamento continua válido para que suas campanhas de prospecção continuem rodando sem interrupções.'
       : 'Para continuar utilizando a ferramenta sem interrupções, verifique se sua forma de pagamento está funcionando corretamente.';
 
@@ -412,8 +476,9 @@ export class EmailService {
       <p>Olá, <strong>${cleanName}</strong>!</p>
       <p>${messageIntro}</p>
 
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
-        <p style="margin: 0 0 6px 0;"><strong>Data Prevista da Renovação:</strong> ${expiresFormatted}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Validade do acesso:</strong> ${expiresFormatted}</p>
         <p style="margin: 0;">${paymentAdvice}</p>
       </div>
 
@@ -457,18 +522,20 @@ export class EmailService {
     email: string;
     name?: string | null;
     expiresAt: Date;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt } = params;
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
 
     const htmlContent = `
       <h2>Sua assinatura foi renovada com sucesso! 🎉</h2>
       <p>Olá, <strong>${cleanName}</strong>!</p>
       <p>Confirmamos a renovação da sua assinatura do <strong>Disparador</strong>.</p>
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;"><strong>Nova Validade do Acesso:</strong> ${expiresFormatted}</p>
       </div>
@@ -498,18 +565,20 @@ export class EmailService {
     email: string;
     name?: string | null;
     expiresAt: Date | null;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt } = params;
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
 
     const htmlContent = `
       <h2>Cancelamento de Renovação Confirmado</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
       <p>Confirmamos o cancelamento da renovação automática da sua assinatura do <strong>Disparador</strong>.</p>
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;">Você continuará com acesso total à plataforma até <strong>${expiresFormatted}</strong>. Nenhuma nova cobrança será realizada.</p>
       </div>
@@ -536,17 +605,19 @@ export class EmailService {
   static async sendPaymentFailedEmail(params: {
     email: string;
     name?: string | null;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name } = params;
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
 
     const htmlContent = `
       <h2>Atenção: Falha no pagamento da sua assinatura Disparador</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
       <p>Houve uma falha ao processar o pagamento da renovação da sua assinatura.</p>
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;">Para evitar a interrupção das suas campanhas, por favor verifique o limite do seu cartão ou atualize seus dados de pagamento.</p>
       </div>
@@ -581,7 +652,7 @@ export class EmailService {
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
 
     const htmlContent = `
       <h2>Recuperação de Senha</h2>

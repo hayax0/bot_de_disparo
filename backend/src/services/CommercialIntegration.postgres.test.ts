@@ -5,6 +5,7 @@ import { ENV } from '../config/env';
 import { processCaktoWebhook, WebhookError } from './SubscriptionManager';
 import { CreditWalletService } from './CreditWalletService';
 import { QuotaService } from './QuotaService';
+import { getUserCapabilities } from '../config/plans';
 
 /**
  * Validação de segurança estrita antes de qualquer TRUNCATE.
@@ -1009,5 +1010,91 @@ test('CommercialIntegration PostgreSQL: Validacao dos 4 Bloqueadores no Banco Re
     assert.equal(buyer.planId, 'PRO');
     assert.equal(buyer.subscriptionStatus, 'ACTIVE');
   });
+
+  // =========================================================================
+  // MUDANÇA COMERCIAL: Migração do Davi para Plano PRO (+1 mês free) e Renovação
+  // =========================================================================
+  await t.test('Migração do Davi para o Plano PRO: 1 mês cortesia, 150 créditos, 3000 disparos e renovação preservada', async () => {
+    const syntheticEmail = 'davi_synthetic_migrated@test.local';
+
+    // 1. Cria conta sintética em LEGACY_DAVI vencendo amanhã
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const davi = await testPrisma.user.create({
+      data: {
+        email: syntheticEmail,
+        name: 'Davi Legado Sintético',
+        password: '$WEBHOOK_TEMP$synthetic',
+        role: 'USER',
+        planId: 'LEGACY_DAVI',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: tomorrow,
+        monthlyDispatchQuota: 0,
+        dispatchesUsedInCycle: 120,
+        emailVerifiedAt: new Date(),
+        workspaces: { create: { name: 'Empresa do Davi' } }
+      }
+    });
+
+    // 2. Aplica migração para Plano PRO (+30 dias além do vencimento atual)
+    const newExpiresAt = new Date(tomorrow.getTime() + 30 * 24 * 60 * 60 * 1000);
+    await testPrisma.user.update({
+      where: { id: davi.id },
+      data: {
+        planId: 'PRO',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: newExpiresAt,
+        subscriptionRenewedAt: new Date(),
+        monthlyDispatchQuota: 3000,
+        dispatchesUsedInCycle: 0
+      }
+    });
+    await QuotaService.resetCycleDispatches(davi.id, 3000, testPrisma);
+    await CreditWalletService.grantMonthlyCredits({
+      userId: davi.id,
+      amount: 150,
+      expiresAt: newExpiresAt,
+      idempotencyKey: `davi_bonus_pro_synthetic_1`,
+      description: '1 mês de cortesia Plano PRO (Migração para o Novo Sistema)',
+      tx: testPrisma
+    });
+
+    const daviMigrated = await testPrisma.user.findUniqueOrThrow({ where: { id: davi.id } });
+    assert.equal(daviMigrated.planId, 'PRO');
+    assert.equal(daviMigrated.monthlyDispatchQuota, 3000);
+    assert.equal(daviMigrated.dispatchesUsedInCycle, 0);
+
+    const wallet = await CreditWalletService.getWalletSummary(davi.id);
+    assert.equal(wallet.totalBalance, 150);
+    assert.equal(wallet.monthlyBalance, 150);
+    assert.equal(wallet.planId, 'PRO');
+
+    const caps = getUserCapabilities(daviMigrated);
+    assert.equal(caps.canUpload, true);
+    assert.equal(caps.canUseSearch, true);
+    assert.equal(caps.canUseAi, true);
+
+    // 3. Webhook de renovação no mês seguinte com identificador legado não regride o plano
+    const renewalPayload = {
+      secret: testWebhookSecret,
+      event: 'subscription_renewed',
+      event_id: 'evt_davi_renewal_month_2',
+      data: {
+        id: 'tx_davi_renewal_tx_99',
+        offer_id: '1080517', // oferta legada
+        offer_code: 'at474et',
+        customer: { email: syntheticEmail, name: 'Davi Legado Sintético' }
+      }
+    };
+
+    const renewRes = await processCaktoWebhook(renewalPayload);
+    assert.equal(renewRes.success, true);
+
+    const daviRenewed = await testPrisma.user.findUniqueOrThrow({ where: { id: davi.id } });
+    // Preserva o plano PRO e não regride para LEGACY_DAVI
+    assert.equal(daviRenewed.planId, 'PRO');
+    assert.equal(daviRenewed.monthlyDispatchQuota, 3000);
+    assert.equal(daviRenewed.dispatchesUsedInCycle, 0);
+  });
 });
+
 

@@ -82,6 +82,7 @@ export const PLANS: Record<string, PlanDefinition> = {
       '150 créditos mensais de IA',
       '1 conexão WhatsApp',
       'Busca integrada com sua própria conta Apify',
+      'Importação de listas personalizadas (.CSV e .JSON)',
       'Campanhas e histórico de contatos',
       'Mensagens personalizadas com IA',
     ],
@@ -103,6 +104,7 @@ export const PLANS: Record<string, PlanDefinition> = {
       '300 créditos mensais de IA',
       '1 conexão WhatsApp',
       'Busca integrada com sua própria conta Apify',
+      'Importação de listas personalizadas (.CSV e .JSON)',
       'Campanhas e histórico de contatos',
       'Mensagens personalizadas com IA',
     ],
@@ -231,9 +233,11 @@ export function getUserCapabilities(user?: { role?: string | null; planId?: stri
   const isLegacy = !isAdmin && isLegacyPlan(user.planId);
   const plan = getPlanById(user.planId);
   const isKnownNewPlan = !isAdmin && !isLegacy && Boolean(plan); // START, PRO, SCALE
+  const upperPlan = user.planId?.trim().toUpperCase();
+  const canUploadPlan = upperPlan === 'PRO' || upperPlan === 'SCALE';
 
   return {
-    canUpload: isAdmin || isLegacy,
+    canUpload: isAdmin || isLegacy || canUploadPlan,
     canUseSearch: isAdmin || isKnownNewPlan,
     canUseAi: isAdmin || isKnownNewPlan,
     isUnlimited: isAdmin,
