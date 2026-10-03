@@ -40,11 +40,13 @@ export class CreditWalletService {
    */
   static async getOrCreateWallet(userId: string, tx?: Prisma.TransactionClient): Promise<any> {
     const client = tx || prisma;
+    if (!client.creditWallet?.findUnique) return null;
+
     let wallet = await client.creditWallet.findUnique({
       where: { userId }
     });
 
-    if (!wallet) {
+    if (!wallet && client.creditWallet?.upsert) {
       wallet = await client.creditWallet.upsert({
         where: { userId },
         create: {

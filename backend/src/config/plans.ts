@@ -271,30 +271,81 @@ export interface CommercialResolution {
 /**
  * Resolução rigorosa e segura do item comercial da Cakto.
  * Requer correspondência exata de ID ou Código da oferta cadastrada.
+ * Valida a consistência entre todos os identificadores fornecidos (IDs, Códigos, URLs).
+ * Rejeita combinações conflitantes (ex: offer_id de um pacote com offer_code de um plano).
  * Não utiliza correspondência por substring nem fallbacks por nome para concessão financeira.
- * Produtos desconhecidos retornam UNKNOWN.
+ * Produtos desconhecidos ou conflitantes retornam UNKNOWN.
  */
 export function resolveCommercialItem(item: any): CommercialResolution {
   if (!item || typeof item !== 'object') return { type: 'UNKNOWN' };
 
-  const candidateOfferIds: string[] = [];
-  const candidateOfferCodes: string[] = [];
+  interface CatalogEntry {
+    key: string;
+    type: CommercialItemType;
+    offerId: string;
+    offerCode: string;
+    checkoutUrl?: string;
+    plan?: PlanDefinition;
+    package?: CreditPackageDefinition;
+  }
+
+  // Montagem do catálogo de entradas homologadas oficiais
+  const homologatedEntries: CatalogEntry[] = [];
+
+  for (const plan of Object.values(PLANS)) {
+    if (plan.isLegacy || plan.isUnlimited) continue;
+    if (plan.caktoOfferId && plan.caktoOfferCode) {
+      homologatedEntries.push({
+        key: plan.id,
+        type: 'PLAN',
+        offerId: plan.caktoOfferId,
+        offerCode: plan.caktoOfferCode.toLowerCase(),
+        checkoutUrl: plan.checkoutUrl || '',
+        plan
+      });
+    }
+  }
+
+  for (const pkg of Object.values(CREDIT_PACKAGES)) {
+    if (pkg.caktoOfferId && pkg.caktoOfferCode) {
+      homologatedEntries.push({
+        key: pkg.id,
+        type: 'PACKAGE',
+        offerId: pkg.caktoOfferId,
+        offerCode: pkg.caktoOfferCode.toLowerCase(),
+        checkoutUrl: pkg.checkoutUrl,
+        package: pkg
+      });
+    }
+  }
+
+  const legacyOfferId = ENV.CAKTO_LEGACY_OFFER_ID || '1080517';
+  const legacyOfferCode = (ENV.CAKTO_LEGACY_OFFER_CODE || 'at474et').toLowerCase();
+  homologatedEntries.push({
+    key: 'LEGACY_DAVI',
+    type: 'LEGACY',
+    offerId: legacyOfferId,
+    offerCode: legacyOfferCode,
+    checkoutUrl: 'https://pay.cakto.com.br/at474et_1080517'
+  });
+
+  const rawOfferIds: string[] = [];
+  const rawOfferCodes: string[] = [];
 
   const addId = (val: any) => {
     if (val !== undefined && val !== null) {
       const s = String(val).trim();
-      if (s && !candidateOfferIds.includes(s)) candidateOfferIds.push(s);
+      if (s && !rawOfferIds.includes(s)) rawOfferIds.push(s);
     }
   };
 
   const addCode = (val: any) => {
     if (val !== undefined && val !== null) {
       const s = String(val).trim().toLowerCase();
-      if (s && !candidateOfferCodes.includes(s)) candidateOfferCodes.push(s);
+      if (s && !rawOfferCodes.includes(s)) rawOfferCodes.push(s);
     }
   };
 
-  // Extração dos campos reais de identificação de oferta da Cakto
   addId(item.offer_id);
   addId(item.offer?.id);
   addId(item.offerId);
@@ -306,45 +357,66 @@ export function resolveCommercialItem(item: any): CommercialResolution {
   addCode(item.code);
   addCode(item.product?.code);
 
-  // Extração opcional da URL oficial de checkout da Cakto caso venha no item (formato: pay.cakto.com.br/CODIGO_ID)
-  const checkoutUrl = String(item.checkout_url || item.payment_url || item.url || '').trim();
-  if (checkoutUrl) {
-    const match = checkoutUrl.match(/pay\.cakto\.com\.br\/([a-z0-9]+)_([0-9]+)/i);
-    if (match) {
-      addCode(match[1]);
-      addId(match[2]);
+  const rawUrl = String(item.checkout_url || item.payment_url || item.url || '').trim();
+  if (rawUrl) {
+    try {
+      const parsedUrl = new URL(rawUrl);
+      if (parsedUrl.hostname !== 'pay.cakto.com.br') {
+        // Domínio externo não autorizado
+        return { type: 'UNKNOWN' };
+      }
+      const match = parsedUrl.pathname.match(/^\/([a-z0-9]+)_([0-9]+)/i);
+      if (match) {
+        addCode(match[1]);
+        addId(match[2]);
+      } else {
+        return { type: 'UNKNOWN' };
+      }
+    } catch {
+      return { type: 'UNKNOWN' };
     }
   }
 
-  const exactMatch = (targetId?: string, targetCode?: string): boolean => {
-    if (!targetId && !targetCode) return false;
-    const idMatch = targetId ? candidateOfferIds.some(id => id === targetId) : false;
-    const codeMatch = targetCode ? candidateOfferCodes.some(code => code === targetCode.toLowerCase()) : false;
-    return idMatch || codeMatch;
-  };
-
-  // 1. Identificação estrita de Planos Comerciais Homologados
-  for (const plan of Object.values(PLANS)) {
-    if (plan.isLegacy || plan.isUnlimited) continue;
-    if (exactMatch(plan.caktoOfferId, plan.caktoOfferCode)) {
-      return { type: 'PLAN', plan, planId: plan.id };
-    }
+  if (rawOfferIds.length === 0 && rawOfferCodes.length === 0) {
+    return { type: 'UNKNOWN' };
   }
 
-  // 2. Identificação estrita de Pacotes de Recarga Homologados
-  for (const pkg of Object.values(CREDIT_PACKAGES)) {
-    if (exactMatch(pkg.caktoOfferId, pkg.caktoOfferCode)) {
-      return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
+  // Verificação de consistência: cada identificador fornecido deve corresponder a um produto homologado
+  const matchedEntries = new Map<string, CatalogEntry>();
+
+  for (const id of rawOfferIds) {
+    const entry = homologatedEntries.find(e => e.offerId === id);
+    if (!entry) {
+      // Identificador de oferta desconhecido fornecido
+      return { type: 'UNKNOWN' };
     }
+    matchedEntries.set(entry.key, entry);
   }
 
-  // 3. Identificação estrita do Produto Legado (Davi) por configuração explícita de ID e Código
-  const legacyOfferId = ENV.CAKTO_LEGACY_OFFER_ID;
-  const legacyOfferCode = ENV.CAKTO_LEGACY_OFFER_CODE;
-  if (exactMatch(legacyOfferId, legacyOfferCode)) {
+  for (const code of rawOfferCodes) {
+    const entry = homologatedEntries.find(e => e.offerCode === code);
+    if (!entry) {
+      // Código de oferta desconhecido fornecido
+      return { type: 'UNKNOWN' };
+    }
+    matchedEntries.set(entry.key, entry);
+  }
+
+  // Se múltiplos produtos diferentes foram identificados, há conflito (ex: ID de recarga + Code de plano)
+  if (matchedEntries.size !== 1) {
+    return { type: 'UNKNOWN' };
+  }
+
+  const selected = Array.from(matchedEntries.values())[0];
+  if (selected.type === 'PLAN' && selected.plan) {
+    return { type: 'PLAN', plan: selected.plan, planId: selected.key };
+  }
+  if (selected.type === 'PACKAGE' && selected.package) {
+    return { type: 'PACKAGE', package: selected.package, packageId: selected.key };
+  }
+  if (selected.type === 'LEGACY') {
     return { type: 'LEGACY', planId: 'LEGACY_DAVI' };
   }
 
-  // Qualquer item desconhecido ou sem identificador exato homologado retorna UNKNOWN
   return { type: 'UNKNOWN' };
 }

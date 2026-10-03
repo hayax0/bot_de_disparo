@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import { ENV } from '../config/env';
 import { EmailService } from './EmailService';
-import { resolveCommercialItem, getPlanById } from '../config/plans';
+import { resolveCommercialItem, getPlanById, isLegacyPlan } from '../config/plans';
 import { CreditWalletService } from './CreditWalletService';
 import { QuotaService } from './QuotaService';
 
@@ -244,70 +244,313 @@ async function applyCaktoWebhook(
     throw new WebhookError('Produto não reconhecido na plataforma.', 400);
   }
 
-  // CASO A: Pagamento aprovado / Compra confirmada
+  // CASO A & B: Pagamento aprovado / Renovação recorrente
   if (
-    (normalizedEvent.includes('approved') || normalizedEvent.includes('paid')) &&
+    (normalizedEvent.includes('approved') || normalizedEvent.includes('paid') || normalizedEvent.includes('renewed')) &&
     !normalizedEvent.includes('refund') && !normalizedEvent.includes('chargeback')
   ) {
     if (!transactionId) {
-      throw new WebhookError('Evento de pagamento sem identificador da transação (transactionId).', 400);
+      throw new WebhookError('Evento de pagamento/renovação sem identificador da transação (transactionId).', 400);
     }
-
-    let targetUser: any = null;
 
     const existingUser = await prisma.user.findUnique({
       where: { email },
       include: { workspaces: true }
     });
 
-    const isUnverified = existingUser && !existingUser.emailVerifiedAt && !existingUser.password?.startsWith('$WEBHOOK_TEMP$');
-    const tempPassword = isUnverified ? `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}` : undefined;
+    // SUB-CASO 1: Recarga avulsa de créditos (PACKAGE)
+    if (commercial.type === 'PACKAGE') {
+      const pkg = commercial.package!;
+      const packageFinancialKey = `cakto_pkg_${transactionId}`;
 
-    if (existingUser) {
-      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
+      const existingOrder = prisma.creditPurchaseOrder?.findFirst
+        ? await prisma.creditPurchaseOrder.findFirst({
+            where: {
+              OR: [
+                { caktoOrderId: transactionId },
+                { idempotencyKey: packageFinancialKey }
+              ]
+            }
+          })
+        : null;
+
+      if (existingOrder) {
+        // Bloqueador 2: Aprovação atrasada não pode reabrir pedido reembolsado nem conceder benefícios
+        if (existingOrder.status === 'REFUNDED') {
+          console.warn(`[CAKTO WEBHOOK] Aprovação atrasada ignorada para pedido já reembolsado: ${transactionId}.`);
+          return { success: true, message: 'Pedido já reembolsado anteriormente. Aprovação atrasada ignorada.', user: existingUser };
+        }
+
+        if (existingOrder.status === 'PAID') {
+          console.log(`[CAKTO WEBHOOK IDEMPOTENTE] Recarga ${transactionId} já processada anteriormente.`);
+          return { success: true, message: 'Recarga já processada anteriormente (idempotente)', user: existingUser };
+        }
+      }
+
+      let targetUser: any = existingUser;
+      if (!targetUser) {
+        const hashedPassword = `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}`;
+        targetUser = await prisma.user.create({
+          data: {
+            email,
+            name,
+            password: hashedPassword,
+            role: 'USER',
+            subscriptionStatus: 'ACTIVE',
+            subscriptionExpiresAt: calculatedExpiresAt,
+            subscriptionStartedAt: now,
+            caktoCustomerId: customerId || null,
+            caktoOrderId: transactionId,
+            subscriptionInterval,
+            workspaces: { create: { name: 'Minha Empresa' } }
+          }
+        });
+      }
+
+      const rawAmount = primaryItem.amount ?? primaryItem.paid_amount ?? primaryItem.price ?? primaryItem.value;
+      let paidCents = pkg.priceCents;
+      if (typeof rawAmount === 'number') {
+        paidCents = Number.isInteger(rawAmount) && rawAmount > 500 ? rawAmount : Math.round(rawAmount * 100);
+      }
+
+      await CreditWalletService.grantPurchasedCredits({
+        userId: targetUser.id,
+        amount: pkg.credits,
+        orderId: transactionId,
+        idempotencyKey: packageFinancialKey,
+        description: `Recarga Cakto: ${pkg.name}`,
+        priceCents: paidCents,
+        tx: prisma
+      });
+
+      if (prisma.creditPurchaseOrder) {
+        if (prisma.creditPurchaseOrder.upsert) {
+          await prisma.creditPurchaseOrder.upsert({
+            where: { idempotencyKey: packageFinancialKey },
+            create: {
+              userId: targetUser.id,
+              packageId: pkg.id,
+              credits: pkg.credits,
+              priceCents: paidCents,
+              status: 'PAID',
+              paymentProvider: 'cakto',
+              caktoOrderId: transactionId,
+              idempotencyKey: packageFinancialKey,
+              paidAt: now
+            },
+            update: {
+              status: 'PAID',
+              paidAt: now
+            }
+          });
+        } else if (existingOrder && prisma.creditPurchaseOrder.update) {
+          await prisma.creditPurchaseOrder.update({
+            where: { id: existingOrder.id },
+            data: { status: 'PAID', paidAt: now }
+          });
+        } else if (prisma.creditPurchaseOrder.create) {
+          await prisma.creditPurchaseOrder.create({
+            data: {
+              userId: targetUser.id,
+              packageId: pkg.id,
+              credits: pkg.credits,
+              priceCents: paidCents,
+              status: 'PAID',
+              paymentProvider: 'cakto',
+              caktoOrderId: transactionId,
+              idempotencyKey: packageFinancialKey,
+              paidAt: now
+            }
+          });
+        }
+      }
+
+      console.log(`[CAKTO WEBHOOK] Recarga de ${pkg.credits} créditos concedida para ${email}`);
+      return {
+        success: true,
+        message: `Recarga de ${pkg.credits} créditos ativada com sucesso`,
+        user: targetUser
+      };
+    }
+
+    // SUB-CASO 2: Ciclo de Plano ou Produto Legado (PLAN ou LEGACY)
+    const cycleFinancialKey = `cakto_cycle_${transactionId}`;
+
+    // Bloqueador 1: Deduplicação ANTES de qualquer alteração de assinatura, validade, franquia ou créditos
+    const alreadyProcessedCycle = prisma.creditTransaction?.findUnique
+      ? await prisma.creditTransaction.findUnique({
+          where: { idempotencyKey: cycleFinancialKey }
+        })
+      : null;
+
+    if (alreadyProcessedCycle) {
+      console.log(`[CAKTO WEBHOOK IDEMPOTENTE] Ciclo financeiro ${transactionId} já processado anteriormente.`);
+      return {
+        success: true,
+        message: 'Pagamento/ciclo já processado anteriormente para esta transação (idempotente)',
+        user: existingUser
+      };
+    }
+
+    const isExistingAdmin = existingUser && (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME');
+    const isExistingLegacy = existingUser && !isExistingAdmin && isLegacyPlan(existingUser.planId);
+
+    // 1. Administrador (VIP): Acesso vitalício preservado
+    if (isExistingAdmin) {
+      const isUnverified = existingUser && !existingUser.emailVerifiedAt && !existingUser.password?.startsWith('$WEBHOOK_TEMP$');
+      const tempPassword = isUnverified ? `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}` : undefined;
+
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          subscriptionStatus: 'LIFETIME',
+          caktoCustomerId: customerId || existingUser.caktoCustomerId,
+          caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
+          caktoOrderId: transactionId,
+          subscriptionInterval,
+          ...(tempPassword ? { password: tempPassword, authVersion: { increment: 1 } } : {})
+        }
+      });
+      const targetUser = { ...existingUser, ...updated };
+
+      const wallet = await CreditWalletService.getOrCreateWallet(existingUser.id, prisma);
+      if (wallet && prisma.creditTransaction?.create) {
+        await prisma.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId: existingUser.id,
+            amount: 0,
+            type: 'ADMIN_ADJUSTMENT',
+            balanceType: 'NONE',
+            monthlyAmount: 0,
+            purchasedAmount: 0,
+            sourceType: 'SUBSCRIPTION_RENEWAL',
+            sourceId: transactionId,
+            idempotencyKey: cycleFinancialKey,
+            description: 'Ciclo administrativo VIP (vitalício)',
+            metadata: JSON.stringify({ transactionId, isUnlimited: true })
+          }
+        });
+      }
+      return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: targetUser };
+    }
+
+    // 2. Proteção do Davi (LEGACY_DAVI): Não pode ser migrado para novos produtos
+    if (isExistingLegacy) {
+      const wallet = await CreditWalletService.getOrCreateWallet(existingUser.id, prisma);
+      if (commercial.type === 'PLAN') {
+        // Bloqueador 3: Eventos dos novos produtos não podem sobrescrever o plano legado
+        if (wallet && prisma.creditTransaction?.create) {
+          await prisma.creditTransaction.create({
+            data: {
+              walletId: wallet.id,
+              userId: existingUser.id,
+              amount: 0,
+              type: 'SUBSCRIPTION_RENEWAL',
+              balanceType: 'NONE',
+              monthlyAmount: 0,
+              purchasedAmount: 0,
+              sourceType: 'SUBSCRIPTION_CYCLE',
+              sourceId: transactionId,
+              idempotencyKey: cycleFinancialKey,
+              description: 'Pagamento de novo plano ignorado para migração - Plano legado preservado',
+              metadata: JSON.stringify({ transactionId, preservedLegacy: true })
+            }
+          });
+        }
+        console.log(`[CAKTO WEBHOOK] Usuário legado Davi preservado. Evento de novo plano ${commercial.plan?.id} não alterou o plano legado.`);
+        return { success: true, message: 'Plano legado preservado integralmente', user: existingUser };
+      }
+
+      if (commercial.type === 'LEGACY') {
+        // Renovação legítima do próprio produto legado
+        let newExpiresAt: Date;
+        if (existingUser.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
+          const base = new Date(existingUser.subscriptionExpiresAt);
+          const { expiresAt } = calculateSubscriptionPeriod(primaryItem, base);
+          newExpiresAt = expiresAt;
+        } else {
+          newExpiresAt = calculatedExpiresAt;
+        }
+
         const updated = await prisma.user.update({
           where: { id: existingUser.id },
           data: {
-            subscriptionStatus: 'LIFETIME',
-            caktoCustomerId: customerId || existingUser.caktoCustomerId,
-            caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
+            subscriptionStatus: 'ACTIVE',
+            subscriptionExpiresAt: newExpiresAt,
+            subscriptionRenewedAt: now,
+            planId: 'LEGACY_DAVI',
+            monthlyDispatchQuota: 0,
             caktoOrderId: transactionId,
-            subscriptionInterval,
-            ...(tempPassword ? { password: tempPassword, authVersion: { increment: 1 } } : {})
+            caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
+            subscriptionInterval
           }
         });
-        targetUser = { ...existingUser, ...updated };
-      } else {
-        if (commercial.type === 'PACKAGE') {
-          targetUser = existingUser;
-        } else {
-          const planUpdateData: any = {
-            subscriptionStatus: 'ACTIVE',
-            subscriptionExpiresAt: calculatedExpiresAt,
-            subscriptionStartedAt: existingUser.subscriptionStartedAt || now,
-            caktoCustomerId: customerId || existingUser.caktoCustomerId,
-            caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
-            caktoOrderId: transactionId,
-            subscriptionInterval,
-            ...(tempPassword ? { password: tempPassword, authVersion: { increment: 1 } } : {})
-          };
 
-          if (commercial.type === 'PLAN') {
-            planUpdateData.planId = commercial.plan!.id;
-            planUpdateData.monthlyDispatchQuota = commercial.plan!.monthlyDispatches;
-          } else if (commercial.type === 'LEGACY') {
-            planUpdateData.planId = 'LEGACY_DAVI';
-            planUpdateData.monthlyDispatchQuota = 0;
-          }
-
-          const updated = await prisma.user.update({
-            where: { id: existingUser.id },
-            data: planUpdateData
+        if (wallet && prisma.creditTransaction?.create) {
+          await prisma.creditTransaction.create({
+            data: {
+              walletId: wallet.id,
+              userId: existingUser.id,
+              amount: 0,
+              type: 'SUBSCRIPTION_RENEWAL',
+              balanceType: 'NONE',
+              monthlyAmount: 0,
+              purchasedAmount: 0,
+              sourceType: 'SUBSCRIPTION_RENEWAL',
+              sourceId: transactionId,
+              idempotencyKey: cycleFinancialKey,
+              description: 'Renovação do Plano Legado Davi',
+              metadata: JSON.stringify({ transactionId, expiresAt: newExpiresAt })
+            }
           });
-          targetUser = { ...existingUser, ...updated };
         }
+
+        return { success: true, message: 'Plano legado renovado com sucesso', user: { ...existingUser, ...updated } };
       }
-      console.log(`[CAKTO WEBHOOK] Pagamento processado para ${email} (tipo: ${commercial.type})`);
+    }
+
+    // 3. Cliente Comum (START, PRO, SCALE ou novo cliente do produto legado)
+    let newExpiresAt: Date;
+    if (existingUser?.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
+      const base = new Date(existingUser.subscriptionExpiresAt);
+      const { expiresAt } = calculateSubscriptionPeriod(primaryItem, base);
+      newExpiresAt = expiresAt;
+    } else {
+      newExpiresAt = calculatedExpiresAt;
+    }
+
+    const isUnverified = existingUser && !existingUser.emailVerifiedAt && !existingUser.password?.startsWith('$WEBHOOK_TEMP$');
+    const tempPassword = isUnverified ? `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}` : undefined;
+
+    let targetUser: any = null;
+
+    if (existingUser) {
+      const planUpdateData: any = {
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: newExpiresAt,
+        subscriptionRenewedAt: now,
+        subscriptionStartedAt: existingUser.subscriptionStartedAt || now,
+        caktoCustomerId: customerId || existingUser.caktoCustomerId,
+        caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
+        caktoOrderId: transactionId,
+        subscriptionInterval,
+        ...(tempPassword ? { password: tempPassword, authVersion: { increment: 1 } } : {})
+      };
+
+      if (commercial.type === 'PLAN') {
+        planUpdateData.planId = commercial.plan!.id;
+        planUpdateData.monthlyDispatchQuota = commercial.plan!.monthlyDispatches;
+      } else if (commercial.type === 'LEGACY') {
+        planUpdateData.planId = 'LEGACY_DAVI';
+        planUpdateData.monthlyDispatchQuota = 0;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: planUpdateData
+      });
+      targetUser = { ...existingUser, ...updated };
     } else {
       const hashedPassword = `$WEBHOOK_TEMP$${crypto.randomBytes(16).toString('hex')}`;
       const newUserData: any = {
@@ -316,7 +559,7 @@ async function applyCaktoWebhook(
         password: hashedPassword,
         role: 'USER',
         subscriptionStatus: 'ACTIVE',
-        subscriptionExpiresAt: calculatedExpiresAt,
+        subscriptionExpiresAt: newExpiresAt,
         subscriptionStartedAt: now,
         caktoCustomerId: customerId || null,
         caktoSubscriptionId: subscriptionId ? String(subscriptionId) : null,
@@ -340,86 +583,68 @@ async function applyCaktoWebhook(
       targetUser = await prisma.user.create({
         data: newUserData
       });
-
-      console.log(`[CAKTO WEBHOOK] Novo cliente criado: ${email} | Plano: ${targetUser.planId || 'N/A'}`);
     }
 
-    // Processamento financeiro atômico do item com chave estável por transactionId
-    if (commercial.type === 'PACKAGE') {
-      const pkg = commercial.package!;
-      const financialKey = `cakto_pkg_${transactionId}`;
+    if (commercial.type === 'PLAN') {
+      const plan = commercial.plan!;
+      await QuotaService.resetCycleDispatches(targetUser.id, plan.monthlyDispatches, prisma);
 
-      const rawAmount = primaryItem.amount ?? primaryItem.paid_amount ?? primaryItem.price ?? primaryItem.value;
-      let paidCents = pkg.priceCents;
-      if (typeof rawAmount === 'number') {
-        paidCents = Number.isInteger(rawAmount) && rawAmount > 500 ? rawAmount : Math.round(rawAmount * 100);
+      if (plan.monthlyCredits > 0) {
+        await CreditWalletService.grantMonthlyCredits({
+          userId: targetUser.id,
+          amount: plan.monthlyCredits,
+          expiresAt: newExpiresAt,
+          idempotencyKey: cycleFinancialKey,
+          description: `Créditos mensais do Plano ${plan.name}`,
+          tx: prisma
+        });
+      } else {
+        const wallet = await CreditWalletService.getOrCreateWallet(targetUser.id, prisma);
+        if (wallet && prisma.creditTransaction?.create) {
+          await prisma.creditTransaction.create({
+            data: {
+              walletId: wallet.id,
+              userId: targetUser.id,
+              amount: 0,
+              type: 'MONTHLY_GRANT',
+              balanceType: 'NONE',
+              monthlyAmount: 0,
+              purchasedAmount: 0,
+              sourceType: 'SUBSCRIPTION_RENEWAL',
+              sourceId: transactionId,
+              idempotencyKey: cycleFinancialKey,
+              description: `Ciclo do Plano ${plan.name}`,
+              metadata: JSON.stringify({ transactionId, expiresAt: newExpiresAt })
+            }
+          });
+        }
       }
-
-      await CreditWalletService.grantPurchasedCredits({
-        userId: targetUser.id,
-        amount: pkg.credits,
-        orderId: transactionId,
-        idempotencyKey: financialKey,
-        description: `Recarga Cakto: ${pkg.name}`,
-        priceCents: paidCents,
-        tx: prisma
-      });
-
-      if (prisma.creditPurchaseOrder?.upsert) {
-        await prisma.creditPurchaseOrder.upsert({
-          where: { idempotencyKey: financialKey },
-          create: {
+      console.log(`[CAKTO WEBHOOK] Plano ${plan.name} ativado/renovado com ${plan.monthlyDispatches} disparos e ${plan.monthlyCredits} créditos IA`);
+    } else if (commercial.type === 'LEGACY') {
+      const wallet = await CreditWalletService.getOrCreateWallet(targetUser.id, prisma);
+      if (wallet && prisma.creditTransaction?.create) {
+        await prisma.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
             userId: targetUser.id,
-            packageId: pkg.id,
-            credits: pkg.credits,
-            priceCents: paidCents,
-            status: 'PAID',
-            paymentProvider: 'cakto',
-            caktoOrderId: transactionId,
-            idempotencyKey: financialKey,
-            paidAt: now
-          },
-          update: {
-            status: 'PAID',
-            paidAt: now
+            amount: 0,
+            type: 'SUBSCRIPTION_RENEWAL',
+            balanceType: 'NONE',
+            monthlyAmount: 0,
+            purchasedAmount: 0,
+            sourceType: 'SUBSCRIPTION_RENEWAL',
+            sourceId: transactionId,
+            idempotencyKey: cycleFinancialKey,
+            description: 'Ciclo do Plano Legado Davi',
+            metadata: JSON.stringify({ transactionId, expiresAt: newExpiresAt })
           }
         });
       }
-      console.log(`[CAKTO WEBHOOK] Recarga de ${pkg.credits} créditos concedida para ${email}`);
-    } else if (commercial.type === 'PLAN') {
-      const isUnlimited = targetUser.role === 'ADMIN' || targetUser.subscriptionStatus === 'LIFETIME';
-      if (!isUnlimited) {
-        const plan = commercial.plan!;
-        const financialKey = `cakto_monthly_${transactionId}`;
-
-        const alreadyGranted = prisma.creditTransaction?.findUnique
-          ? await prisma.creditTransaction.findUnique({
-              where: { idempotencyKey: financialKey }
-            })
-          : null;
-
-        if (!alreadyGranted) {
-          await QuotaService.resetCycleDispatches(targetUser.id, plan.monthlyDispatches, prisma);
-
-          if (plan.monthlyCredits > 0) {
-            await CreditWalletService.grantMonthlyCredits({
-              userId: targetUser.id,
-              amount: plan.monthlyCredits,
-              expiresAt: calculatedExpiresAt,
-              idempotencyKey: financialKey,
-              description: `Créditos mensais do Plano ${plan.name}`,
-              tx: prisma
-            });
-          }
-          console.log(`[CAKTO WEBHOOK] Plano ${plan.name} ativado com ${plan.monthlyDispatches} disparos e ${plan.monthlyCredits} créditos IA`);
-        } else {
-          console.log(`[CAKTO WEBHOOK IDEMPOTENTE] Concessão financeira do plano para ${transactionId} já processada anteriormente.`);
-        }
-      }
     }
 
-    // 5. Envio do E-mail de Boas-Vindas via Resend (após commit da transação)
-    if (targetUser && (!existingUser || commercial.type !== 'PACKAGE')) {
+    // E-mails após commit
+    const isFirstActivation = !existingUser || existingUser.subscriptionStatus !== 'ACTIVE';
+    if (isFirstActivation) {
       afterCommit.push(async () => {
         try {
           const alreadyNotified = await notificationDb.subscriptionNotification.findUnique({
@@ -436,7 +661,7 @@ async function applyCaktoWebhook(
             const emailResult = await EmailService.sendWelcomeEmail({
               email,
               name,
-              expiresAt: calculatedExpiresAt
+              expiresAt: newExpiresAt
             });
 
             await notificationDb.subscriptionNotification.create({
@@ -451,97 +676,23 @@ async function applyCaktoWebhook(
               }
             }).catch((err) => console.warn('[SUBSCRIPTION NOTIFICATION WARN]:', err.message));
           }
-        } catch (emailErr: any) {
+        } catch {
           console.error('[CAKTO WEBHOOK] Falha no e-mail de boas-vindas.');
         }
       });
+    } else {
+      afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({
+        email,
+        name: targetUser.name,
+        expiresAt: newExpiresAt
+      }));
     }
 
     return {
       success: true,
-      message: commercial.type === 'PACKAGE'
-        ? `Recarga de ${commercial.package!.credits} créditos ativada com sucesso`
-        : 'Assinatura ativada com sucesso',
+      message: 'Assinatura ativada/renovada com sucesso',
       user: targetUser
     };
-  }
-
-  // CASO B: Renovação recorrente aprovada
-  if (
-    normalizedEvent.includes('renewed') ||
-    normalizedEvent === 'subscription_renewed'
-  ) {
-    if (!transactionId) {
-      throw new WebhookError('Evento de renovação sem identificador da transação (transactionId).', 400);
-    }
-
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-
-    if (existingUser) {
-      if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
-        return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: existingUser };
-      }
-
-      // Calcula novo ciclo
-      let newExpiresAt: Date;
-      if (existingUser.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
-        const base = new Date(existingUser.subscriptionExpiresAt);
-        const { expiresAt } = calculateSubscriptionPeriod(primaryItem, base);
-        newExpiresAt = expiresAt;
-      } else {
-        newExpiresAt = calculatedExpiresAt;
-      }
-
-      const updated = await prisma.user.update({
-        where: { id: existingUser.id },
-        data: {
-          subscriptionStatus: 'ACTIVE',
-          subscriptionExpiresAt: newExpiresAt,
-          subscriptionRenewedAt: now,
-          caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
-          caktoOrderId: transactionId,
-          subscriptionInterval
-        }
-      });
-
-      const effectivePlan = (commercial.type === 'PLAN' ? commercial.plan : null) || getPlanById(existingUser.planId);
-      if (effectivePlan && !effectivePlan.isLegacy && !effectivePlan.isUnlimited) {
-        const renewKey = `cakto_renew_${transactionId}`;
-        const alreadyGranted = prisma.creditTransaction?.findUnique
-          ? await prisma.creditTransaction.findUnique({
-              where: { idempotencyKey: renewKey }
-            })
-          : null;
-
-        if (!alreadyGranted) {
-          await QuotaService.resetCycleDispatches(existingUser.id, effectivePlan.monthlyDispatches, prisma);
-
-          if (effectivePlan.monthlyCredits > 0) {
-            await CreditWalletService.grantMonthlyCredits({
-              userId: existingUser.id,
-              amount: effectivePlan.monthlyCredits,
-              expiresAt: newExpiresAt,
-              idempotencyKey: renewKey,
-              description: `Renovação de créditos mensais do Plano ${effectivePlan.name}`,
-              tx: prisma
-            });
-          }
-        } else {
-          console.log(`[CAKTO WEBHOOK IDEMPOTENTE] Renovação financeira para ${transactionId} já processada.`);
-        }
-      }
-
-      console.log(`[CAKTO WEBHOOK] Assinatura renovada para ${email}. Novo ciclo até: ${newExpiresAt.toISOString()}`);
-
-      // E-mail de renovação opcional
-      afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({
-        email,
-        name: updated.name,
-        expiresAt: newExpiresAt
-      }));
-
-      return { success: true, message: 'Assinatura renovada com sucesso', user: updated };
-    }
   }
 
   // CASO C: Cancelamento de assinatura
@@ -554,6 +705,11 @@ async function applyCaktoWebhook(
     if (existingUser) {
       if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta admin não afetada por cancelamento' };
+      }
+
+      if (isLegacyPlan(existingUser.planId) && commercial.type !== 'LEGACY') {
+        console.warn(`[CAKTO WEBHOOK] Cancelamento de novo produto ignorado para conta legada Davi.`);
+        return { success: true, message: 'Conta legada mantida intacta', user: existingUser };
       }
 
       const updated = await prisma.user.update({
@@ -638,6 +794,11 @@ async function applyCaktoWebhook(
         // REEMBOLSO DE RECARGA: Atualiza o pedido e estorna os créditos comprados de forma auditável e segura
         // A ASSINATURA É MANTIDA INTACTA!
         if (existingOrder) {
+          // Bloqueador 2: Validar o proprietário
+          if (existingOrder.userId !== existingUser.id) {
+            throw new WebhookError('Pedido de recarga não pertence ao comprador informado no webhook.', 400);
+          }
+
           if (existingOrder.status === 'REFUNDED') {
             console.log(`[CAKTO WEBHOOK IDEMPOTENTE] Reembolso da recarga ${transactionId} já processado.`);
             return { success: true, message: 'Reembolso de recarga já processado anteriormente', user: existingUser };
@@ -652,29 +813,61 @@ async function applyCaktoWebhook(
               }
             });
           }
+
+          const creditsToRevoke = existingOrder.credits || 0;
+          const refundKey = `cakto_refund_pkg_${transactionId}`;
+
+          const revokeResult = await CreditWalletService.revokePurchasedCredits({
+            userId: existingUser.id,
+            amount: creditsToRevoke,
+            orderId: transactionId,
+            idempotencyKey: refundKey,
+            description: `Estorno por reembolso/disputa de recarga (Pedido: ${transactionId})`,
+            tx: prisma
+          });
+
+          console.log(`[CAKTO WEBHOOK] Reembolso de recarga processado para ${email}. Revogados: ${revokeResult.revokedAmount} créditos. Assinatura mantida intacta.`);
+          return {
+            success: true,
+            message: `Recarga estornada com sucesso (${revokeResult.revokedAmount} créditos revogados). Assinatura mantida.`,
+            user: existingUser
+          };
+        } else {
+          // Bloqueador 2: Reembolso recebido antes da aprovação
+          const pkg = commercial.package;
+          if (prisma.creditPurchaseOrder?.create) {
+            await prisma.creditPurchaseOrder.create({
+              data: {
+                userId: existingUser.id,
+                packageId: pkg?.id || 'PACKAGE_UNKNOWN',
+                credits: pkg?.credits || 0,
+                priceCents: pkg?.priceCents || 0,
+                status: 'REFUNDED',
+                paymentProvider: 'cakto',
+                caktoOrderId: transactionId || null,
+                idempotencyKey: `cakto_pkg_${transactionId}`,
+                paidAt: null,
+                refundedAt: now
+              }
+            });
+          }
+
+          console.log(`[CAKTO WEBHOOK] Reembolso antecipado de recarga registrado como REFUNDED para pedido ${transactionId}. Nenhum crédito descontado.`);
+          return {
+            success: true,
+            message: 'Reembolso antecipado registrado como REFUNDED. Nenhum crédito descontado pois compra ainda não fora aprovada.',
+            user: existingUser
+          };
         }
-
-        const creditsToRevoke = existingOrder?.credits || (commercial.type === 'PACKAGE' ? commercial.package?.credits : 0) || 0;
-        const refundKey = transactionId ? `cakto_refund_pkg_${transactionId}` : `cakto_refund_pkg_${eventId}`;
-
-        const revokeResult = await CreditWalletService.revokePurchasedCredits({
-          userId: existingUser.id,
-          amount: creditsToRevoke,
-          orderId: transactionId,
-          idempotencyKey: refundKey,
-          description: `Estorno por reembolso/disputa de recarga (Pedido: ${transactionId || 'N/A'})`,
-          tx: prisma
-        });
-
-        console.log(`[CAKTO WEBHOOK] Reembolso de recarga processado para ${email}. Revogados: ${revokeResult.revokedAmount} créditos. Assinatura mantida intacta.`);
-        return {
-          success: true,
-          message: `Recarga estornada com sucesso (${revokeResult.revokedAmount} créditos revogados). Assinatura mantida.`,
-          user: existingUser
-        };
       }
 
       // REEMBOLSO DE PLANO / ASSINATURA:
+      // Bloqueador 3: Se for conta legada Davi e o cancelamento não for do produto legado, não afeta Davi
+      if (isLegacyPlan(existingUser.planId) && commercial.type !== 'LEGACY') {
+        console.warn(`[CAKTO WEBHOOK] Cancelamento/reembolso de novo produto não afeta conta legada Davi.`);
+        return { success: true, message: 'Conta legada mantida intacta', user: existingUser };
+      }
+
       // Se trouxer subscriptionId e o usuário tiver assinatura ativa diferente, preserva a assinatura ativa
       if (subscriptionId && existingUser.caktoSubscriptionId && String(subscriptionId) !== existingUser.caktoSubscriptionId) {
         console.warn(`[CAKTO WEBHOOK] Reembolso recebido para assinatura ${subscriptionId}, mas usuário ativo possui ${existingUser.caktoSubscriptionId}. Assinatura ativa preservada.`);
@@ -696,7 +889,7 @@ async function applyCaktoWebhook(
       // Revoga créditos mensais do ciclo atual cancelado
       await CreditWalletService.revokeMonthlyCredits({
         userId: existingUser.id,
-        idempotencyKey: transactionId ? `cakto_refund_sub_${transactionId}` : `cakto_refund_sub_${eventId}`,
+        idempotencyKey: `cakto_refund_sub_${transactionId}`,
         description: 'Revogação de créditos mensais por cancelamento da assinatura',
         tx: prisma
       });
