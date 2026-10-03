@@ -3,6 +3,8 @@
  * Novas compras permanecem desativadas até integração e validação da Cakto.
  */
 
+import { ENV } from './env';
+
 export interface PlanDefinition {
   id: string;
   name: string;
@@ -249,7 +251,7 @@ export function getCreditPackageById(packageId: string): CreditPackageDefinition
 
 export function getCommercialCatalog() {
   return {
-    purchaseEnabled: true as const,
+    purchaseEnabled: false as const,
     plans: Object.values(PLANS).filter(plan => !plan.isLegacy && !plan.isUnlimited),
     packages: Object.values(CREDIT_PACKAGES),
     creditCostPerMessage: OPERATION_CREDIT_COSTS.AI_ASSISTANT_QUERY,
@@ -267,97 +269,82 @@ export interface CommercialResolution {
 }
 
 /**
- * Resolução ultra-resiliente do item adquirido via Cakto:
- * Analisa offer_id, offer code, URL de checkout e nome do produto.
+ * Resolução rigorosa e segura do item comercial da Cakto.
+ * Requer correspondência exata de ID ou Código da oferta cadastrada.
+ * Não utiliza correspondência por substring nem fallbacks por nome para concessão financeira.
+ * Produtos desconhecidos retornam UNKNOWN.
  */
 export function resolveCommercialItem(item: any): CommercialResolution {
-  if (!item) return { type: 'UNKNOWN' };
+  if (!item || typeof item !== 'object') return { type: 'UNKNOWN' };
 
-  const offerId = String(
-    item.offer_id ||
-    item.offer?.id ||
-    item.offerId ||
-    item.product?.offer_id ||
-    item.product?.offerId ||
-    ''
-  ).trim();
+  const candidateOfferIds: string[] = [];
+  const candidateOfferCodes: string[] = [];
 
-  const offerCode = String(
-    item.offer?.code ||
-    item.offer_code ||
-    item.code ||
-    item.product?.code ||
-    ''
-  ).trim().toLowerCase();
-
-  const checkoutUrl = String(
-    item.checkout_url ||
-    item.payment_url ||
-    item.url ||
-    ''
-  ).trim().toLowerCase();
-
-  const rawName = String(
-    item.product?.name ||
-    item.product_name ||
-    item.name ||
-    item.title ||
-    ''
-  ).trim().toLowerCase();
-
-  const matchesIdentifier = (targetOfferId?: string, targetCode?: string) => {
-    if (targetOfferId && offerId && (offerId === targetOfferId || offerId.includes(targetOfferId))) return true;
-    if (targetCode && offerCode && (offerCode === targetCode || offerCode.includes(targetCode))) return true;
-    if (targetCode && checkoutUrl && checkoutUrl.includes(targetCode)) return true;
-    if (targetOfferId && checkoutUrl && checkoutUrl.includes(targetOfferId)) return true;
-    return false;
+  const addId = (val: any) => {
+    if (val !== undefined && val !== null) {
+      const s = String(val).trim();
+      if (s && !candidateOfferIds.includes(s)) candidateOfferIds.push(s);
+    }
   };
 
-  // 1. Identificação de Planos Comerciais por ID / Código
+  const addCode = (val: any) => {
+    if (val !== undefined && val !== null) {
+      const s = String(val).trim().toLowerCase();
+      if (s && !candidateOfferCodes.includes(s)) candidateOfferCodes.push(s);
+    }
+  };
+
+  // Extração dos campos reais de identificação de oferta da Cakto
+  addId(item.offer_id);
+  addId(item.offer?.id);
+  addId(item.offerId);
+  addId(item.product?.offer_id);
+  addId(item.product?.offerId);
+
+  addCode(item.offer?.code);
+  addCode(item.offer_code);
+  addCode(item.code);
+  addCode(item.product?.code);
+
+  // Extração opcional da URL oficial de checkout da Cakto caso venha no item (formato: pay.cakto.com.br/CODIGO_ID)
+  const checkoutUrl = String(item.checkout_url || item.payment_url || item.url || '').trim();
+  if (checkoutUrl) {
+    const match = checkoutUrl.match(/pay\.cakto\.com\.br\/([a-z0-9]+)_([0-9]+)/i);
+    if (match) {
+      addCode(match[1]);
+      addId(match[2]);
+    }
+  }
+
+  const exactMatch = (targetId?: string, targetCode?: string): boolean => {
+    if (!targetId && !targetCode) return false;
+    const idMatch = targetId ? candidateOfferIds.some(id => id === targetId) : false;
+    const codeMatch = targetCode ? candidateOfferCodes.some(code => code === targetCode.toLowerCase()) : false;
+    return idMatch || codeMatch;
+  };
+
+  // 1. Identificação estrita de Planos Comerciais Homologados
   for (const plan of Object.values(PLANS)) {
     if (plan.isLegacy || plan.isUnlimited) continue;
-    if (matchesIdentifier(plan.caktoOfferId, plan.caktoOfferCode)) {
+    if (exactMatch(plan.caktoOfferId, plan.caktoOfferCode)) {
       return { type: 'PLAN', plan, planId: plan.id };
     }
   }
 
-  // 2. Identificação de Pacotes de Recarga por ID / Código
+  // 2. Identificação estrita de Pacotes de Recarga Homologados
   for (const pkg of Object.values(CREDIT_PACKAGES)) {
-    if (matchesIdentifier(pkg.caktoOfferId, pkg.caktoOfferCode)) {
+    if (exactMatch(pkg.caktoOfferId, pkg.caktoOfferCode)) {
       return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
     }
   }
 
-  // 3. Fallback por nome/descrição
-  if (rawName.includes('700') || (rawName.includes('recarga') && rawName.includes('700'))) {
-    const pkg = CREDIT_PACKAGES.PACKAGE_LARGE;
-    return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
-  }
-  if (rawName.includes('300') || (rawName.includes('recarga') && rawName.includes('300'))) {
-    const pkg = CREDIT_PACKAGES.PACKAGE_MEDIUM;
-    return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
-  }
-  if (rawName.includes('100') || (rawName.includes('recarga') && rawName.includes('100'))) {
-    const pkg = CREDIT_PACKAGES.PACKAGE_SMALL;
-    return { type: 'PACKAGE', package: pkg, packageId: pkg.id };
-  }
-  if (rawName.includes('essencial') || rawName.includes('start')) {
-    const plan = PLANS.START;
-    return { type: 'PLAN', plan, planId: plan.id };
-  }
-  if (rawName.includes('profissional') || rawName.includes('pro')) {
-    const plan = PLANS.PRO;
-    return { type: 'PLAN', plan, planId: plan.id };
-  }
-  if (rawName.includes('premium') || rawName.includes('scale')) {
-    const plan = PLANS.SCALE;
-    return { type: 'PLAN', plan, planId: plan.id };
-  }
-
-  // 4. Produto Legado (ex: "Disparo WhatsApp - Mensal")
-  if (rawName.includes('disparo') || rawName.includes('legado') || rawName.includes('davi') || rawName.includes('mensal')) {
+  // 3. Identificação estrita do Produto Legado (Davi) por configuração explícita de ID e Código
+  const legacyOfferId = ENV.CAKTO_LEGACY_OFFER_ID;
+  const legacyOfferCode = ENV.CAKTO_LEGACY_OFFER_CODE;
+  if (exactMatch(legacyOfferId, legacyOfferCode)) {
     return { type: 'LEGACY', planId: 'LEGACY_DAVI' };
   }
 
+  // Qualquer item desconhecido ou sem identificador exato homologado retorna UNKNOWN
   return { type: 'UNKNOWN' };
 }

@@ -40,7 +40,7 @@ test('catálogo autenticado: planos e pacotes aprovados com links de checkout of
   const response = await fetch(`${base}/plans`, { headers });
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.equal(data.purchaseEnabled, true);
+  assert.equal(data.purchaseEnabled, false);
   assert.deepEqual(data.plans.map((p: any) => [p.id, p.name, p.priceCents, p.monthlyDispatches, p.monthlyCredits, p.maxWhatsappConnections]), [
     ['START', 'Essencial', 2799, 1000, 50, 1], ['PRO', 'Profissional', 5599, 3000, 150, 1], ['SCALE', 'Premium', 9599, 6000, 300, 1],
   ]);

@@ -208,7 +208,7 @@ export function PlansAndCredits() {
                         <li>• {number(p.monthlyCredits)} créditos IA</li>
                       </ul>
                     </div>
-                    {p.checkoutUrl && (
+                    {catalog.purchaseEnabled && p.checkoutUrl ? (
                       <a
                         href={p.checkoutUrl}
                         target="_blank"
@@ -221,6 +221,13 @@ export function PlansAndCredits() {
                       >
                         {isCurrent ? 'Renovar' : 'Mudar para este'}
                       </a>
+                    ) : (
+                      <button
+                        disabled
+                        className="mt-3 w-full py-1.5 px-2 rounded-lg text-center font-medium bg-white/5 text-slate-500 cursor-not-allowed block text-xs"
+                      >
+                        Indisponível
+                      </button>
                     )}
                   </div>
                 );
@@ -292,7 +299,7 @@ export function PlansAndCredits() {
                     </p>
                   </div>
 
-                  {pack.checkoutUrl ? (
+                  {catalog.purchaseEnabled && pack.checkoutUrl ? (
                     <a
                       href={pack.checkoutUrl}
                       target="_blank"

@@ -316,7 +316,7 @@ test('Concorrência: confirmação e webhook compartilham lock account:email e a
   const payload = {
     secret,
     event: 'purchase_approved',
-    data: { id: 'evt-order-test', customer: { email } }
+    data: { id: 'evt-order-test', offer_id: '1165278', customer: { email } }
   };
 
   // --- Ordem 1: Titular confirma primeiro -> Webhook roda em seguida ---

@@ -774,20 +774,24 @@ export class CreditWalletService {
   /**
    * Concede créditos mensais no início ou renovação de ciclo da assinatura.
    * Não cumulativo: substitui o saldo mensal anterior e atualiza a data de expiração.
+   * Suporta transação externa tx para atomicidade global.
    */
   static async grantMonthlyCredits(params: {
     userId: string;
     amount: number;
     expiresAt: Date;
-    idempotencyKey?: string;
-    description?: string;
+    idempotencyKey?: string | undefined;
+    description?: string | undefined;
+    tx?: Prisma.TransactionClient | undefined;
   }): Promise<{ success: boolean; grantedAmount: number }> {
-    const { userId, amount, expiresAt, idempotencyKey, description } = params;
+    const { userId, amount, expiresAt, idempotencyKey, description, tx: providedTx } = params;
 
-    return await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
+    const executeGrant = async (tx: Prisma.TransactionClient) => {
+      if (!providedTx) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
+      }
 
-      if (idempotencyKey) {
+      if (idempotencyKey && tx.creditTransaction?.findUnique) {
         const existingTx = await tx.creditTransaction.findUnique({
           where: { idempotencyKey }
         });
@@ -797,108 +801,299 @@ export class CreditWalletService {
         }
       }
 
-      let wallet = await tx.creditWallet.findUnique({ where: { userId } });
-      if (!wallet) {
-        wallet = await tx.creditWallet.create({
-          data: { userId, monthlyBalance: 0, purchasedBalance: 0, reservedBalance: 0 }
-        });
+      let wallet: any = null;
+      if (tx.creditWallet?.findUnique) {
+        wallet = await tx.creditWallet.findUnique({ where: { userId } });
+        if (!wallet && tx.creditWallet?.create) {
+          wallet = await tx.creditWallet.create({
+            data: { userId, monthlyBalance: 0, purchasedBalance: 0, reservedBalance: 0 }
+          });
+        }
       }
 
       // Substitui o saldo mensal anterior e atualiza validade
-      await tx.creditWallet.update({
-        where: { id: wallet.id },
-        data: {
-          monthlyBalance: amount,
-          monthlyExpiresAt: expiresAt
-        }
-      });
+      if (wallet && tx.creditWallet?.update) {
+        await tx.creditWallet.update({
+          where: { id: wallet.id },
+          data: {
+            monthlyBalance: amount,
+            monthlyExpiresAt: expiresAt
+          }
+        });
+      }
 
-      await tx.creditTransaction.create({
-        data: {
-          walletId: wallet.id,
-          userId,
-          amount,
-          type: 'MONTHLY_GRANT',
-          balanceType: 'MONTHLY',
-          monthlyAmount: amount,
-          purchasedAmount: 0,
-          sourceType: 'SUBSCRIPTION_RENEWAL',
-          idempotencyKey: idempotencyKey || null,
-          description: description || `Créditos mensais do ciclo (válidos até ${expiresAt.toLocaleDateString('pt-BR')})`,
-          metadata: JSON.stringify({ grantedAmount: amount, expiresAt })
-        }
-      });
+      if (wallet && tx.creditTransaction?.create) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId,
+            amount,
+            type: 'MONTHLY_GRANT',
+            balanceType: 'MONTHLY',
+            monthlyAmount: amount,
+            purchasedAmount: 0,
+            sourceType: 'SUBSCRIPTION_RENEWAL',
+            idempotencyKey: idempotencyKey || null,
+            description: description || `Créditos mensais do ciclo (válidos até ${expiresAt.toLocaleDateString('pt-BR')})`,
+            metadata: JSON.stringify({ grantedAmount: amount, expiresAt })
+          }
+        });
+      }
 
       return { success: true, grantedAmount: amount };
-    }, { timeout: 15000 });
+    };
+
+    if (providedTx) {
+      return await executeGrant(providedTx);
+    }
+    return await prisma.$transaction(executeGrant, { timeout: 15000 });
   }
 
   /**
    * Concede créditos comprados via recarga avulsa.
    * Acumulam no purchasedBalance e nunca expiram.
+   * Suporta transação externa tx para atomicidade global.
    */
   static async grantPurchasedCredits(params: {
     userId: string;
     amount: number;
-    orderId?: string;
-    idempotencyKey?: string;
-    description?: string;
-    priceCents?: number;
+    orderId?: string | undefined;
+    idempotencyKey?: string | undefined;
+    description?: string | undefined;
+    priceCents?: number | undefined;
+    tx?: Prisma.TransactionClient | undefined;
   }): Promise<{ success: boolean; newPurchasedBalance: number }> {
-    const { userId, amount, orderId, idempotencyKey, description, priceCents } = params;
+    const { userId, amount, orderId, idempotencyKey, description, priceCents, tx: providedTx } = params;
 
-    return await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
+    const executeGrant = async (tx: Prisma.TransactionClient) => {
+      if (!providedTx) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
+      }
 
-      if (idempotencyKey) {
+      if (idempotencyKey && tx.creditTransaction?.findUnique) {
         const existingTx = await tx.creditTransaction.findUnique({
           where: { idempotencyKey }
         });
         if (existingTx) {
           console.log(`[WALLET IDEMPOTENT] Recarga avulsa idempotente para ${userId} pedido ${orderId}.`);
-          const w = await tx.creditWallet.findUnique({ where: { userId } });
+          const w = tx.creditWallet?.findUnique ? await tx.creditWallet.findUnique({ where: { userId } }) : null;
           return { success: true, newPurchasedBalance: w?.purchasedBalance || 0 };
         }
       }
 
-      let wallet = await tx.creditWallet.findUnique({ where: { userId } });
-      if (!wallet) {
-        wallet = await tx.creditWallet.create({
-          data: { userId, monthlyBalance: 0, purchasedBalance: 0, reservedBalance: 0 }
+      let wallet: any = null;
+      if (tx.creditWallet?.findUnique) {
+        wallet = await tx.creditWallet.findUnique({ where: { userId } });
+        if (!wallet && tx.creditWallet?.create) {
+          wallet = await tx.creditWallet.create({
+            data: { userId, monthlyBalance: 0, purchasedBalance: 0, reservedBalance: 0 }
+          });
+        }
+      }
+
+      let updatedPurchasedBalance = amount;
+      if (wallet && tx.creditWallet?.update) {
+        const updatedWallet = await tx.creditWallet.update({
+          where: { id: wallet.id },
+          data: {
+            purchasedBalance: { increment: amount }
+          }
+        });
+        updatedPurchasedBalance = updatedWallet.purchasedBalance;
+      }
+
+      if (wallet && tx.creditTransaction?.create) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId,
+            amount,
+            type: 'PURCHASE_GRANT',
+            balanceType: 'PURCHASED',
+            monthlyAmount: 0,
+            purchasedAmount: amount,
+            sourceType: 'CREDIT_PURCHASE',
+            sourceId: orderId || null,
+            idempotencyKey: idempotencyKey || null,
+            description: description || `Recarga avulsa de ${amount} créditos`,
+            metadata: JSON.stringify({
+              amount,
+              orderId,
+              priceCents,
+              newPurchasedBalance: updatedPurchasedBalance
+            })
+          }
         });
       }
 
-      const updatedWallet = await tx.creditWallet.update({
-        where: { id: wallet.id },
-        data: {
-          purchasedBalance: { increment: amount }
-        }
-      });
+      return { success: true, newPurchasedBalance: updatedPurchasedBalance };
+    };
 
-      await tx.creditTransaction.create({
-        data: {
-          walletId: wallet.id,
-          userId,
-          amount,
-          type: 'PURCHASE_GRANT',
-          balanceType: 'PURCHASED',
-          monthlyAmount: 0,
-          purchasedAmount: amount,
-          sourceType: 'CREDIT_PURCHASE',
-          sourceId: orderId || null,
-          idempotencyKey: idempotencyKey || null,
-          description: description || `Recarga avulsa de ${amount} créditos`,
-          metadata: JSON.stringify({
-            amount,
-            orderId,
-            priceCents,
-            newPurchasedBalance: updatedWallet.purchasedBalance
-          })
-        }
-      });
+    if (providedTx) {
+      return await executeGrant(providedTx);
+    }
+    return await prisma.$transaction(executeGrant, { timeout: 15000 });
+  }
 
-      return { success: true, newPurchasedBalance: updatedWallet.purchasedBalance };
-    }, { timeout: 15000 });
+  /**
+   * Estorna créditos comprados em caso de reembolso ou chargeback.
+   * Não deixa o saldo negativo caso o usuário já tenha consumido parte dos créditos.
+   * Idempotente por idempotencyKey e suporta tx externo.
+   */
+  static async revokePurchasedCredits(params: {
+    userId: string;
+    amount: number;
+    orderId?: string | undefined;
+    idempotencyKey?: string | undefined;
+    description?: string | undefined;
+    tx?: Prisma.TransactionClient | undefined;
+  }): Promise<{ success: boolean; revokedAmount: number; newPurchasedBalance: number }> {
+    const { userId, amount, orderId, idempotencyKey, description, tx: providedTx } = params;
+
+    const executeRevoke = async (tx: Prisma.TransactionClient) => {
+      if (!providedTx) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
+      }
+
+      if (idempotencyKey && tx.creditTransaction?.findUnique) {
+        const existingTx = await tx.creditTransaction.findUnique({
+          where: { idempotencyKey }
+        });
+        if (existingTx) {
+          console.log(`[WALLET IDEMPOTENT] Estorno de recarga já processado anteriormente para ${userId}.`);
+          const w = tx.creditWallet?.findUnique ? await tx.creditWallet.findUnique({ where: { userId } }) : null;
+          return {
+            success: true,
+            revokedAmount: Math.abs(existingTx.purchasedAmount || existingTx.amount),
+            newPurchasedBalance: w?.purchasedBalance || 0
+          };
+        }
+      }
+
+      let wallet: any = null;
+      if (tx.creditWallet?.findUnique) {
+        wallet = await tx.creditWallet.findUnique({ where: { userId } });
+      }
+      if (!wallet) {
+        return { success: true, revokedAmount: 0, newPurchasedBalance: 0 };
+      }
+
+      // Trata explicitamente créditos já consumidos: estorna até o limite do saldo sem corromper ou negativar
+      const revokedAmount = Math.max(0, Math.min(wallet.purchasedBalance, amount));
+      const newPurchasedBalance = wallet.purchasedBalance - revokedAmount;
+
+      if (tx.creditWallet?.update) {
+        await tx.creditWallet.update({
+          where: { id: wallet.id },
+          data: {
+            purchasedBalance: newPurchasedBalance
+          }
+        });
+      }
+
+      if (tx.creditTransaction?.create) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId,
+            amount: -revokedAmount,
+            type: 'REFUND_REVOCATION',
+            balanceType: 'PURCHASED',
+            monthlyAmount: 0,
+            purchasedAmount: -revokedAmount,
+            sourceType: 'CREDIT_REFUND',
+            sourceId: orderId || null,
+            idempotencyKey: idempotencyKey || null,
+            description: description || `Estorno por reembolso/disputa de recarga (${revokedAmount} créditos revogados)`,
+            metadata: JSON.stringify({
+              originalRequestedAmount: amount,
+              actuallyRevokedAmount: revokedAmount,
+              previousPurchasedBalance: wallet.purchasedBalance,
+              newPurchasedBalance,
+              orderId
+            })
+          }
+        });
+      }
+
+      return { success: true, revokedAmount, newPurchasedBalance };
+    };
+
+    if (providedTx) {
+      return await executeRevoke(providedTx);
+    }
+    return await prisma.$transaction(executeRevoke, { timeout: 15000 });
+  }
+
+  /**
+   * Revoga créditos mensais do ciclo por cancelamento/reembolso da assinatura.
+   */
+  static async revokeMonthlyCredits(params: {
+    userId: string;
+    idempotencyKey?: string | undefined;
+    description?: string | undefined;
+    tx?: Prisma.TransactionClient | undefined;
+  }): Promise<{ success: boolean; revokedAmount: number }> {
+    const { userId, idempotencyKey, description, tx: providedTx } = params;
+
+    const executeRevoke = async (tx: Prisma.TransactionClient) => {
+      if (!providedTx) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
+      }
+
+      if (idempotencyKey && tx.creditTransaction?.findUnique) {
+        const existingTx = await tx.creditTransaction.findUnique({
+          where: { idempotencyKey }
+        });
+        if (existingTx) {
+          return { success: true, revokedAmount: Math.abs(existingTx.monthlyAmount || existingTx.amount) };
+        }
+      }
+
+      let wallet: any = null;
+      if (tx.creditWallet?.findUnique) {
+        wallet = await tx.creditWallet.findUnique({ where: { userId } });
+      }
+      if (!wallet || wallet.monthlyBalance <= 0) {
+        return { success: true, revokedAmount: 0 };
+      }
+
+      const revokedAmount = wallet.monthlyBalance;
+      if (tx.creditWallet?.update) {
+        await tx.creditWallet.update({
+          where: { id: wallet.id },
+          data: {
+            monthlyBalance: 0,
+            monthlyExpiresAt: new Date()
+          }
+        });
+      }
+
+      if (tx.creditTransaction?.create) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId,
+            amount: -revokedAmount,
+            type: 'EXPIRATION',
+            balanceType: 'MONTHLY',
+            monthlyAmount: -revokedAmount,
+            purchasedAmount: 0,
+            sourceType: 'SUBSCRIPTION_RENEWAL',
+            idempotencyKey: idempotencyKey || null,
+            description: description || 'Revogação de créditos mensais por encerramento/reembolso da assinatura',
+            metadata: JSON.stringify({ revokedMonthlyAmount: revokedAmount })
+          }
+        });
+      }
+
+      return { success: true, revokedAmount };
+    };
+
+    if (providedTx) {
+      return await executeRevoke(providedTx);
+    }
+    return await prisma.$transaction(executeRevoke, { timeout: 15000 });
   }
 
   /**

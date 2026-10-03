@@ -9,7 +9,7 @@ import { QuotaService } from './QuotaService';
 import { CreditWalletService } from './CreditWalletService';
 
 const secret = 'Test-Secret-With-Exact-Case';
-const payload = (id = 'event-1') => ({ secret, event: 'purchase_approved', data: { id, customer: { email: 'buyer@example.test' } } });
+const payload = (id = 'event-1', offer_id = '1165278') => ({ secret, event: 'purchase_approved', data: { id, offer_id, customer: { email: 'buyer@example.test' } } });
 
 test('Webhook: sem segredo, segredo errado, variação de caixa e segredos antigos são rejeitados', () => {
   const previous = ENV.CAKTO_WEBHOOK_SECRET;
@@ -242,4 +242,109 @@ test('Webhook comercial: compra de recarga concede creditos comprados e cria ped
   assert.equal(purchaseOrder.packageId, 'PACKAGE_MEDIUM');
   assert.equal(purchaseOrder.credits, 300);
   assert.equal(purchaseOrder.priceCents, 2499);
+});
+
+test('Webhook comercial: produtos desconhecidos ou substrings de nomes são estritamente rejeitados com 400', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null, create: async () => ({}) },
+    };
+    return await operation(tx);
+  });
+
+  // Produto desconhecido contendo substring "pro"
+  const unknownProPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-unknown-1',
+      product: { name: 'Produto desconhecido' },
+      customer: { email: 'buyer@example.test' }
+    }
+  };
+  await assert.rejects(processCaktoWebhook(unknownProPayload), { status: 400 });
+
+  // Produto não cadastrado contendo "1000 disparos mensais"
+  const unknown1000Payload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-unknown-2',
+      product: { name: '1000 disparos mensais' },
+      customer: { email: 'buyer@example.test' }
+    }
+  };
+  await assert.rejects(processCaktoWebhook(unknown1000Payload), { status: 400 });
+});
+
+test('Webhook comercial: reembolso de recarga estorna creditos e atualiza pedido sem cancelar assinatura', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let userStatus = 'ACTIVE';
+  let orderStatus = 'PAID';
+  let revokedParams: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: {
+        findUnique: async () => ({
+          id: 'u-subscriber',
+          email: 'sub@example.test',
+          subscriptionStatus: userStatus,
+          subscriptionExpiresAt: new Date(Date.now() + 86400000),
+          planId: 'PRO',
+        }),
+        update: async ({ data }: any) => {
+          if (data.subscriptionStatus) userStatus = data.subscriptionStatus;
+          return { id: 'u-subscriber', subscriptionStatus: userStatus };
+        },
+      },
+      creditPurchaseOrder: {
+        findFirst: async () => ({
+          id: 'order-123',
+          userId: 'u-subscriber',
+          packageId: 'PACKAGE_SMALL',
+          credits: 100,
+          status: orderStatus,
+          caktoOrderId: 'tx-refund-pkg',
+        }),
+        update: async ({ data }: any) => {
+          orderStatus = data.status;
+          return { id: 'order-123', status: orderStatus };
+        },
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, CreditWalletService, 'revokePurchasedCredits', async (params: any) => {
+    revokedParams = params;
+    return { success: true, revokedAmount: 100, newPurchasedBalance: 0 };
+  });
+
+  const refundPayload = {
+    secret,
+    event: 'purchase_refunded',
+    data: {
+      id: 'tx-refund-pkg',
+      offer_id: '1165355', // PACKAGE_SMALL
+      customer: { email: 'sub@example.test' }
+    }
+  };
+
+  const res = await processCaktoWebhook(refundPayload);
+  assert.equal(res.success, true);
+  assert.equal(userStatus, 'ACTIVE'); // Assinatura PRESERVADA!
+  assert.equal(orderStatus, 'REFUNDED'); // Pedido atualizado para REFUNDED!
+  assert.equal(revokedParams.amount, 100);
 });

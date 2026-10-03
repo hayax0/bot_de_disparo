@@ -1,4 +1,4 @@
-import { CheckCircle2, Zap, ShieldCheck, ArrowRight, Sparkles } from "lucide-react";
+import { CheckCircle2, Zap, ShieldCheck, Sparkles } from "lucide-react";
 import { LANDING_PLANS } from "@/lib/constants";
 
 export function PricingSection() {
@@ -95,25 +95,19 @@ export function PricingSection() {
                   </div>
                 </div>
 
-                {/* Botão de Ação Direto para o Checkout da Cakto */}
+                {/* Botão de Ação: novos checkouts mantidos indisponíveis até validação */}
                 <div className="pt-4 space-y-3">
-                  <a
-                    href={plan.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`w-full py-3.5 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 text-center transition-all ${
-                      isPopular
-                        ? "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20"
-                        : "bg-white/10 hover:bg-white/15 text-white border border-white/15"
-                    }`}
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-3.5 text-sm font-medium rounded-xl flex items-center justify-center gap-2 text-center bg-white/5 text-slate-400 border border-white/10 cursor-not-allowed transition-all"
                   >
-                    <span>Assinar Plano {plan.name}</span>
-                    <ArrowRight size={15} />
-                  </a>
+                    <span>Indisponível no momento</span>
+                  </button>
 
                   <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 text-center">
                     <ShieldCheck size={13} className="text-emerald-400" />
-                    <span>Ativação automática via PIX ou Cartão</span>
+                    <span>Em homologação com a Cakto</span>
                   </div>
                 </div>
               </div>

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { Prisma } from '@prisma/client';
 import { isUserUnlimited, isLegacyPlan, getPlanById } from '../config/plans';
 
 function getCycleKey(user: { cycleResetAt?: Date | null; createdAt?: Date }): string {
@@ -397,8 +398,9 @@ export class QuotaService {
 
   /**
    * Reseta a contagem de disparos no início de um novo ciclo de faturamento.
+   * Suporta transação externa para garantir atomicidade com atualizações da assinatura.
    */
-  static async resetCycleDispatches(userId: string, newQuota?: number): Promise<void> {
+  static async resetCycleDispatches(userId: string, newQuota?: number, tx?: Prisma.TransactionClient): Promise<void> {
     const data: any = {
       dispatchesUsedInCycle: 0,
       cycleResetAt: new Date(),
@@ -408,7 +410,8 @@ export class QuotaService {
       data.monthlyDispatchQuota = newQuota;
     }
 
-    await prisma.user.update({
+    const db = tx || prisma;
+    await db.user.update({
       where: { id: userId },
       data,
     });
