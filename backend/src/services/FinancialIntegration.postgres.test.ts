@@ -1497,4 +1497,207 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       'Liberacao de reserva do ciclo atual deve diminuir o contador para 0'
     );
   });
+
+  await t.test('Item 1: Reembolso durante operacao de IA, liquidacao, liberacao e concorrencia no Postgres', async () => {
+    const validExpiresAt = new Date(Date.now() + 30 * 86400000);
+
+    // 1. Reembolso seguido de liquidacao total (cenário exato relatado na auditoria)
+    const userA = await testPrisma.user.create({
+      data: {
+        email: `refund_settle_${Date.now()}@test.local`,
+        password: 'hash',
+        planId: 'START',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: validExpiresAt
+      }
+    });
+
+    // Comprar 100 créditos
+    await CreditWalletService.grantPurchasedCredits({
+      userId: userA.id,
+      amount: 100,
+      orderId: 'ord-100-a'
+    });
+
+    let summaryA = await CreditWalletService.getWalletSummary(userA.id);
+    assert.equal(summaryA.purchasedBalance, 100);
+    assert.equal(summaryA.reservedBalance, 0);
+
+    // Reservar 10 créditos para IA
+    const resA = await CreditWalletService.reserveCredits({
+      userId: userA.id,
+      amount: 10,
+      idempotencyKey: `res-ia-a-${Date.now()}`,
+      sourceType: 'AI_ASSISTANT'
+    });
+    assert.equal(resA.success, true);
+
+    summaryA = await CreditWalletService.getWalletSummary(userA.id);
+    assert.equal(summaryA.purchasedBalance, 100);
+    assert.equal(summaryA.reservedBalance, 10);
+    assert.equal(summaryA.availableBalance, 90);
+
+    // Reembolsar a recarga de 100 créditos enquanto a operação de IA está em andamento
+    const refundA = await CreditWalletService.revokePurchasedCredits({
+      userId: userA.id,
+      amount: 100,
+      orderId: 'ord-100-a',
+      idempotencyKey: `ref-a-${Date.now()}`
+    });
+    assert.equal(refundA.success, true);
+    assert.equal(refundA.newPurchasedBalance, 10, 'Saldo livre de 90 estornado, 10 mantidos para cobrir a reserva ativa');
+
+    summaryA = await CreditWalletService.getWalletSummary(userA.id);
+    assert.equal(summaryA.purchasedBalance, 10);
+    assert.equal(summaryA.reservedBalance, 10);
+    assert.equal(summaryA.availableBalance, 0, 'Disponível deve ser 0');
+
+    // Liquidar a operação de IA consumindo os 10 créditos reservados
+    const settleA = await CreditWalletService.settleReservation({
+      reservationId: resA.reservationId,
+      actualConsumedAmount: 10
+    });
+    assert.equal(settleA.success, true);
+    assert.equal(settleA.consumedAmount, 10);
+
+    // Verificação contábil final: NUNCA negativo!
+    summaryA = await CreditWalletService.getWalletSummary(userA.id);
+    assert.equal(summaryA.purchasedBalance, 0, 'purchasedBalance deve ser EXATAMENTE 0, nunca negativo (-10)!');
+    assert.equal(summaryA.reservedBalance, 0, 'reservedBalance deve ser 0');
+    assert.equal(summaryA.availableBalance, 0);
+
+    // 2. Reembolso seguido de liberacao/cancelamento da operacao de IA
+    const userB = await testPrisma.user.create({
+      data: {
+        email: `refund_release_${Date.now()}@test.local`,
+        password: 'hash',
+        planId: 'START',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: validExpiresAt
+      }
+    });
+
+    await CreditWalletService.grantPurchasedCredits({
+      userId: userB.id,
+      amount: 100,
+      orderId: 'ord-100-b'
+    });
+
+    const resB = await CreditWalletService.reserveCredits({
+      userId: userB.id,
+      amount: 10,
+      idempotencyKey: `res-ia-b-${Date.now()}`,
+      sourceType: 'AI_ASSISTANT'
+    });
+
+    await CreditWalletService.revokePurchasedCredits({
+      userId: userB.id,
+      amount: 100,
+      orderId: 'ord-100-b',
+      idempotencyKey: `ref-b-${Date.now()}`
+    });
+
+    // A operação externa de IA falha ou é cancelada
+    const releaseB = await CreditWalletService.releaseReservation({
+      reservationId: resB.reservationId,
+      reason: 'Falha na API externa de IA'
+    });
+    assert.equal(releaseB.success, true);
+
+    let summaryB = await CreditWalletService.getWalletSummary(userB.id);
+    assert.equal(summaryB.purchasedBalance, 0, 'Créditos reservados não consumidos foram estornados conforme reembolso');
+    assert.equal(summaryB.reservedBalance, 0);
+    assert.equal(summaryB.availableBalance, 0);
+
+    // 3. Reembolso seguido de liquidacao parcial (reservou 10, consumiu 4, liberou 6)
+    const userC = await testPrisma.user.create({
+      data: {
+        email: `refund_partial_${Date.now()}@test.local`,
+        password: 'hash',
+        planId: 'START',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: validExpiresAt
+      }
+    });
+
+    await CreditWalletService.grantPurchasedCredits({
+      userId: userC.id,
+      amount: 100,
+      orderId: 'ord-100-c'
+    });
+
+    const resC = await CreditWalletService.reserveCredits({
+      userId: userC.id,
+      amount: 10,
+      idempotencyKey: `res-ia-c-${Date.now()}`,
+      sourceType: 'AI_ASSISTANT'
+    });
+
+    await CreditWalletService.revokePurchasedCredits({
+      userId: userC.id,
+      amount: 100,
+      orderId: 'ord-100-c',
+      idempotencyKey: `ref-c-${Date.now()}`
+    });
+
+    // Liquidou apenas 4 créditos
+    const settleC = await CreditWalletService.settleReservation({
+      reservationId: resC.reservationId,
+      actualConsumedAmount: 4
+    });
+    assert.equal(settleC.success, true);
+    assert.equal(settleC.consumedAmount, 4);
+
+    let summaryC = await CreditWalletService.getWalletSummary(userC.id);
+    assert.equal(summaryC.purchasedBalance, 0, 'purchasedBalance deve ser 0 após consumir 4 e estornar 6 residuais');
+    assert.equal(summaryC.reservedBalance, 0);
+    assert.equal(summaryC.availableBalance, 0);
+
+    // 4. Execução concorrente de reembolso e liquidação com transação externa
+    const userD = await testPrisma.user.create({
+      data: {
+        email: `refund_concurrent_${Date.now()}@test.local`,
+        password: 'hash',
+        planId: 'START',
+        subscriptionStatus: 'ACTIVE',
+        subscriptionExpiresAt: validExpiresAt
+      }
+    });
+
+    await CreditWalletService.grantPurchasedCredits({
+      userId: userD.id,
+      amount: 100,
+      orderId: 'ord-100-d'
+    });
+
+    const resD = await CreditWalletService.reserveCredits({
+      userId: userD.id,
+      amount: 10,
+      idempotencyKey: `res-ia-d-${Date.now()}`,
+      sourceType: 'AI_ASSISTANT'
+    });
+
+    // Dispara reembolso e liquidação simultaneamente no PostgreSQL
+    await Promise.all([
+      testPrisma.$transaction(async (tx) => {
+        return await CreditWalletService.revokePurchasedCredits({
+          userId: userD.id,
+          amount: 100,
+          orderId: 'ord-100-d',
+          idempotencyKey: `ref-d-${Date.now()}`,
+          tx
+        });
+      }),
+      testPrisma.$transaction(async (tx) => {
+        return await CreditWalletService.settleReservation({
+          reservationId: resD.reservationId,
+          actualConsumedAmount: 10
+        }, tx);
+      })
+    ]);
+
+    const summaryD = await CreditWalletService.getWalletSummary(userD.id);
+    assert.ok(summaryD.purchasedBalance >= 0, 'purchasedBalance NUNCA pode ser negativo sob concorrência');
+    assert.equal(summaryD.reservedBalance, 0, 'reservedBalance deve ser 0');
+  });
 });

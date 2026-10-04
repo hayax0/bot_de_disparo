@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { Prisma } from '@prisma/client';
-import { isUserUnlimited, isLegacyPlan, getPlanById } from '../config/plans';
+import { isUserUnlimited, isLegacyPlan, getPlanById, hasUnlimitedDispatches } from '../config/plans';
 
 function getCycleKey(user: { cycleResetAt?: Date | null; createdAt?: Date }): string {
   if (user.cycleResetAt) {
@@ -13,10 +13,11 @@ function getCycleKey(user: { cycleResetAt?: Date | null; createdAt?: Date }): st
 export class QuotaService {
   /**
    * Consulta se o usuário possui franquia de disparos disponível no ciclo atual.
-   * Administradores e Contas Legadas têm permissão irrestrita.
+   * Administradores, Contas Legadas e exceções contratuais (Davi) têm permissão irrestrita.
    */
   static async canDispatch(userOrId: string | {
     id: string;
+    email?: string | null;
     role?: string | null;
     planId?: string | null;
     subscriptionStatus?: string | null;
@@ -36,6 +37,7 @@ export class QuotaService {
         where: { id: userOrId },
         select: {
           id: true,
+          email: true,
           role: true,
           planId: true,
           subscriptionStatus: true,
@@ -51,7 +53,7 @@ export class QuotaService {
       return { allowed: false, reason: 'Usuário não encontrado.' };
     }
 
-    if (isUserUnlimited(user) || isLegacyPlan(user.planId)) {
+    if (hasUnlimitedDispatches(user)) {
       return {
         allowed: true,
         isUnlimited: true,
@@ -114,6 +116,7 @@ export class QuotaService {
         where: { id: userId },
         select: {
           id: true,
+          email: true,
           role: true,
           planId: true,
           subscriptionStatus: true,
@@ -148,7 +151,7 @@ export class QuotaService {
               allowed: true,
               isIdempotent: true,
               used: user.dispatchesUsedInCycle,
-              isUnlimited: isUserUnlimited(user) || isLegacyPlan(user.planId),
+              isUnlimited: hasUnlimitedDispatches(user),
               reservationId: existing.id,
               cycleKey: existing.cycleKey
             };
@@ -156,8 +159,8 @@ export class QuotaService {
         }
       }
 
-      // 3. Administradores e Legado Davi possuem envio irrestrito sem bloqueio por cota
-      if (isUserUnlimited(user) || isLegacyPlan(user.planId)) {
+      // 3. Administradores, Legado e contas especiais (Davi) possuem envio irrestrito sem bloqueio por cota
+      if (hasUnlimitedDispatches(user)) {
         await tx.user.update({
           where: { id: userId },
           data: { dispatchesUsedInCycle: { increment: 1 } }

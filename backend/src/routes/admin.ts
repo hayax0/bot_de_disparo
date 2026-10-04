@@ -24,7 +24,7 @@ const adminLimiter = rateLimit({
  * Middleware de Segurança Máxima (requireAdmin):
  * 1. Exige autenticação prévia (JWT válido, authVersion idêntica, email verificado).
  * 2. Consulta o usuário diretamente no banco de dados (evita token adulterado ou desatualizado).
- * 3. Valida se user.role === 'ADMIN' OU se está na lista de e-mails de administradores autorizados.
+ * 3. Valida dupla exigência: dbUser.role === 'ADMIN' E presença em ADMIN_EMAILS autorizados.
  * 4. Registra log de auditoria em caso de tentativa de invasão.
  */
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<any> {
@@ -39,7 +39,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
       select: { id: true, email: true, role: true, emailVerifiedAt: true }
     });
 
-    if (!dbUser || (dbUser.role !== 'ADMIN' && !isUserAdmin(dbUser.email))) {
+    if (!dbUser || dbUser.role !== 'ADMIN' || !isUserAdmin(dbUser.email)) {
       console.warn(
         `[SECURITY_AUDIT] Tentativa de acesso bloqueada ao painel admin! Usuário: ${req.user?.email || 'anônimo'} (ID: ${currentUserId}) IP: ${req.ip}`
       );

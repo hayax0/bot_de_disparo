@@ -125,3 +125,67 @@ test('QuotaService: refundDispatchQuota estorna disparo atomicamente', async (t)
   await QuotaService.refundDispatchQuota('user-test-id');
   assert.equal(rawQueryCalled, true);
 });
+
+test('QuotaService [Item 2]: Davi no plano PRO com 3000 disparos usados mantém disparos ilimitados', async (t) => {
+  // Configuração idêntica à conta de produção do Davi
+  const syntheticDavi = {
+    id: 'davi-synthetic-pro',
+    email: 'davianicetofirme@hotmail.com',
+    role: 'USER',
+    planId: 'PRO',
+    subscriptionStatus: 'ACTIVE',
+    monthlyDispatchQuota: 3000,
+    dispatchesUsedInCycle: 3000, // Já atingiu a franquia normal do PRO
+    cycleResetAt: new Date(),
+    createdAt: new Date(),
+  };
+
+  mockMethod(t, prisma.user, 'findUnique', async () => syntheticDavi);
+
+  // 1. canDispatch não deve bloquear
+  const check = await QuotaService.canDispatch('davi-synthetic-pro');
+  assert.equal(check.allowed, true, 'canDispatch deve permitir envio ilimitado para o Davi');
+  assert.equal(check.isUnlimited, true, 'isUnlimited deve ser true');
+
+  // 2. tryConsumeDispatchQuota não deve bloquear
+  let userUpdated = false;
+  mockMethod(t, prisma, '$transaction', async (fn: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      user: {
+        findUnique: async () => syntheticDavi,
+        update: async () => { userUpdated = true; return {}; }
+      },
+      dispatchReservation: {
+        findUnique: async () => null,
+        upsert: async () => ({})
+      }
+    };
+    return await fn(tx);
+  });
+
+  const consume = await QuotaService.tryConsumeDispatchQuota('davi-synthetic-pro');
+  assert.equal(consume.allowed, true, 'tryConsumeDispatchQuota deve permitir consumo irrestrito');
+  assert.equal(consume.isUnlimited, true);
+  assert.equal(userUpdated, true, 'Deve ter incrementado dispatchesUsedInCycle');
+});
+
+test('QuotaService [Item 2]: Cliente comum no plano PRO que atinge 3000 disparos é bloqueado normalmente', async (t) => {
+  const commonUser = {
+    id: 'common-pro-user',
+    email: 'comum@prospector.com',
+    role: 'USER',
+    planId: 'PRO',
+    subscriptionStatus: 'ACTIVE',
+    monthlyDispatchQuota: 3000,
+    dispatchesUsedInCycle: 3000,
+    cycleResetAt: new Date(),
+    createdAt: new Date(),
+  };
+
+  mockMethod(t, prisma.user, 'findUnique', async () => commonUser);
+
+  const check = await QuotaService.canDispatch('common-pro-user');
+  assert.equal(check.allowed, false, 'Cliente comum com 3000/3000 deve ser bloqueado');
+  assert.match(check.reason || '', /Franquia mensal de disparos/);
+});

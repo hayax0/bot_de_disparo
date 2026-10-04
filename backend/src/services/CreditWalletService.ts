@@ -434,7 +434,36 @@ export class CreditWalletService {
     }
 
     const execute = async (tx: Prisma.TransactionClient) => {
-      // 1. Transição condicional atômica: só quem transicionar de PENDING para SETTLED executa a movimentação
+      // 0. Leitura inicial leve para adquirir o advisory lock da carteira como primeiro recurso absoluto
+      const preCheck = await tx.creditReservation.findUnique({
+        where: { id: reservationId },
+        select: { id: true, userId: true, status: true, amount: true, consumedAmount: true }
+      });
+
+      if (!preCheck) {
+        throw new Error(`Reserva não encontrada: ${reservationId}`);
+      }
+
+      // Lock consultivo de carteira adquirido antes de qualquer modificação em tabelas
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${preCheck.userId}`}))`;
+
+      if (preCheck.status === 'SETTLED') {
+        const consumed = preCheck.consumedAmount || 0;
+        const released = Math.max(0, preCheck.amount - consumed);
+        return {
+          success: true,
+          consumedAmount: consumed,
+          releasedAmount: released,
+          isUnlimited: preCheck.amount === 0,
+          isIdempotent: true
+        };
+      }
+
+      if (preCheck.status !== 'PENDING') {
+        throw new Error(`Reserva em estado inválido para liquidação: ${preCheck.status}.`);
+      }
+
+      // 1. Transição condicional atômica
       const updateResult = await tx.creditReservation.updateMany({
         where: {
           id: reservationId,
@@ -447,17 +476,11 @@ export class CreditWalletService {
         }
       });
 
-      // 2. Se não atualizou nenhuma linha, a reserva já foi liquidada, liberada ou não existe
       if (updateResult.count === 0) {
         const existing = await tx.creditReservation.findUnique({
           where: { id: reservationId }
         });
-
-        if (!existing) {
-          throw new Error(`Reserva não encontrada: ${reservationId}`);
-        }
-
-        if (existing.status === 'SETTLED') {
+        if (existing?.status === 'SETTLED') {
           const consumed = existing.consumedAmount || 0;
           const released = Math.max(0, existing.amount - consumed);
           return {
@@ -468,20 +491,16 @@ export class CreditWalletService {
             isIdempotent: true
           };
         }
-
-        throw new Error(`Reserva em estado inválido para liquidação: ${existing.status}.`);
+        throw new Error(`Reserva em estado inválido para liquidação: ${existing?.status}.`);
       }
 
-      // 3. Lê os dados da reserva que acabamos de transicionar atomicamente
+      // 2. Lê os dados da reserva que acabamos de transicionar atomicamente
       const reservation = await tx.creditReservation.findUnique({
         where: { id: reservationId }
       });
       if (!reservation) {
         throw new Error(`Reserva não encontrada após transição: ${reservationId}`);
       }
-
-      // Advisory lock por segurança adicional dentro do escopo transacional
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${reservation.userId}`}))`;
 
       // Se for reserva administrativa (amount 0), encerra
       if (reservation.amount === 0) {
@@ -508,6 +527,16 @@ export class CreditWalletService {
       const consumedFromMonthly = Math.min(reservation.monthlyAmount, actualConsumedAmount);
       const consumedFromPurchased = actualConsumedAmount - consumedFromMonthly;
       const releasedAmount = Math.max(0, reservation.amount - actualConsumedAmount);
+      const releasedPurchased = Math.max(0, reservation.purchasedAmount - consumedFromPurchased);
+
+      // Tratamento contábil de estorno pendente vinculado a esta reserva durante execução assíncrona
+      let resMeta: any = {};
+      try {
+        resMeta = reservation.metadata ? JSON.parse(reservation.metadata) : {};
+      } catch {}
+
+      const pendingRefundOnReservation = Number(resMeta.pendingRefundAmount) || 0;
+      const toRevokeFromRefund = Math.min(pendingRefundOnReservation, releasedPurchased);
 
       // 5. Verificação de expiração do ciclo original da reserva (Item 6)
       const isOriginalCycleExpired = Boolean(
@@ -522,7 +551,8 @@ export class CreditWalletService {
       // 6. Atualização atômica da carteira:
       // - Desfaz o hold integral: reservedBalance decrementado por reservation.amount
       // - Se o ciclo da reserva NÃO expirou (ou ainda não renovou), debita consumedFromMonthly
-      // - purchasedBalance debita consumedFromPurchased
+      // - purchasedBalance debita consumedFromPurchased + toRevokeFromRefund
+      const totalPurchasedDecrement = consumedFromPurchased + toRevokeFromRefund;
       const walletUpdateData: any = {
         reservedBalance: { decrement: reservation.amount }
       };
@@ -530,14 +560,39 @@ export class CreditWalletService {
       if (!hasRenewedNewCycle && consumedFromMonthly > 0) {
         walletUpdateData.monthlyBalance = { decrement: consumedFromMonthly };
       }
-      if (consumedFromPurchased > 0) {
-        walletUpdateData.purchasedBalance = { decrement: consumedFromPurchased };
+      if (totalPurchasedDecrement > 0) {
+        walletUpdateData.purchasedBalance = { decrement: totalPurchasedDecrement };
       }
 
       await tx.creditWallet.update({
         where: { id: wallet.id },
         data: walletUpdateData
       });
+
+      // Se havia estorno aguardando liberação desta reserva, audita a revogação contábil complementar
+      if (toRevokeFromRefund > 0) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId: reservation.userId,
+            amount: -toRevokeFromRefund,
+            type: 'REFUND_REVOCATION',
+            balanceType: 'PURCHASED',
+            monthlyAmount: 0,
+            purchasedAmount: -toRevokeFromRefund,
+            sourceType: 'CREDIT_REFUND',
+            sourceId: resMeta.refundOrderId || null,
+            description: `Estorno complementar de reserva não consumida pós-liquidação (${toRevokeFromRefund} créditos revogados)`,
+            metadata: JSON.stringify({
+              reservationId: reservation.id,
+              actualConsumed: actualConsumedAmount,
+              releasedPurchased,
+              revokedFromRefund: toRevokeFromRefund,
+              orderId: resMeta.refundOrderId || null
+            })
+          }
+        });
+      }
 
       // 7. Registro de consumo definitivo no extrato
       if (actualConsumedAmount > 0) {
@@ -649,6 +704,32 @@ export class CreditWalletService {
     }
 
     const execute = async (tx: Prisma.TransactionClient) => {
+      // 0. Leitura inicial leve para adquirir o advisory lock da carteira como primeiro recurso absoluto
+      const preCheck = await tx.creditReservation.findUnique({
+        where: { id: reservationId },
+        select: { id: true, userId: true, status: true, amount: true }
+      });
+
+      if (!preCheck) {
+        throw new Error(`Reserva não encontrada: ${reservationId}`);
+      }
+
+      // Lock consultivo de carteira adquirido antes de qualquer modificação em tabelas
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${preCheck.userId}`}))`;
+
+      if (preCheck.status === 'RELEASED') {
+        return {
+          success: true,
+          releasedAmount: preCheck.amount,
+          isUnlimited: preCheck.amount === 0,
+          isIdempotent: true
+        };
+      }
+
+      if (preCheck.status !== 'PENDING') {
+        throw new Error(`Reserva em estado inválido para liberação: ${preCheck.status}.`);
+      }
+
       // 1. Transição atômica condicional no banco de dados
       const updateResult = await tx.creditReservation.updateMany({
         where: {
@@ -666,12 +747,7 @@ export class CreditWalletService {
         const existing = await tx.creditReservation.findUnique({
           where: { id: reservationId }
         });
-
-        if (!existing) {
-          throw new Error(`Reserva não encontrada: ${reservationId}`);
-        }
-
-        if (existing.status === 'RELEASED') {
+        if (existing?.status === 'RELEASED') {
           return {
             success: true,
             releasedAmount: existing.amount,
@@ -679,8 +755,7 @@ export class CreditWalletService {
             isIdempotent: true
           };
         }
-
-        throw new Error(`Reserva em estado inválido para liberação: ${existing.status}.`);
+        throw new Error(`Reserva em estado inválido para liberação: ${existing?.status}.`);
       }
 
       const reservation = await tx.creditReservation.findUnique({
@@ -689,8 +764,6 @@ export class CreditWalletService {
       if (!reservation) {
         throw new Error(`Reserva não encontrada após transição: ${reservationId}`);
       }
-
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${reservation.userId}`}))`;
 
       if (reservation.amount === 0) {
         return {
@@ -706,12 +779,51 @@ export class CreditWalletService {
       if (!wallet) throw new Error('Carteira não encontrada.');
 
       // 2. Modelo Clean Hold: apenas decrementa reservedBalance (hold liberado)
+      // Se havia estorno aguardando a finalização desta reserva, estorna purchasedBalance correspondente
+      let resMeta: any = {};
+      try {
+        resMeta = reservation.metadata ? JSON.parse(reservation.metadata) : {};
+      } catch {}
+
+      const pendingRefundOnReservation = Number(resMeta.pendingRefundAmount) || 0;
+      const toRevokeFromRefund = Math.min(pendingRefundOnReservation, reservation.purchasedAmount);
+
+      const walletUpdateData: any = {
+        reservedBalance: { decrement: reservation.amount }
+      };
+
+      if (toRevokeFromRefund > 0) {
+        walletUpdateData.purchasedBalance = { decrement: toRevokeFromRefund };
+      }
+
       await tx.creditWallet.update({
         where: { id: wallet.id },
-        data: {
-          reservedBalance: { decrement: reservation.amount }
-        }
+        data: walletUpdateData
       });
+
+      if (toRevokeFromRefund > 0) {
+        await tx.creditTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId: reservation.userId,
+            amount: -toRevokeFromRefund,
+            type: 'REFUND_REVOCATION',
+            balanceType: 'PURCHASED',
+            monthlyAmount: 0,
+            purchasedAmount: -toRevokeFromRefund,
+            sourceType: 'CREDIT_REFUND',
+            sourceId: resMeta.refundOrderId || null,
+            description: `Estorno complementar de créditos reservados liberados por cancelamento (${toRevokeFromRefund} créditos revogados)`,
+            metadata: JSON.stringify({
+              reservationId: reservation.id,
+              releasedAmount: reservation.amount,
+              revokedFromRefund: toRevokeFromRefund,
+              orderId: resMeta.refundOrderId || null,
+              reason: reason || 'Cancelamento da operação'
+            })
+          }
+        });
+      }
 
       // 3. Verifica expiração do ciclo original
       const isOriginalCycleExpired = Boolean(
@@ -789,9 +901,7 @@ export class CreditWalletService {
     const { userId, amount, expiresAt, idempotencyKey, description, tx: providedTx } = params;
 
     const executeGrant = async (tx: Prisma.TransactionClient) => {
-      if (!providedTx) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
-      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
 
       if (idempotencyKey && tx.creditTransaction?.findUnique) {
         const existingTx = await tx.creditTransaction.findUnique({
@@ -868,9 +978,7 @@ export class CreditWalletService {
     const { userId, amount, orderId, idempotencyKey, description, priceCents, tx: providedTx } = params;
 
     const executeGrant = async (tx: Prisma.TransactionClient) => {
-      if (!providedTx) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
-      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
 
       if (idempotencyKey && tx.creditTransaction?.findUnique) {
         const existingTx = await tx.creditTransaction.findUnique({
@@ -953,9 +1061,7 @@ export class CreditWalletService {
     const { userId, amount, orderId, idempotencyKey, description, tx: providedTx } = params;
 
     const executeRevoke = async (tx: Prisma.TransactionClient) => {
-      if (!providedTx) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
-      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
 
       if (idempotencyKey && tx.creditTransaction?.findUnique) {
         const existingTx = await tx.creditTransaction.findUnique({
@@ -980,11 +1086,64 @@ export class CreditWalletService {
         return { success: true, revokedAmount: 0, newPurchasedBalance: 0 };
       }
 
-      // Trata explicitamente créditos já consumidos: estorna até o limite do saldo sem corromper ou negativar
-      const revokedAmount = Math.max(0, Math.min(wallet.purchasedBalance, amount));
-      const newPurchasedBalance = wallet.purchasedBalance - revokedAmount;
+      // 3. Localiza reservas pendentes ativas com saldo comprado comprometido
+      const pendingReservations = tx.creditReservation?.findMany
+        ? await tx.creditReservation.findMany({
+            where: {
+              walletId: wallet.id,
+              status: 'PENDING',
+              purchasedAmount: { gt: 0 }
+            },
+            orderBy: { createdAt: 'asc' }
+          })
+        : [];
 
-      if (tx.creditWallet?.update) {
+      const committedPurchased = pendingReservations.reduce(
+        (sum: number, r: any) => sum + (r.purchasedAmount || 0),
+        0
+      );
+
+      // Saldo comprado livre descomprometido para estorno imediato
+      const uncommittedPurchased = Math.max(0, wallet.purchasedBalance - committedPurchased);
+      const immediateRevoke = Math.min(uncommittedPurchased, amount);
+      let remainingToRevoke = amount - immediateRevoke;
+
+      // Se houver saldo a estornar além do descomprometido, vincula o estorno pendente às reservas ativas
+      let assignedToReservations = 0;
+      if (remainingToRevoke > 0 && pendingReservations.length > 0) {
+        for (const reservation of pendingReservations) {
+          if (remainingToRevoke <= 0) break;
+
+          let meta: any = {};
+          try {
+            meta = reservation.metadata ? JSON.parse(reservation.metadata) : {};
+          } catch {}
+
+          const currentPending = Number(meta.pendingRefundAmount) || 0;
+          const capacity = Math.max(0, reservation.purchasedAmount - currentPending);
+          if (capacity <= 0) continue;
+
+          const alloc = Math.min(remainingToRevoke, capacity);
+          meta.pendingRefundAmount = currentPending + alloc;
+          meta.refundOrderId = orderId || meta.refundOrderId || null;
+
+          if (tx.creditReservation?.update) {
+            await tx.creditReservation.update({
+              where: { id: reservation.id },
+              data: {
+                metadata: JSON.stringify(meta)
+              }
+            });
+          }
+
+          remainingToRevoke -= alloc;
+          assignedToReservations += alloc;
+        }
+      }
+
+      const newPurchasedBalance = wallet.purchasedBalance - immediateRevoke;
+
+      if (tx.creditWallet?.update && immediateRevoke > 0) {
         await tx.creditWallet.update({
           where: { id: wallet.id },
           data: {
@@ -993,23 +1152,25 @@ export class CreditWalletService {
         });
       }
 
-      if (tx.creditTransaction?.create) {
+      if (tx.creditTransaction?.create && (immediateRevoke > 0 || assignedToReservations > 0)) {
         await tx.creditTransaction.create({
           data: {
             walletId: wallet.id,
             userId,
-            amount: -revokedAmount,
+            amount: -immediateRevoke,
             type: 'REFUND_REVOCATION',
             balanceType: 'PURCHASED',
             monthlyAmount: 0,
-            purchasedAmount: -revokedAmount,
+            purchasedAmount: -immediateRevoke,
             sourceType: 'CREDIT_REFUND',
             sourceId: orderId || null,
             idempotencyKey: idempotencyKey || null,
-            description: description || `Estorno por reembolso/disputa de recarga (${revokedAmount} créditos revogados)`,
+            description: description || `Estorno de recarga por reembolso/disputa (${immediateRevoke} imediatos, ${assignedToReservations} vinculados a operações em andamento)`,
             metadata: JSON.stringify({
               originalRequestedAmount: amount,
-              actuallyRevokedAmount: revokedAmount,
+              immediateRevoke,
+              assignedToReservations,
+              unrevokableAlreadyConsumed: remainingToRevoke,
               previousPurchasedBalance: wallet.purchasedBalance,
               newPurchasedBalance,
               orderId
@@ -1018,7 +1179,11 @@ export class CreditWalletService {
         });
       }
 
-      return { success: true, revokedAmount, newPurchasedBalance };
+      return {
+        success: true,
+        revokedAmount: immediateRevoke + assignedToReservations,
+        newPurchasedBalance
+      };
     };
 
     if (providedTx) {
@@ -1039,9 +1204,7 @@ export class CreditWalletService {
     const { userId, idempotencyKey, description, tx: providedTx } = params;
 
     const executeRevoke = async (tx: Prisma.TransactionClient) => {
-      if (!providedTx) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
-      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet:${userId}`}))`;
 
       if (idempotencyKey && tx.creditTransaction?.findUnique) {
         const existingTx = await tx.creditTransaction.findUnique({

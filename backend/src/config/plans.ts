@@ -206,6 +206,31 @@ export function isUserUnlimited(user?: { role?: string | null } | null): boolean
   return user.role === 'ADMIN';
 }
 
+/**
+ * Emails de usuários que possuem disparos ilimitados por exceção contratual/cortesia combinada.
+ */
+export const UNLIMITED_DISPATCH_EMAILS = [
+  'davianicetofirme@hotmail.com',
+];
+
+/**
+ * Determina se o usuário possui disparos ilimitados.
+ * Aplica-se a Administradores, Planos Legados e contas com exceção contratual preservada (ex: Davi).
+ */
+export function hasUnlimitedDispatches(user?: {
+  email?: string | null;
+  role?: string | null;
+  planId?: string | null;
+} | null): boolean {
+  if (!user) return false;
+  if (isUserUnlimited(user)) return true;
+  if (isLegacyPlan(user.planId)) return true;
+  if (user.email && UNLIMITED_DISPATCH_EMAILS.includes(user.email.toLowerCase().trim())) {
+    return true;
+  }
+  return false;
+}
+
 export interface UserCapabilities {
   canUpload: boolean;
   canUseSearch: boolean;
@@ -383,15 +408,15 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     addId(item.offer.id);
   }
 
-  // Códigos de checkout / refId enviados pela Cakto
+  // Códigos oficiais de checkout e refId enviados pela Cakto na oferta
   addCode(item.refId);
   addCode(item.ref_id);
   addCode(item.offer?.code);
   addCode(item.offer_code);
   addCode(item.code);
-  addCode(item.product?.code);
-  addCode(item.product?.short_id);
-  addCode(item.offer?.short_id);
+  // NOTA DE ARQUITETURA: Identificadores internos da Cakto (ex: product.id UUID, product.short_id,
+  // offer.id hash alfanumérico) são identificadores de controle do painel interno da Cakto e
+  // NÃO representam códigos de oferta comerciais homologados.
 
   // Nomes de produto homologados
   addName(item.product?.name);
@@ -403,11 +428,11 @@ export function resolveCommercialItem(item: any): CommercialResolution {
   if (rawUrl) {
     try {
       const parsedUrl = new URL(rawUrl);
-      if (parsedUrl.hostname !== 'pay.cakto.com.br') {
-        // Domínio externo não autorizado
+      if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'pay.cakto.com.br') {
+        // Exige estritamente protocolo HTTPS e domínio oficial
         return { type: 'UNKNOWN' };
       }
-      const match = parsedUrl.pathname.match(/^\/([a-z0-9]+)_([0-9]+)/i);
+      const match = parsedUrl.pathname.match(/^\/([a-z0-9]+)_([0-9]+)$/i);
       if (match) {
         addCode(match[1]);
         addId(match[2]);
@@ -436,21 +461,25 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     matchedEntries.set(entry.key, entry);
   }
 
-  // 2. Validação de Códigos de oferta (refId, code, etc.)
+  // 2. Validação de Códigos de oferta (refId, code, etc.) - não ignora códigos desconhecidos
   for (const code of rawOfferCodes) {
     const entry = homologatedEntries.find(e => e.offerCode === code);
-    if (entry) {
-      matchedEntries.set(entry.key, entry);
+    if (!entry) {
+      // Código desconhecido fornecido explicitamente
+      return { type: 'UNKNOWN' };
     }
+    matchedEntries.set(entry.key, entry);
   }
 
-  // 3. Fallback seguro por Nome Canônico Oficial se nenhum ID/Código foi associado
-  if (matchedEntries.size === 0 && rawOfferIds.length === 0) {
+  // 3. Validação por Nome Canônico Oficial com correspondência estritamente exata (sem substring)
+  if (matchedEntries.size === 0 && rawOfferIds.length === 0 && rawOfferCodes.length === 0) {
     for (const rawName of rawNames) {
-      for (const entry of homologatedEntries) {
-        if (entry.canonicalNames.some(cName => rawName === cName || (rawName.includes(cName) && cName.length > 5))) {
-          matchedEntries.set(entry.key, entry);
-        }
+      const entry = homologatedEntries.find(e => e.canonicalNames.some(cName => rawName === cName));
+      if (entry) {
+        matchedEntries.set(entry.key, entry);
+      } else {
+        // Nome de produto não homologado fornecido
+        return { type: 'UNKNOWN' };
       }
     }
   }

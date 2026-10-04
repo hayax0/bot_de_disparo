@@ -273,7 +273,13 @@ async function applyCaktoWebhook(
 
   const commercial = resolveCommercialItem(primaryItem);
   if (commercial.type === 'UNKNOWN') {
-    console.warn(`[CAKTO WEBHOOK] Produto desconhecido ou não homologado. Evento: "${normalizedEvent}". Dados do item:`, JSON.stringify(primaryItem));
+    const diagnosticInfo = {
+      offerId: primaryItem?.offer_id || primaryItem?.offerId || primaryItem?.product?.offer_id || primaryItem?.product?.offerId || (typeof primaryItem?.offer?.id === 'number' || typeof primaryItem?.offer?.id === 'string' ? primaryItem?.offer?.id : undefined),
+      offerCode: primaryItem?.refId || primaryItem?.ref_id || primaryItem?.offer?.code || primaryItem?.offer_code || primaryItem?.code,
+      productName: primaryItem?.product?.name || primaryItem?.product_name || primaryItem?.name,
+      checkoutUrl: primaryItem?.checkout_url || primaryItem?.payment_url || primaryItem?.url,
+    };
+    console.warn(`[CAKTO WEBHOOK] Produto desconhecido ou não homologado. Evento: "${normalizedEvent}". Diagnóstico:`, diagnosticInfo);
     throw new WebhookError('Produto não reconhecido na plataforma.', 400);
   }
 
