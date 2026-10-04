@@ -9,6 +9,33 @@ jobs:
   backend:
     name: Backend (tsc + tests)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bot_prospeccao_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bot_prospeccao_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bot_prospeccao_test?schema=public
+      JWT_SECRET: ci_secret
     defaults:
       run:
         working-directory: backend
@@ -24,12 +51,10 @@ jobs:
         run: npx prisma generate
       - name: Type-check
         run: npx tsc --noEmit
-      - name: Testes unitários
+      - name: Preparar banco de testes
+        run: npx prisma migrate deploy
+      - name: Testes unitários e integração
         run: npm test
-        # DATABASE_URL fake só para o Prisma Client instanciar (testes não tocam no banco)
-        env:
-          DATABASE_URL: postgresql://user:pass@localhost:5432/fake?schema=public
-          JWT_SECRET: ci_secret
 
   frontend:
     name: Frontend (tsc + lint)
