@@ -5,9 +5,11 @@ import { prisma } from '../lib/prisma';
 import { ENV } from '../config/env';
 import { EmailService } from './EmailService';
 import { processCaktoWebhook, validateWebhookSecret } from './SubscriptionManager';
+import { QuotaService } from './QuotaService';
+import { CreditWalletService } from './CreditWalletService';
 
 const secret = 'Test-Secret-With-Exact-Case';
-const payload = (id = 'event-1') => ({ secret, event: 'purchase_approved', data: { id, customer: { email: 'buyer@example.test' } } });
+const payload = (id = 'event-1', offer_id = '1165278') => ({ secret, event: 'purchase_approved', data: { id, offer_id, customer: { email: 'buyer@example.test' } } });
 
 test('Webhook: sem segredo, segredo errado, variação de caixa e segredos antigos são rejeitados', () => {
   const previous = ENV.CAKTO_WEBHOOK_SECRET;
@@ -119,3 +121,513 @@ test('Webhook concorrente: lock por cliente evita aplicar duas vezes o mesmo eve
   assert.equal(updates, 1);
   assert.equal(logs.length, 1);
 });
+
+test('Webhook comercial: compra de plano atualiza planoId, franquia de disparos e concede creditos mensais', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let updatedUser: any = null;
+  let grantedCredits: any = null;
+  let resetQuota: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: {
+        findFirst: async () => null,
+        create: async () => ({}),
+      },
+      user: {
+        findUnique: async () => ({
+          id: 'u-subscriber',
+          email: 'pro@example.test',
+          role: 'USER',
+          planId: 'START',
+          subscriptionStatus: 'ACTIVE',
+        }),
+        update: async ({ data }: any) => {
+          updatedUser = data;
+          return { id: 'u-subscriber', email: 'pro@example.test', ...data };
+        },
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, QuotaService, 'resetCycleDispatches', async (_userId: string, quota?: number) => {
+    resetQuota = quota;
+  });
+
+  mockMethod(t, CreditWalletService, 'grantMonthlyCredits', async (params: any) => {
+    grantedCredits = params;
+    return { success: true, grantedAmount: params.amount };
+  });
+
+  mockMethod(t, prisma.subscriptionNotification, 'findUnique', async () => ({ id: 'already' }));
+
+  const planPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-plan-pro',
+      offer_id: '1165278', // PRO offer id
+      product: { name: 'Plano Profissional' },
+      customer: { email: 'pro@example.test', name: 'Pro User' },
+    },
+  };
+
+  const res = await processCaktoWebhook(planPayload);
+  assert.equal(res.success, true);
+  assert.equal(updatedUser.planId, 'PRO');
+  assert.equal(updatedUser.monthlyDispatchQuota, 3000);
+  assert.equal(resetQuota, 3000);
+  assert.equal(grantedCredits.amount, 150);
+});
+
+test('Webhook comercial: compra de recarga concede creditos comprados e cria pedido', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let grantedPackage: any = null;
+  let purchaseOrder: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: {
+        findFirst: async () => null,
+        create: async () => ({}),
+      },
+      creditPurchaseOrder: {
+        upsert: async ({ create }: any) => {
+          purchaseOrder = create;
+          return create;
+        },
+      },
+      user: {
+        findUnique: async () => ({
+          id: 'u-credits',
+          email: 'credits@example.test',
+          role: 'USER',
+          planId: 'PRO',
+          subscriptionStatus: 'ACTIVE',
+        }),
+        update: async ({ data }: any) => ({ id: 'u-credits', ...data }),
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, CreditWalletService, 'grantPurchasedCredits', async (params: any) => {
+    grantedPackage = params;
+    return { success: true, newPurchasedBalance: params.amount };
+  });
+
+  const pkgPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-pkg-300',
+      offer_id: '1165367', // PACKAGE_MEDIUM offer id (300 créditos)
+      product: { name: '300 Créditos de IA — Recarga Avulsa' },
+      customer: { email: 'credits@example.test', name: 'Credit Buyer' },
+    },
+  };
+
+  const res = await processCaktoWebhook(pkgPayload);
+  assert.equal(res.success, true);
+  assert.equal(grantedPackage.amount, 300);
+  assert.equal(purchaseOrder.packageId, 'PACKAGE_MEDIUM');
+  assert.equal(purchaseOrder.credits, 300);
+  assert.equal(purchaseOrder.priceCents, 2499);
+});
+
+test('Webhook comercial: produtos desconhecidos ou substrings de nomes são estritamente rejeitados com 400', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null, create: async () => ({}) },
+    };
+    return await operation(tx);
+  });
+
+  // Produto desconhecido contendo substring "pro"
+  const unknownProPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-unknown-1',
+      product: { name: 'Produto desconhecido' },
+      customer: { email: 'buyer@example.test' }
+    }
+  };
+  await assert.rejects(processCaktoWebhook(unknownProPayload), { status: 400 });
+
+  // Produto não cadastrado contendo "1000 disparos mensais"
+  const unknown1000Payload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-unknown-2',
+      product: { name: '1000 disparos mensais' },
+      customer: { email: 'buyer@example.test' }
+    }
+  };
+  await assert.rejects(processCaktoWebhook(unknown1000Payload), { status: 400 });
+});
+
+test('Webhook comercial: reembolso de recarga estorna creditos e atualiza pedido sem cancelar assinatura', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let userStatus = 'ACTIVE';
+  let orderStatus = 'PAID';
+  let revokedParams: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: {
+        findUnique: async () => ({
+          id: 'u-subscriber',
+          email: 'sub@example.test',
+          subscriptionStatus: userStatus,
+          subscriptionExpiresAt: new Date(Date.now() + 86400000),
+          planId: 'PRO',
+        }),
+        update: async ({ data }: any) => {
+          if (data.subscriptionStatus) userStatus = data.subscriptionStatus;
+          return { id: 'u-subscriber', subscriptionStatus: userStatus };
+        },
+      },
+      creditPurchaseOrder: {
+        findFirst: async () => ({
+          id: 'order-123',
+          userId: 'u-subscriber',
+          packageId: 'PACKAGE_SMALL',
+          credits: 100,
+          status: orderStatus,
+          caktoOrderId: 'tx-refund-pkg',
+        }),
+        update: async ({ data }: any) => {
+          orderStatus = data.status;
+          return { id: 'order-123', status: orderStatus };
+        },
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, CreditWalletService, 'revokePurchasedCredits', async (params: any) => {
+    revokedParams = params;
+    return { success: true, revokedAmount: 100, newPurchasedBalance: 0 };
+  });
+
+  const refundPayload = {
+    secret,
+    event: 'purchase_refunded',
+    data: {
+      id: 'tx-refund-pkg',
+      offer_id: '1165355', // PACKAGE_SMALL
+      customer: { email: 'sub@example.test' }
+    }
+  };
+
+  const res = await processCaktoWebhook(refundPayload);
+  assert.equal(res.success, true);
+  assert.equal(userStatus, 'ACTIVE'); // Assinatura PRESERVADA!
+  assert.equal(orderStatus, 'REFUNDED'); // Pedido atualizado para REFUNDED!
+  assert.equal(revokedParams.amount, 100);
+});
+
+test('Webhook comercial: suporta payload real da Cakto com refId e nome oficial de produto', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  let updatedUser: any = null;
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: {
+        findUnique: async () => ({
+          id: 'u-cakto-real',
+          email: 'partner@example.test',
+          role: 'USER',
+          subscriptionStatus: 'INACTIVE',
+          planId: null,
+          workspaces: [{ id: 'ws-1', name: 'Minha Empresa' }],
+        }),
+        update: async ({ data }: any) => {
+          updatedUser = data;
+          return { id: 'u-cakto-real', email: 'partner@example.test', ...data };
+        },
+      },
+      creditWallet: {
+        findUnique: async () => null,
+        create: async () => ({}),
+      },
+      creditTransaction: {
+        findUnique: async () => null,
+        create: async () => ({}),
+      },
+    };
+    return await operation(tx);
+  });
+
+  mockMethod(t, QuotaService, 'resetCycleDispatches', async () => {});
+
+  mockMethod(t, CreditWalletService, 'grantMonthlyCredits', async () => ({
+    success: true,
+    grantedAmount: 150
+  }));
+
+  // Payload exatamente no formato enviado pela Cakto em produção:
+  // Contém refId, product.name com (PRO), e offer.id alfanumérico hash
+  const realCaktoPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: '87956abe-940e-4e8b-8a27-82c482920f64',
+      refId: '9gwgit3',
+      customer: {
+        name: 'Socia Teste',
+        email: 'partner@example.test',
+      },
+      offer: {
+        id: 'B8BcHrY',
+        name: 'Plano Profissional',
+        price: 55.99
+      },
+      offer_type: 'main',
+      product: {
+        name: 'Plano Profissional (PRO)',
+        id: 'ff3fdf61-e88f-43b5-982a-32d50f112414',
+        short_id: 'AckhQ75'
+      }
+    }
+  };
+
+  const res = await processCaktoWebhook(realCaktoPayload);
+  assert.equal(res.success, true);
+  assert.equal(updatedUser.planId, 'PRO');
+  assert.equal(updatedUser.subscriptionStatus, 'ACTIVE');
+  assert.equal(updatedUser.monthlyDispatchQuota, 3000);
+});
+
+test('Webhook comercial: responde 200 OK para ping de teste do painel da Cakto', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null },
+    };
+    return await operation(tx);
+  });
+
+  const testPingPayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'test-ping-id',
+      refId: 'VZ3Z5LT',
+      customer: {
+        name: 'John Doe',
+        email: 'john.doe@example.com',
+      },
+      product: {
+        name: 'Produto Teste',
+        id: 'ff3fdf61-e88f-43b5-982a-32d50f112414',
+      },
+      checkoutUrl: 'https://pay.cakto.com.br/EXAMPLE',
+    },
+  };
+
+  const res = await processCaktoWebhook(testPingPayload);
+  assert.equal(res.success, true);
+  assert.match(res.message, /ping de teste/i);
+});
+
+test('Webhook comercial [Item 3]: Rejeita produto com substring permissiva no nome', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null },
+    };
+    return await operation(tx);
+  });
+
+  const payloadSubstring = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-perm-1',
+      customer: { email: 'test@example.com' },
+      product: { name: 'Outro produto com 100 créditos de IA promocionais' },
+    }
+  };
+
+  await assert.rejects(
+    processCaktoWebhook(payloadSubstring),
+    (err: any) => err.status === 400 && /Produto não reconhecido/i.test(err.message)
+  );
+});
+
+test('Webhook comercial [Item 3]: Rejeita oferta válida com refId/código desconhecido inconsistente', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null },
+    };
+    return await operation(tx);
+  });
+
+  const payloadInconsistent = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-perm-2',
+      offer_id: '1165278', // PRO válido
+      refId: 'codigo_inexistente', // Código desconhecido
+      customer: { email: 'test@example.com' },
+    }
+  };
+
+  await assert.rejects(
+    processCaktoWebhook(payloadInconsistent),
+    (err: any) => err.status === 400 && /Produto não reconhecido/i.test(err.message)
+  );
+});
+
+test('Webhook comercial [Item 3]: Rejeita checkout_url sem HTTPS e com caminho não ancorado (/extra)', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null },
+    };
+    return await operation(tx);
+  });
+
+  // Teste 1: HTTP sem SSL
+  const payloadHttp = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-perm-3a',
+      checkout_url: 'http://pay.cakto.com.br/9gwgit3_1165278/extra',
+      customer: { email: 'test@example.com' },
+    }
+  };
+
+  await assert.rejects(
+    processCaktoWebhook(payloadHttp),
+    (err: any) => err.status === 400 && /Produto não reconhecido/i.test(err.message)
+  );
+
+  // Teste 2: HTTPS mas com caminho adulterado (/extra)
+  const payloadExtra = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-perm-3b',
+      checkout_url: 'https://pay.cakto.com.br/9gwgit3_1165278/extra',
+      customer: { email: 'test@example.com' },
+    }
+  };
+
+  await assert.rejects(
+    processCaktoWebhook(payloadExtra),
+    (err: any) => err.status === 400 && /Produto não reconhecido/i.test(err.message)
+  );
+});
+
+test('Webhook comercial [Item 4]: Produtos desconhecidos NÃO vazam dados pessoais ou pagamento nos logs', async t => {
+  const previous = ENV.CAKTO_WEBHOOK_SECRET;
+  ENV.CAKTO_WEBHOOK_SECRET = secret;
+  t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
+
+  mockMethod(t, prisma, '$transaction', async (operation: any) => {
+    const tx = {
+      $executeRaw: async () => 1,
+      webhookLog: { findFirst: async () => null, create: async () => ({}) },
+      user: { findUnique: async () => null },
+    };
+    return await operation(tx);
+  });
+
+  const capturedWarns: string[] = [];
+  mockMethod(t, console, 'warn', (...args: any[]) => {
+    capturedWarns.push(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+  });
+
+  const sensitivePayload = {
+    secret,
+    event: 'purchase_approved',
+    data: {
+      id: 'tx-sensitive-leak-test',
+      product: {
+        name: 'Produto Pirata Desconhecido',
+        secret_internal_key: 'super-secret-key-12345'
+      },
+      customer: {
+        name: 'Carlos Sigiloso da Silva',
+        email: 'carlos.sensivel@empresa.com.br',
+        phone: '+5511998877665',
+        document: '123.456.789-00',
+        credit_card: '4111-2222-3333-4444',
+        address: 'Rua das Flores, 123 - Sala 405'
+      }
+    }
+  };
+
+  await assert.rejects(
+    processCaktoWebhook(sensitivePayload),
+    (err: any) => err.status === 400
+  );
+
+  assert.ok(capturedWarns.length > 0, 'Deve ter emitido log de warning');
+  const fullLog = capturedWarns.join(' ');
+
+  // Comprova rigorosamente a AUSÊNCIA de dados sensíveis/pessoais nos logs
+  assert.ok(!fullLog.includes('carlos.sensivel@empresa.com.br'), 'Email pessoal não pode constar no log');
+  assert.ok(!fullLog.includes('+5511998877665'), 'Telefone não pode constar no log');
+  assert.ok(!fullLog.includes('123.456.789-00'), 'CPF/documento não pode constar no log');
+  assert.ok(!fullLog.includes('4111-2222-3333-4444'), 'Cartão de crédito não pode constar no log');
+  assert.ok(!fullLog.includes('Rua das Flores'), 'Endereço não pode constar no log');
+  assert.ok(!fullLog.includes('super-secret-key-12345'), 'Segredos do payload não podem constar no log');
+
+  // Apenas o diagnóstico mínimo deve estar presente
+  assert.ok(fullLog.includes('Produto Pirata Desconhecido'), 'Nome do produto para diagnóstico deve constar');
+});
+
+

@@ -44,9 +44,30 @@ export const queueEvents = isTest
   ? ({ on: () => {}, close: async () => {} } as any)
   : new QueueEvents('message-queue', { connection: createConnection() });
 
+export const companySearchQueue = isTest
+  ? ({ add: async () => ({ id: 'mock-search-job' }), getJob: async () => null, on: () => {}, close: async () => {} } as any)
+  : new Queue('company-search-queue', { connection: createConnection(false) });
+
+export const companySearchQueueEvents = isTest
+  ? ({ on: () => {}, close: async () => {} } as any)
+  : new QueueEvents('company-search-queue', { connection: createConnection() });
+
+export const aiGenerationQueue = isTest
+  ? ({ add: async () => ({ id: 'mock-ai-job' }), getJob: async () => null, on: () => {}, close: async () => {} } as any)
+  : new Queue('ai-generation-queue', { connection: createConnection(false) });
+
+export const aiGenerationQueueEvents = isTest
+  ? ({ on: () => {}, close: async () => {} } as any)
+  : new QueueEvents('ai-generation-queue', { connection: createConnection() });
+
 if (!isTest) {
   messageQueue.on('error', () => {});
   queueEvents.on('error', () => {});
+  companySearchQueue.on('error', () => {});
+  companySearchQueueEvents.on('error', () => {});
+  aiGenerationQueue.on('error', () => {});
+  aiGenerationQueueEvents.on('error', () => {});
 }
 
 export { connection };
+

@@ -1,13 +1,27 @@
 import { create } from 'zustand';
 
-interface User {
+export interface UserCapabilities {
+  canUpload: boolean;
+  canUseSearch: boolean;
+  canUseAI: boolean;
+  isUnlimited: boolean;
+  isLegacy: boolean;
+  planId: string | null;
+  planName: string;
+  monthlyDispatches: number;
+  monthlyCredits: number;
+}
+
+export interface User {
   id: string;
   name?: string | null;
   email: string;
   role?: string | null;
+  planId?: string | null;
   subscriptionStatus?: string | null;
   subscriptionExpiresAt?: string | null;
   workspaceId?: string | null;
+  capabilities?: UserCapabilities | null;
   workspace?: {
     id: string;
     name: string;

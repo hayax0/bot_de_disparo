@@ -32,7 +32,7 @@ function fixture(t: any) {
     scheduleDays: '0,1,2,3,4,5,6',
     scheduleTimezone: 'America/Sao_Paulo',
     recontactAfterDays: 0,
-    workspace: { user: { role: 'ADMIN' } }
+    workspace: { userId: 'u-admin', user: { id: 'u-admin', role: 'ADMIN' } }
   };
   let dbDown = false;
   const matches = (where: any) => {
@@ -55,6 +55,15 @@ function fixture(t: any) {
     if (dbDown) throw new Error('database unavailable');
     Object.assign(lead, data); return lead;
   });
+  mockMethod(t, prisma.user, 'findUnique', async () => ({
+    id: 'u-admin',
+    role: 'ADMIN',
+    planId: null,
+    subscriptionStatus: 'LIFETIME',
+    monthlyDispatchQuota: 0,
+    dispatchesUsedInCycle: 0
+  }));
+  mockMethod(t, prisma.user, 'update', async () => ({}));
   mockMethod(t, prisma.campaign, 'findUnique', async () => campaign);
   mockMethod(t, prisma.campaign, 'findMany', async () => [campaign]);
   mockMethod(t, prisma.campaign, 'updateMany', async () => ({ count: 0 }));
@@ -65,7 +74,22 @@ function fixture(t: any) {
     if (dbDown) throw new Error('database unavailable');
     return {};
   });
-  mockMethod(t, prisma, '$transaction', async (operations: any) => Promise.all(operations));
+  mockMethod(t, prisma.dispatchReservation, 'findUnique', async () => {
+    if (dbDown) throw new Error('database unavailable');
+    return null;
+  });
+  mockMethod(t, prisma.dispatchReservation, 'upsert', async () => {
+    if (dbDown) throw new Error('database unavailable');
+    return { status: 'CONFIRMED' };
+  });
+  mockMethod(t, prisma.dispatchReservation, 'updateMany', async () => {
+    if (dbDown) throw new Error('database unavailable');
+    return { count: 1 };
+  });
+  mockMethod(t, prisma, '$transaction', async (operations: any) =>
+    typeof operations === 'function' ? operations(prisma) : Promise.all(operations)
+  );
+  mockMethod(t, prisma, '$executeRaw', async () => 1);
   const job = { data: { leadId: 'l', campaignId: 'c', workspaceId: 'w' }, attemptsMade: 0, opts: { attempts: 3 } };
   return { lead, campaign, job, setDbDown: (value: boolean) => { dbDown = value; } };
 }

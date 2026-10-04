@@ -50,8 +50,12 @@ import {
   Sparkles,
   FileCheck
 } from 'lucide-react';
-import { CAKTO_CHECKOUT_URL, OFFICIAL_PLAN } from '@/lib/constants';
+import { LANDING_PLANS } from '@/lib/constants';
 import { AdminTab } from '@/components/dashboard/AdminTab';
+import { AiWallet } from '@/components/dashboard/AiWallet';
+import { PlansAndCredits } from '@/components/dashboard/PlansAndCredits';
+import { CompanySearchTab, type SearchCampaignSelection } from '@/components/dashboard/CompanySearchTab';
+import { AiGenerateModal, LeadMessageModal } from '@/components/dashboard/AiCampaignAssistant';
 
 interface Campaign {
   id: string;
@@ -59,6 +63,8 @@ interface Campaign {
   status: string;
   messageComSite?: string | null;
   messageSemSite?: string | null;
+  aiOfferDescription?: string | null;
+  aiToneStyle?: string | null;
   delayMin: number;
   delayMax: number;
   createdAt: string;
@@ -76,6 +82,9 @@ interface Lead {
   neighborhood?: string | null;
   status: 'PENDING' | 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'ERROR' | 'IGNORED';
   errorMessage?: string | null;
+  messageContent?: string | null;
+  aiGenerated?: boolean;
+  aiGeneratedAt?: string | null;
   sentAt?: string | null;
   deliveredAt?: string | null;
   readAt?: string | null;
@@ -229,7 +238,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'history' | 'admin'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -239,14 +248,24 @@ export default function Dashboard() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedHistoryMessage, setSelectedHistoryMessage] = useState<DispatchHistoryItem | null>(null);
 
-  // Persistência da última copy utilizada
-  const [lastUsedCopy, setLastUsedCopy] = useState<{ messageComSite: string | null; messageSemSite: string | null } | null>(null);
 
   // Modais e Drawers
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [selectedPaywallPlanId, setSelectedPaywallPlanId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('last_selected_plan');
+      if (saved && (saved === 'START' || saved === 'PRO' || saved === 'SCALE')) {
+        return saved;
+      }
+    }
+    return 'PRO';
+  });
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [isAiBatchModalOpen, setIsAiBatchModalOpen] = useState(false);
+  const [selectedLeadForMessage, setSelectedLeadForMessage] = useState<Lead | null>(null);
+  const [userAvailableCredits, setUserAvailableCredits] = useState<number>(0);
   const [campaignDetails, setCampaignDetails] = useState<CampaignDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [leadFilterStatus, setLeadFilterStatus] = useState<string>('ALL');
@@ -283,19 +302,20 @@ export default function Dashboard() {
     } | null;
   }>({ loading: false, error: null, diagnostic: null });
 
-  // Estados do Simulador de Mensagem (WhatsApp Web)
-  const [messagePreviewTab, setMessagePreviewTab] = useState<'semSite' | 'comSite'>('semSite');
-  const [messagePreviewLoading, setMessagePreviewLoading] = useState(false);
-  const [messagePreviewData, setMessagePreviewData] = useState<{
-    valid: boolean;
-    warnings: string[];
-    notice: string;
-    previews: {
-      comSite: { rendered: string; lead: { title?: string; neighborhood?: string; website?: string | null }; warnings: string[] };
-      semSite: { rendered: string; lead: { title?: string; neighborhood?: string; website?: string | null }; warnings: string[] };
-    };
-  } | null>(null);
-  const [spintaxSeed, setSpintaxSeed] = useState(0);
+  // Perfil e Regras de Negócio do Usuário (Isolamento Legado Davi vs Novos Planos via Capabilities do Backend)
+  const isLegacyUser = Boolean(
+    user?.capabilities?.isLegacy ?? (user?.planId === 'LEGACY_DAVI' || user?.planId === 'LEGACY')
+  );
+  const isAdmin = Boolean(user?.role === 'ADMIN');
+  const canUseUpload = Boolean(user?.capabilities?.canUpload ?? (isLegacyUser || isAdmin));
+  const canUseSearch = Boolean(user?.capabilities?.canUseSearch ?? (!isLegacyUser || isAdmin));
+
+  // Obtenção de Leads no Modal de Campanha
+  const [leadSourceMode, setLeadSourceMode] = useState<'search' | 'upload'>('search');
+  const [searchSelection, setSearchSelection] = useState<SearchCampaignSelection | null>(null);
+  const campaignCreationId = useRef<string | null>(null);
+  const creatingCampaign = useRef(false);
+
 
   // Estado de Rascunho Restaurado
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
@@ -437,17 +457,6 @@ export default function Dashboard() {
     }
   }, [addToast]);
 
-  // Carregar última copy utilizada no Workspace
-  const fetchLastCopy = useCallback(async () => {
-    try {
-      const res = await api.get('/campaigns/last-copy');
-      if (res.data) {
-        setLastUsedCopy(res.data);
-      }
-    } catch (err) {
-      console.warn('Falha ao carregar última copy:', err);
-    }
-  }, []);
 
   // Carregar dados da empresa/workspace
   const fetchWorkspace = useCallback(async () => {
@@ -537,7 +546,6 @@ export default function Dashboard() {
           fetchStatus(),
           fetchCampaigns(),
           fetchHistory(1, ''),
-          fetchLastCopy(),
           fetchWorkspace()
         ]);
       }
@@ -547,7 +555,7 @@ export default function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchLastCopy, fetchWorkspace, router]);
+  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchWorkspace, router]);
 
   // Polling adaptativo contínuo de campanhas: 5s se houver campanha RUNNING ou STARTING, 20s em repouso
   // Pausa com aba oculta e atualiza imediatamente ao voltar
@@ -835,6 +843,11 @@ export default function Dashboard() {
         api.get(`/campaigns/${campaignId}/queue-health`)
       ]);
 
+      // Atualiza saldo de IA em background para o assistente
+      api.get('/integrations/ai-wallet')
+        .then(r => setUserAvailableCredits(r.data?.isUnlimited ? 999999 : (r.data?.availableBalance || 0)))
+        .catch(() => {});
+
       if (selectedCampaignIdRef.current !== campaignId) return;
 
       let partialIssue = false;
@@ -891,14 +904,10 @@ export default function Dashboard() {
     setDetailsSyncWarning(null);
   }, []);
 
-  const defaultComSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava analisando a estrutura de vocês e vi que vocês já possuem um site ativo ({website}). Mas me diz uma coisa: quanto tempo a sua equipe perde na semana respondendo mensagem de curioso no WhatsApp que só quer saber preço e não tem perfil pra fechar?\n\nA gente implementou uma camada de triagem automática que roda no próprio site de vocês, educa o cliente, filtra o orçamento e só joga pro seu WhatsApp quem tá pronto pra fechar contrato.\n\nFaria sentido eu te mandar um áudio de 45 segundos mostrando como aplicar isso na {nome}?";
-  const defaultSemSite = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Tudo certo}?\n\n{meuNome} por aqui. Estava dando uma olhada na presença de vocês em {bairro} e vi que vocês ainda não têm um site próprio no ar. Como o cliente de maior ticket sempre pesquisa a credibilidade da empresa no Google antes de fechar, eu montei uma demonstração prática de como ficaria a página da {nome} no ar com filtro de clientes automático.\n\nFaria sentido eu te mandar o link desse protótipo pra você dar uma olhada em 1 minuto?";
-  const defaultB2B = "{Fala|Olá|Oi}, {nome}! {Tudo bem|Como vai}?\n\nVi a atuação de vocês em {bairro} e achei muito interessante o trabalho da {nome}. Nós ajudamos empresas do seu segmento a aumentarem o volume de contatos qualificados todos os meses através da internet.\n\nVocê teria 2 minutinhos essa semana para batermos um papo rápido e eu te apresentar uma ideia simples que pode gerar mais clientes para a {nome}?";
 
   const [newCampaign, setNewCampaign] = useState({ 
     name: '', 
-    messageComSite: '', 
-    messageSemSite: '', 
+    message: '', 
     file: null as File | null, 
     delayMin: 90, 
     delayMax: 180,
@@ -907,7 +916,7 @@ export default function Dashboard() {
 
   // Isolamento do rascunho por usuário e workspace com versionamento seguro
   const draftStorageKey = useMemo(() => {
-    return `bot_disparo_draft_v1_${user?.id || 'anon'}_${user?.workspaceId || 'default'}`;
+    return `bot_disparo_draft_v2_${user?.id || 'anon'}_${user?.workspaceId || 'default'}`;
   }, [user?.id, user?.workspaceId]);
 
   const saveDraftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -920,14 +929,13 @@ export default function Dashboard() {
     if (typeof window === 'undefined') return;
     try {
       const data = draftDataRef.current;
-      if (data.name.trim() || data.messageComSite.trim() || data.messageSemSite.trim()) {
+      if (data.name.trim() || data.message.trim()) {
         const payload = {
-          version: 1,
+          version: 2,
           savedAt: Date.now(),
           data: {
             name: data.name,
-            messageComSite: data.messageComSite,
-            messageSemSite: data.messageSemSite,
+            message: data.message,
             delayMin: data.delayMin,
             delayMax: data.delayMax,
           }
@@ -947,6 +955,7 @@ export default function Dashboard() {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(draftStorageKey);
+        localStorage.removeItem(draftStorageKey.replace('draft_v2_', 'draft_v1_'));
       } catch {}
     }
     setHasRestoredDraft(false);
@@ -983,19 +992,29 @@ export default function Dashboard() {
   }, [isModalOpen, saveDraftNow]);
 
   // Abrir modal de Nova Campanha recuperando rascunho se disponível
-  const openNewCampaignModal = () => {
+  const openNewCampaignModal = (selection?: SearchCampaignSelection) => {
+    if (!selection && !canUseUpload) {
+      setActiveTab('search');
+      addToast('info', 'Selecione empresas em uma busca e clique em Criar campanha com selecionadas.');
+      return;
+    }
+    campaignCreationId.current = null;
+    setSearchSelection(selection || null);
+    setLeadSourceMode(selection ? 'search' : 'upload');
     let loadedFromDraft = false;
     if (typeof window !== 'undefined') {
       try {
+        // Limpar rascunhos legados v1 com textos antigos
+        localStorage.removeItem(draftStorageKey.replace('draft_v2_', 'draft_v1_'));
+
         const raw = localStorage.getItem(draftStorageKey);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed && parsed.version === 1 && parsed.data) {
+          if (parsed && parsed.version === 2 && parsed.data) {
             setNewCampaign(prev => ({
               ...prev,
               name: parsed.data.name ?? prev.name,
-              messageComSite: parsed.data.messageComSite ?? prev.messageComSite,
-              messageSemSite: parsed.data.messageSemSite ?? prev.messageSemSite,
+              message: parsed.data.message ?? prev.message,
               delayMin: parsed.data.delayMin ?? prev.delayMin,
               delayMax: parsed.data.delayMax ?? prev.delayMax,
               file: null
@@ -1010,8 +1029,7 @@ export default function Dashboard() {
     if (!loadedFromDraft) {
       setNewCampaign(prev => ({
         ...prev,
-        messageComSite: prev.messageComSite || lastUsedCopy?.messageComSite || '',
-        messageSemSite: prev.messageSemSite || lastUsedCopy?.messageSemSite || ''
+        message: ''
       }));
       setHasRestoredDraft(false);
     }
@@ -1045,69 +1063,71 @@ export default function Dashboard() {
     }
   };
 
-  // Prévia da Mensagem (WhatsApp Simulator) com debounce e sorteio de Spintax
-  useEffect(() => {
-    if (!isModalOpen) return;
-    const timer = setTimeout(async () => {
-      setMessagePreviewLoading(true);
-      try {
-        const sampleLead = importPreview.diagnostic?.sampleLeads?.[0] || undefined;
-        const res = await api.post('/campaigns/preview-message', {
-          messageComSite: newCampaign.messageComSite,
-          messageSemSite: newCampaign.messageSemSite,
-          sampleLead
-        });
-        setMessagePreviewData(res.data);
-      } catch {
-        // silencioso
-      } finally {
-        setMessagePreviewLoading(false);
-      }
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [newCampaign.messageComSite, newCampaign.messageSemSite, isModalOpen, spintaxSeed, importPreview.diagnostic]);
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCampaign.file) {
-      addToast('error', 'Por favor, anexe o arquivo de leads (.json ou .csv).');
-      return;
+
+    if (creatingCampaign.current) return;
+    const effectiveMode = canUseUpload ? leadSourceMode : 'search';
+
+    if (effectiveMode === 'upload') {
+      if (!newCampaign.file) {
+        addToast('error', 'Por favor, anexe o arquivo de leads (.json ou .csv).');
+        return;
+      }
+      if (importPreview.diagnostic && importPreview.diagnostic.validCount === 0) {
+        addToast('error', 'Nenhum lead apto para disparo neste arquivo. Corrija os contatos antes de prosseguir.');
+        return;
+      }
+    } else {
+      if (!searchSelection?.resultIds.length) {
+        addToast('error', 'Selecione as empresas na aba Buscar Empresas antes de criar a campanha.');
+        return;
+      }
     }
-    if (importPreview.diagnostic && importPreview.diagnostic.validCount === 0) {
-      addToast('error', 'Nenhum lead apto para disparo neste arquivo. Corrija os contatos antes de prosseguir.');
-      return;
-    }
-    if (!newCampaign.messageSemSite.trim() && !newCampaign.messageComSite.trim()) {
-      addToast('error', 'Por favor, escreva ao menos uma mensagem para a campanha (sem site, com site ou ambas).');
+
+    if (!newCampaign.message.trim()) {
+      addToast('error', 'Por favor, escreva a mensagem para o disparo da campanha.');
       return;
     }
 
+    creatingCampaign.current = true;
     setIsSubmitting(true);
-    let createdCampaignId: string | null = null;
+    let createdCampaignId: string | null = campaignCreationId.current;
     try {
       // 1. Criar campanha
+      if (!createdCampaignId) {
       const res = await api.post('/campaigns', {
         name: newCampaign.name,
-        messageComSite: newCampaign.messageComSite.trim() || null,
-        messageSemSite: newCampaign.messageSemSite.trim() || null,
+        messageComSite: null,
+        messageSemSite: newCampaign.message.trim(),
         delayMin: newCampaign.delayMin,
         delayMax: newCampaign.delayMax,
       });
       createdCampaignId = res.data.id;
+      campaignCreationId.current = createdCampaignId;
+      }
 
-      // 2. Upload leads
-      const formData = new FormData();
-      formData.append('file', newCampaign.file);
-      const importRes = await api.post(`/campaigns/${createdCampaignId}/leads/import`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      if (effectiveMode === 'upload' && newCampaign.file) {
+        // 2. Upload leads (Fluxo Legado Davi / Admin)
+        const formData = new FormData();
+        formData.append('file', newCampaign.file);
+        const importRes = await api.post(`/campaigns/${createdCampaignId}/leads/import`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
 
-      const alreadySent = importRes.data.alreadySentCount || 0;
-      if (alreadySent > 0) {
-        addToast('success', `Campanha criada! ${importRes.data.imported} leads importados. Atenção: ${alreadySent} já foram contatados anteriormente.`);
+        const alreadySent = importRes.data.alreadySentCount || 0;
+        if (alreadySent > 0) {
+          addToast('success', `Campanha criada! ${importRes.data.imported} leads importados. Atenção: ${alreadySent} já foram contatados anteriormente.`);
+        } else {
+          addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
+        }
       } else {
-        addToast('success', `Campanha criada! ${importRes.data.imported} leads importados (${importRes.data.skipped} ignorados/duplicados).`);
+        const result = await api.post(`/search/${searchSelection!.searchId}/add-to-campaign`, {
+          campaignId: createdCampaignId,
+          companyResultIds: searchSelection!.resultIds,
+        });
+        addToast('success', `Campanha criada! ${result.data.addedCount} empresas adicionadas, sem nova cobrança de busca.`);
       }
 
       // Limpeza do rascunho com sucesso
@@ -1115,24 +1135,28 @@ export default function Dashboard() {
       setIsModalOpen(false);
       setNewCampaign({ 
         name: '', 
-        messageComSite: '', 
-        messageSemSite: '', 
+        message: '', 
         file: null, 
         delayMin: 90, 
         delayMax: 180,
       });
+      setSearchSelection(null);
+      campaignCreationId.current = null;
       setImportPreview({ loading: false, error: null, diagnostic: null });
       fetchCampaigns();
       fetchHistory(1, historySearch);
-      fetchLastCopy();
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
         setIsSubscriptionModalOpen(true);
       }
-      // Se a campanha foi criada mas o upload de leads falhou, remove a campanha vazia órfã
-      if (createdCampaignId) {
+      if (axios.isAxiosError(err) && err.response?.data?.code === 'INSUFFICIENT_CREDITS') {
+        addToast('error', 'Créditos insuficientes para realizar esta busca. Adquira mais créditos ou reduza a quantidade.');
+      }
+      // NUNCA exclui automaticamente a campanha se for modo busca (o servidor pode estar processando em background)
+      if (createdCampaignId && effectiveMode === 'upload') {
         try {
           await api.delete(`/campaigns/${createdCampaignId}`);
+          campaignCreationId.current = null;
         } catch {
           // limpeza silenciosa
         }
@@ -1143,6 +1167,7 @@ export default function Dashboard() {
       }
       addToast('error', msg);
     } finally {
+      creatingCampaign.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1366,6 +1391,28 @@ export default function Dashboard() {
               </span>
             </button>
 
+            {canUseSearch && (
+              <button
+                onClick={() => {
+                  setActiveTab('search');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                  activeTab === 'search'
+                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Building2 size={15} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
+                  <span>Buscar Empresas</span>
+                </div>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                  Apify
+                </span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 setActiveTab('history');
@@ -1388,6 +1435,29 @@ export default function Dashboard() {
                 </span>
               )}
             </button>
+
+            {!isLegacyUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('billing');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                  activeTab === 'billing'
+                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Sparkles size={15} className={activeTab === 'billing' ? 'text-emerald-400' : 'text-slate-500'} />
+                  <span>Plano & Créditos</span>
+                </div>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  IA
+                </span>
+              </button>
+            )}
 
             {user?.role === 'ADMIN' && (
               <button
@@ -1412,13 +1482,15 @@ export default function Dashboard() {
               </button>
             )}
 
-            <button
-              onClick={() => setIsTutorialOpen(true)}
-              className="w-full px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-            >
-              <BookOpen size={15} className="text-slate-500" />
-              <span>Tutorial Apify</span>
-            </button>
+            {canUseUpload && (
+              <button
+                onClick={() => setIsTutorialOpen(true)}
+                className="w-full px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <BookOpen size={15} className="text-slate-500" />
+                <span>Tutorial Apify</span>
+              </button>
+            )}
           </nav>
         </div>
 
@@ -1436,14 +1508,21 @@ export default function Dashboard() {
                   VIP
                 </span>
               ) : user.subscriptionStatus === 'ACTIVE' ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('billing')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold shrink-0 hover:bg-emerald-500/20 cursor-pointer"
+                  title="Ver plano e recargas"
+                >
                   <CheckCircle2 size={10} className="text-emerald-400" />
                   Ativo
-                </span>
+                </button>
               ) : (
                 <button
-                  onClick={() => setIsSubscriptionModalOpen(true)}
+                  type="button"
+                  onClick={() => setActiveTab('billing')}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold shrink-0 hover:bg-amber-500/20 cursor-pointer focus-visible:outline-none"
+                  title="Renovar assinatura"
                 >
                   <AlertTriangle size={10} className="text-amber-400" />
                   Renovar
@@ -1504,15 +1583,14 @@ export default function Dashboard() {
                 <p className="text-[11px] text-slate-400 font-normal">Ative seu plano para liberar a conexão do WhatsApp, importação de leads e disparos.</p>
               </div>
             </div>
-            <a
-              href="https://pay.cakto.com.br/at474et_1080517"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setIsSubscriptionModalOpen(true)}
               className="dash-btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-2 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <Zap size={14} />
-              <span>Assinar Plano Mensal</span>
-            </a>
+              <span>Escolher Plano</span>
+            </button>
           </div>
         )}
 
@@ -1537,15 +1615,39 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
+            {!isLegacyUser && (
+              <button 
+                onClick={() => setActiveTab('billing')}
+                className={`px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer rounded-xl transition-all focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                  activeTab === 'billing'
+                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold'
+                    : 'dash-btn-secondary text-slate-300 hover:text-white'
+                }`}
+                title="Acessar carteira de IA, planos e recargas"
+              >
+                <Sparkles size={14} className="text-emerald-400" />
+                <span>Plano & Recargas</span>
+              </button>
+            )}
+            {canUseUpload ? (
+              <button 
+                onClick={() => setIsTutorialOpen(true)}
+                className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <HelpCircle size={14} className="text-emerald-400" />
+                <span>Como extrair leads</span>
+              </button>
+            ) : (
+              <button 
+                onClick={() => setActiveTab('search')}
+                className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <Building2 size={14} className="text-emerald-400" />
+                <span>Buscar Empresas</span>
+              </button>
+            )}
             <button 
-              onClick={() => setIsTutorialOpen(true)}
-              className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-            >
-              <HelpCircle size={14} className="text-emerald-400" />
-              <span>Como extrair leads</span>
-            </button>
-            <button 
-              onClick={openNewCampaignModal}
+              onClick={() => openNewCampaignModal()}
               className="dash-btn-primary px-4 py-2 text-xs flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               <Plus size={15} />
@@ -1777,6 +1879,24 @@ export default function Dashboard() {
             </span>
           </button>
 
+          {canUseSearch && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('search')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                activeTab === 'search'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <Building2 size={14} className={activeTab === 'search' ? 'text-emerald-400' : 'text-slate-500'} />
+              <span>Buscar Empresas</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
+                Apify
+              </span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {
@@ -1797,6 +1917,24 @@ export default function Dashboard() {
               </span>
             )}
           </button>
+
+          {!isLegacyUser && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('billing')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
+                activeTab === 'billing'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.03]'
+              }`}
+            >
+              <Sparkles size={14} className={activeTab === 'billing' ? 'text-emerald-400' : 'text-slate-500'} />
+              <span>Plano & Créditos</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
+                IA
+              </span>
+            </button>
+          )}
 
           {user?.role === 'ADMIN' && (
             <button
@@ -1899,10 +2037,12 @@ export default function Dashboard() {
                   </div>
                   <h3 className="text-base font-semibold text-white mb-1">Nenhuma campanha criada ainda</h3>
                   <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
-                    Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.
+                    {canUseUpload
+                      ? 'Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.'
+                      : 'Encontre empresas pelo segmento e localização diretamente na plataforma, crie sua campanha e comece a disparar.'}
                   </p>
                   <button 
-                    onClick={openNewCampaignModal}
+                    onClick={() => openNewCampaignModal()}
                     className="dash-btn-primary px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-2"
                   >
                     <Plus size={15} />
@@ -2024,6 +2164,19 @@ export default function Dashboard() {
             </section>
           </>
         )}
+
+    {/* VISÃO: BUSCA INTEGRADA DE EMPRESAS (APIFY) */}
+    {activeTab === 'search' && (
+      <CompanySearchTab
+        onOpenCreateCampaignWithLeads={selection => openNewCampaignModal(selection)}
+        campaigns={campaigns.map(c => ({ id: c.id, name: c.name, status: c.status }))}
+        onRefreshCampaigns={() => {
+          fetchCampaigns();
+          fetchStatus();
+        }}
+        addToast={addToast}
+      />
+    )}
 
     {/* VISÃO: HISTÓRICO DE EMPRESAS CONTATADAS */}
     {activeTab === 'history' && (
@@ -2283,6 +2436,27 @@ export default function Dashboard() {
       />
     )}
 
+    {activeTab === 'billing' && !isLegacyUser && (
+      <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
+              <Sparkles className="text-emerald-400" size={22} />
+              Plano & Créditos de IA
+            </h2>
+            <p className="text-xs text-slate-400 font-normal mt-1">
+              Acompanhe sua franquia de disparos, consulte o saldo e extrato da carteira de IA e adquira recargas avulsas que nunca expiram.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <PlansAndCredits />
+          <AiWallet />
+        </div>
+      </div>
+    )}
+
       </main>
 
       {/* Modal: Nova Campanha (Dark Glassmorphism) */}
@@ -2293,7 +2467,9 @@ export default function Dashboard() {
             <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
               <div>
                 <h2 className="text-base sm:text-lg font-semibold text-white">Criar Nova Campanha</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Importe seus leads e configure suas mensagens inteligentes.</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {canUseUpload ? 'Importe seus leads e configure suas mensagens inteligentes.' : 'Configure as mensagens para as empresas selecionadas.'}
+                </p>
               </div>
               <button 
                 onClick={() => setIsModalOpen(false)}
@@ -2318,8 +2494,7 @@ export default function Dashboard() {
                       clearDraft();
                       setNewCampaign({
                         name: '',
-                        messageComSite: '',
-                        messageSemSite: '',
+                        message: '',
                         file: null,
                         delayMin: 90,
                         delayMax: 180,
@@ -2347,212 +2522,183 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Upload de Arquivo com Prévia em Tempo Real */}
-              <div className="dash-card p-4 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Arquivo de Leads (.JSON ou .CSV)
-                  </label>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsTutorialOpen(true)}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <HelpCircle size={13} /> Como gerar?
-                  </button>
+              {leadSourceMode === 'search' && searchSelection && (
+                <div className="dash-card p-5 rounded-2xl space-y-2 border border-emerald-500/25">
+                  <h3 className="text-sm font-semibold text-white">{searchSelection.resultIds.length} empresas selecionadas</h3>
+                  <p className="text-sm text-slate-300">{searchSelection.query}</p>
+                  <p className="text-xs text-slate-400">{searchSelection.withWebsite} com site · {searchSelection.withoutWebsite} sem site informado</p>
+                  <p className="text-xs text-emerald-400">Contatos da busca já realizada. Nenhuma nova busca ou cobrança de créditos.</p>
                 </div>
-                
-                <input 
-                  type="file" 
-                  accept=".json,.csv,text/csv,application/json"
-                  required
-                  onChange={e => handleFileChange(e.target.files ? e.target.files[0] : null)}
-                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border file:border-white/10 file:text-xs file:font-semibold file:bg-white/[0.08] file:text-slate-200 hover:file:bg-white/[0.12] hover:file:border-emerald-500/30 file:transition-colors cursor-pointer"
-                />
-                
-                <p className="text-[10px] text-slate-500 font-mono">
-                  Compatível com exportações do Apify Google Maps Scraper (.JSON) e planilhas .CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
-                </p>
+              )}
 
-                {/* Carregando Prévia */}
-                {importPreview.loading && (
-                  <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2.5 text-xs text-slate-300">
-                    <RefreshCw size={14} className="animate-spin text-emerald-400" />
-                    <span>Analisando arquivo, validando números de WhatsApp e verificando histórico de recontato...</span>
+              {canUseSearch && leadSourceMode === 'upload' && (
+                <button type="button" className="text-sm text-emerald-400" onClick={() => { setIsModalOpen(false); setActiveTab('search'); }}>
+                  Escolher empresas de uma busca existente
+                </button>
+              )}
+
+              {/* Modo Upload de Arquivo com Prévia em Tempo Real (Apenas Davi e Admin quando selecionado) */}
+              {canUseUpload && leadSourceMode === 'upload' && (
+                <div className="dash-card p-4 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                      Arquivo de Leads (.JSON ou .CSV)
+                    </label>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsTutorialOpen(true)}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <HelpCircle size={13} /> Como gerar?
+                    </button>
                   </div>
-                )}
+                  
+                  <input 
+                    type="file" 
+                    accept=".json,.csv,text/csv,application/json"
+                    required
+                    onChange={e => handleFileChange(e.target.files ? e.target.files[0] : null)}
+                    className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border file:border-white/10 file:text-xs file:font-semibold file:bg-white/[0.08] file:text-slate-200 hover:file:bg-white/[0.12] hover:file:border-emerald-500/30 file:transition-colors cursor-pointer"
+                  />
+                  
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    Compatível com exportações do Apify Google Maps Scraper (.JSON) e planilhas .CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
+                  </p>
 
-                {/* Erro na Prévia */}
-                {importPreview.error && (
-                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2 text-xs text-red-300">
-                    <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
-                    <span>{importPreview.error}</span>
-                  </div>
-                )}
-
-                {/* Diagnóstico Completo da Prévia */}
-                {importPreview.diagnostic && (
-                  <div className="space-y-3 pt-2 border-t border-white/[0.06]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-                        <FileCheck size={14} className="text-emerald-400" />
-                        Diagnóstico da Lista ({importPreview.diagnostic.totalRows} registros lidos)
-                      </span>
-                      {importPreview.diagnostic.validCount > 0 ? (
-                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono tabular-nums">
-                          {importPreview.diagnostic.validCount} aptos para envio
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
-                          Nenhum lead apto
-                        </span>
-                      )}
+                  {/* Carregando Prévia */}
+                  {importPreview.loading && (
+                    <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2.5 text-xs text-slate-300">
+                      <RefreshCw size={14} className="animate-spin text-emerald-400" />
+                      <span>Analisando arquivo, validando números de WhatsApp e verificando histórico de recontato...</span>
                     </div>
+                  )}
 
-                    {/* 4 Cards de Categorias Mutuamente Exclusivas */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                        <span className="text-[10px] text-emerald-300 font-semibold block">Aptos p/ Disparo</span>
-                        <p className="text-base font-bold text-emerald-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.validCount}</p>
-                        {importPreview.diagnostic.alreadyContactedCount > 0 && (
-                          <span className="text-[9px] text-amber-300/90 block mt-0.5 font-mono tabular-nums">
-                            ({importPreview.diagnostic.alreadyContactedCount} com histórico)
+                  {/* Erro na Prévia */}
+                  {importPreview.error && (
+                    <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2 text-xs text-red-300">
+                      <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
+                      <span>{importPreview.error}</span>
+                    </div>
+                  )}
+
+                  {/* Diagnóstico Completo da Prévia */}
+                  {importPreview.diagnostic && (
+                    <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                          <FileCheck size={14} className="text-emerald-400" />
+                          Diagnóstico da Lista ({importPreview.diagnostic.totalRows} registros lidos)
+                        </span>
+                        {importPreview.diagnostic.validCount > 0 ? (
+                          <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono tabular-nums">
+                            {importPreview.diagnostic.validCount} aptos para envio
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                            Nenhum lead apto
                           </span>
                         )}
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                        <span className="text-[10px] text-amber-300 font-semibold block">Duplicados</span>
-                        <p className="text-base font-bold text-amber-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.duplicateCount}</p>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Ignorados auto</span>
+                      {/* 4 Cards de Categorias Mutuamente Exclusivas */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                          <span className="text-[10px] text-emerald-300 font-semibold block">Aptos p/ Disparo</span>
+                          <p className="text-base font-bold text-emerald-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.validCount}</p>
+                          {importPreview.diagnostic.alreadyContactedCount > 0 && (
+                            <span className="text-[9px] text-amber-300/90 block mt-0.5 font-mono tabular-nums">
+                              ({importPreview.diagnostic.alreadyContactedCount} com histórico)
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                          <span className="text-[10px] text-amber-300 font-semibold block">Duplicados</span>
+                          <p className="text-base font-bold text-amber-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.duplicateCount}</p>
+                          <span className="text-[9px] text-slate-400 block mt-0.5">Ignorados auto</span>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                          <span className="text-[10px] text-rose-300 font-semibold block">Inválidos / S/ Tel</span>
+                          <p className="text-base font-bold text-rose-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.invalidCount}</p>
+                          <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
+                        </div>
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                        <span className="text-[10px] text-rose-300 font-semibold block">Inválidos / S/ Tel</span>
-                        <p className="text-base font-bold text-rose-400 mt-0.5 font-mono tabular-nums">{importPreview.diagnostic.invalidCount}</p>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Descartados</span>
-                      </div>
+                      {/* Amostra dos Primeiros Contatos Classificados */}
+                      {importPreview.diagnostic.sampleLeads && importPreview.diagnostic.sampleLeads.length > 0 && (
+                        <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.04] space-y-1.5">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                            Amostra de Leads Classificados (Primeiras Linhas)
+                          </span>
+                          <div className="space-y-1">
+                            {importPreview.diagnostic.sampleLeads.slice(0, 3).map((s, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-white/[0.02]">
+                                <div className="flex items-center gap-2 truncate max-w-[70%]">
+                                  <span className="font-semibold text-slate-200 truncate">{s.title}</span>
+                                  <span className="text-slate-400 font-mono text-[10px] tabular-nums">{s.phone}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {s.website ? (
+                                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20 font-medium">
+                                      Com Site
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.2 rounded bg-white/[0.05] text-slate-400 text-[9px]">
+                                      Sem Site
+                                    </span>
+                                  )}
+                                  {s.alreadyContacted && (
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20 font-medium" title="Contato com envio anterior">
+                                      Já Contatado
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Inconsistências identificadas */}
+                      {importPreview.diagnostic.issues && importPreview.diagnostic.issues.length > 0 && (
+                        <details className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px]">
+                          <summary className="font-semibold text-slate-300 cursor-pointer hover:text-white transition-colors">
+                            ⚠️ Ver inconsistências do arquivo ({importPreview.diagnostic.issues.length})
+                          </summary>
+                          <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
+                            {importPreview.diagnostic.issues.map((iss, i) => (
+                              <div key={i} className="text-[10px] p-1.5 rounded bg-black/30 border border-white/[0.03] flex items-start gap-2">
+                                <span className="font-mono text-emerald-400 shrink-0">Linha {iss.row}:</span>
+                                <span className="text-slate-300">{iss.reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
                     </div>
+                  )}
+                </div>
+              )}
 
-                    {/* Amostra dos Primeiros Contatos Classificados */}
-                    {importPreview.diagnostic.sampleLeads && importPreview.diagnostic.sampleLeads.length > 0 && (
-                      <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.04] space-y-1.5">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Amostra de Leads Classificados (Primeiras Linhas)
-                        </span>
-                        <div className="space-y-1">
-                          {importPreview.diagnostic.sampleLeads.slice(0, 3).map((s, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-white/[0.02]">
-                              <div className="flex items-center gap-2 truncate max-w-[70%]">
-                                <span className="font-semibold text-slate-200 truncate">{s.title}</span>
-                                <span className="text-slate-400 font-mono text-[10px] tabular-nums">{s.phone}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {s.website ? (
-                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20 font-medium">
-                                    Com Site
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.2 rounded bg-white/[0.05] text-slate-400 text-[9px]">
-                                    Sem Site
-                                  </span>
-                                )}
-                                {s.alreadyContacted && (
-                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 text-[9px] border border-amber-500/20 font-medium" title="Contato com envio anterior">
-                                    Já Contatado
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Inconsistências identificadas */}
-                    {importPreview.diagnostic.issues && importPreview.diagnostic.issues.length > 0 && (
-                      <details className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] text-[11px]">
-                        <summary className="font-semibold text-slate-300 cursor-pointer hover:text-white transition-colors">
-                          ⚠️ Ver inconsistências do arquivo ({importPreview.diagnostic.issues.length})
-                        </summary>
-                        <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
-                          {importPreview.diagnostic.issues.map((iss, i) => (
-                            <div key={i} className="text-[10px] p-1.5 rounded bg-black/30 border border-white/[0.03] flex items-start gap-2">
-                              <span className="font-mono text-emerald-400 shrink-0">Linha {iss.row}:</span>
-                              <span className="text-slate-300">{iss.reason}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Sugestões de Copys de Alta Conversão */}
-              <div className="dash-card p-4 rounded-2xl border border-white/[0.08] space-y-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                    💡 Sugestões de Copys Validadas
+              {/* Assistente de IA de Alta Conversão (Incentivo / Upsell Inteligente) */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-500/5 to-transparent border border-emerald-500/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-emerald-400" />
+                    Prefere uma abordagem de alta conversão gerada por IA?
                   </span>
-                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                    Clique para Inserir
+                  <span className="text-[10px] text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 font-medium">
+                    ⚡ 1 Crédito por Lead
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mb-2">
-                  Escreva seu próprio texto ou use uma das copys validadas abaixo:
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Em vez de mensagens genéricas ou ter trabalho de redigir manualmente, você pode utilizar nossa Inteligência Artificial para analisar o nicho, o bairro e a presença online de cada lead, gerando copys hiperpersonalizadas com 1 clique direto na lista de contatos.
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {lastUsedCopy && (lastUsedCopy.messageComSite || lastUsedCopy.messageSemSite) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewCampaign(prev => ({
-                          ...prev,
-                          messageComSite: lastUsedCopy.messageComSite || '',
-                          messageSemSite: lastUsedCopy.messageSemSite || ''
-                        }));
-                        addToast('info', 'Última copy usada restaurada!');
-                      }}
-                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 active:scale-[0.98] transition-all cursor-pointer"
-                      title="Restaurar a última abordagem personalizada que você utilizou"
-                    >
-                      <RefreshCw size={12} />
-                      <span>🔄 Restaurar última copy usada</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({
-                      ...newCampaign,
-                      messageSemSite: defaultSemSite,
-                      messageComSite: defaultComSite
-                    })}
-                    className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 hover:border-emerald-500/40 text-slate-200 rounded-xl text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    🚀 Kit Completo (Com e Sem Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultSemSite })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    ✨ Venda de Site (Sem Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageComSite: defaultComSite })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    🎯 Triagem WhatsApp (Com Site)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: defaultB2B })}
-                    className="px-2.5 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 rounded-xl text-xs active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    💼 Prospecção B2B Direta
-                  </button>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <span className="text-[10px] text-slate-400 italic">
+                    💡 Digite abaixo sua mensagem padrão de disparo caso prefira redigir manualmente:
+                  </span>
                 </div>
               </div>
 
@@ -2584,15 +2730,23 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Mensagem Principal / Sem Site */}
+              {/* Mensagem Única da Campanha */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Mensagem Principal <span className="text-emerald-400 font-semibold">(Para Sem Site ou Geral)</span>
+                    Mensagem do Disparo
                   </label>
-                  <span className="text-[10px] text-slate-300 bg-white/[0.06] px-2 py-0.5 rounded border border-white/[0.1]">
-                    {newCampaign.messageComSite.trim() ? 'Leads Sem Site' : 'Enviada para Todos'}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setNewCampaign(prev => ({
+                      ...prev,
+                      message: "Olá, {nome}! Tudo bem?\n\nMe chamo {meuNome}, da {minhaEmpresa}. Encontrei o contato de vocês aqui em {bairro} e gostaria de saber se vocês têm interesse em conhecer mais sobre os nossos serviços.\n\nVocê teria disponibilidade para conversarmos essa semana?"
+                    }))}
+                    className="text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-2.5 py-1 rounded-xl font-medium transition-all active:scale-[0.98] cursor-pointer flex items-center gap-1.5"
+                    title="Preencher com um modelo básico padrão de mensagem"
+                  >
+                    <span>📄 Inserir modelo padrão básico</span>
+                  </button>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
@@ -2600,55 +2754,14 @@ export default function Dashboard() {
                   {[
                     { tag: '{nome}', label: 'Nome' },
                     { tag: '{bairro}', label: 'Bairro' },
-                    { tag: '{meuNome}', label: 'Meu Nome' },
-                    { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
-                  ].map(item => (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => setNewCampaign({ ...newCampaign, messageSemSite: newCampaign.messageSemSite + item.tag })}
-                      className="px-2 py-0.5 bg-white/[0.04] hover:bg-emerald-500/15 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/25 rounded-md text-[10px] font-mono text-slate-300 active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      +{item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <textarea 
-                  rows={4}
-                  value={newCampaign.messageSemSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageSemSite: e.target.value})}
-                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
-                  placeholder="Escreva sua mensagem personalizada ou clique em um dos modelos acima..."
-                />
-              </div>
-
-              {/* Mensagem Opcional Com Site */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                    Mensagem Específica para quem <span className="text-emerald-400 font-semibold">TEM SITE PRÓPRIO</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400 bg-white/[0.05] px-2 py-0.5 rounded border border-white/[0.08]">
-                    Opcional
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
-                  <span className="text-slate-500 text-[10px] mr-1">Inserir:</span>
-                  {[
-                    { tag: '{nome}', label: 'Nome' },
                     { tag: '{website}', label: 'Website' },
-                    { tag: '{bairro}', label: 'Bairro' },
                     { tag: '{meuNome}', label: 'Meu Nome' },
                     { tag: '{minhaEmpresa}', label: 'Minha Empresa' },
-                    { tag: '{Oi|Olá|Fala}', label: 'Spintax' },
                   ].map(item => (
                     <button
                       key={item.tag}
                       type="button"
-                      onClick={() => setNewCampaign({ ...newCampaign, messageComSite: newCampaign.messageComSite + item.tag })}
+                      onClick={() => setNewCampaign({ ...newCampaign, message: newCampaign.message + item.tag })}
                       className="px-2 py-0.5 bg-white/[0.04] hover:bg-emerald-500/15 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/25 rounded-md text-[10px] font-mono text-slate-300 active:scale-[0.98] transition-all cursor-pointer"
                     >
                       +{item.label}
@@ -2657,107 +2770,16 @@ export default function Dashboard() {
                 </div>
 
                 <textarea 
-                  rows={4}
-                  value={newCampaign.messageComSite}
-                  onChange={e => setNewCampaign({...newCampaign, messageComSite: e.target.value})}
+                  rows={5}
+                  value={newCampaign.message}
+                  onChange={e => setNewCampaign({...newCampaign, message: e.target.value})}
                   className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-xs sm:text-sm font-sans"
-                  placeholder="Se deixar em branco, o robô enviará a mensagem principal para todos os leads..."
+                  placeholder="Digite sua mensagem de abordagem... Ex: Olá {nome}, tudo bem? Me chamo {meuNome} da empresa {minhaEmpresa}..."
                 />
+                <p className="text-[10px] text-slate-500">
+                  💡 Este é um modelo básico simples. Se quiser copys persuasivas e personalizadas para cada lead com base em site e nicho, use o <b>Assistente de IA</b>.
+                </p>
               </div>
-
-              {/* Simulador WhatsApp Web Dark */}
-              {(newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim()) && (
-                <div className="dash-card rounded-2xl border border-emerald-500/20 bg-[#0B141A]/95 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 text-xs font-bold">
-                        WA
-                      </div>
-                      <div>
-                        <span className="text-xs font-semibold text-slate-200 block">Simulador WhatsApp Web</span>
-                        <span className="text-[10px] text-emerald-400 font-mono">Disparo Real Simulado</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSpintaxSeed(s => s + 1)}
-                        className="px-2.5 py-1 bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 rounded-lg text-[10px] font-semibold text-slate-300 flex items-center gap-1 active:scale-[0.98] transition-all cursor-pointer"
-                        title="Gera uma nova variação para demonstrar a alternância dinâmica de palavras"
-                      >
-                        <RefreshCw size={10} className={messagePreviewLoading ? 'animate-spin' : ''} />
-                        <span>Sortear Spintax</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Alternador Com Site vs Sem Site */}
-                  <div className="flex gap-1 bg-black/40 p-1 rounded-xl border border-white/[0.06] text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setMessagePreviewTab('semSite')}
-                      className={`flex-1 py-1.5 rounded-lg font-medium active:scale-[0.98] transition-all cursor-pointer ${
-                        messagePreviewTab === 'semSite'
-                          ? 'bg-white/[0.1] text-white border border-white/[0.15] shadow-sm font-semibold'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Ver Sem Site (Principal)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMessagePreviewTab('comSite')}
-                      className={`flex-1 py-1.5 rounded-lg font-medium active:scale-[0.98] transition-all cursor-pointer ${
-                        messagePreviewTab === 'comSite'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm font-semibold'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Ver Com Site Próprio
-                    </button>
-                  </div>
-
-                  {/* Balão de Mensagem WhatsApp Dark */}
-                  <div className="p-3.5 rounded-2xl bg-[#111B21] border border-white/[0.04] space-y-2">
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 pb-1 border-b border-white/[0.04]">
-                      <span>Para: <b>{messagePreviewTab === 'comSite' ? (messagePreviewData?.previews.comSite.lead.title || 'Empresa Exemplo') : (messagePreviewData?.previews.semSite.lead.title || 'Empresa Exemplo')}</b></span>
-                      <span>Remetente: <b>{user?.name || workspaceName || 'Minha Empresa'}</b></span>
-                    </div>
-
-                    <div className="flex justify-start">
-                      <div className="max-w-[90%] sm:max-w-[80%] rounded-2xl rounded-tl-sm bg-[#005c4b] text-slate-100 p-3 text-xs leading-relaxed shadow-md relative">
-                        <div className="whitespace-pre-wrap font-sans">
-                          {messagePreviewTab === 'comSite' 
-                            ? (messagePreviewData?.previews.comSite.rendered || (newCampaign.messageComSite.trim() || newCampaign.messageSemSite.trim() || 'Digite uma mensagem...'))
-                            : (messagePreviewData?.previews.semSite.rendered || (newCampaign.messageSemSite.trim() || newCampaign.messageComSite.trim() || 'Digite uma mensagem...'))
-                          }
-                        </div>
-                        <div className="flex items-center justify-end gap-1 text-[9px] text-emerald-200/70 mt-1">
-                          <span>14:35</span>
-                          <CheckCheck size={12} className="text-cyan-300" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Avisos de Validação (Variáveis desconhecidas ou Spintax quebrado) */}
-                  {messagePreviewData?.warnings && messagePreviewData.warnings.length > 0 && (
-                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1 text-[11px] text-amber-200">
-                      <span className="font-bold flex items-center gap-1 text-amber-300">
-                        <AlertTriangle size={13} className="shrink-0" /> Avisos na Mensagem:
-                      </span>
-                      {messagePreviewData.warnings.map((w, idx) => (
-                        <p key={idx} className="text-[10px] pl-4">{w}</p>
-                      ))}
-                    </div>
-                  )}
-
-                  <p className="text-[10px] text-slate-400 italic">
-                    💡 A variação exibida é uma amostra: no momento do envio real, o Spintax sorteará uma opção diferente para cada contato da fila.
-                  </p>
-                </div>
-              )}
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-white/[0.08]">
                 <button 
@@ -2769,7 +2791,7 @@ export default function Dashboard() {
                 </button>
                 <button 
                   type="submit" 
-                  disabled={isSubmitting || (importPreview.diagnostic?.validCount === 0)}
+                  disabled={isSubmitting || (leadSourceMode === 'upload' && importPreview.diagnostic?.validCount === 0)}
                   className="dash-btn-primary px-5 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting 
@@ -2866,6 +2888,29 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {/* Banner do Assistente de IA */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-500/5 to-transparent border border-emerald-500/20">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm shrink-0">
+                      <Sparkles size={16} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-white">Assistente de Abordagens com IA</p>
+                      <p className="text-[11px] text-slate-400">Analisa se o lead tem site, nicho e localização para redigir cópias únicas de alta conversão.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsAiBatchModalOpen(true)}
+                      className="dash-btn-primary px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow-emerald-500/10"
+                    >
+                      <Sparkles size={13} />
+                      Personalizar com IA ({campaignDetails?.counts.pending || 0} pendentes)
+                    </button>
+                  </div>
+                </div>
+
                 {/* Filtros e Busca */}
                 <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between pt-2">
                   <div className="relative w-full sm:w-64">
@@ -2921,13 +2966,14 @@ export default function Dashboard() {
                           <th className="p-3">Telefone</th>
                           <th className="p-3">Site / Bairro</th>
                           <th className="p-3">Status</th>
+                          <th className="p-3">Abordagem / IA</th>
                           <th className="p-3">Envio / Detalhes</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/[0.04]">
                         {pagedLeads.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="p-8 text-center text-slate-500">
+                            <td colSpan={6} className="p-8 text-center text-slate-500">
                               Nenhum lead encontrado com os filtros atuais.
                             </td>
                           </tr>
@@ -3022,6 +3068,30 @@ export default function Dashboard() {
                                     : lead.status}
                                 </span>
                               </td>
+                              <td className="p-3 whitespace-nowrap">
+                                {lead.messageContent ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLeadForMessage(lead)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/25"
+                                    title="Clique para ler ou editar a mensagem deste lead"
+                                  >
+                                    <Sparkles size={11} className="text-emerald-400" />
+                                    <span>{lead.aiGenerated ? 'IA Personalizada' : 'Personalizada'}</span>
+                                    <Edit2 size={10} className="text-emerald-400/70 ml-0.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLeadForMessage(lead)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 border border-white/[0.08]"
+                                    title="Clique para ver ou definir mensagem com IA"
+                                  >
+                                    <span>Template Padrão</span>
+                                    <Edit2 size={10} className="text-slate-500 ml-0.5" />
+                                  </button>
+                                )}
+                              </td>
                               <td
                                 className="p-3 text-slate-500 text-[11px] max-w-[200px] truncate font-mono tabular-nums"
                                 title={lead.errorMessage || undefined}
@@ -3113,6 +3183,48 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+
+          {/* Modais do Assistente de IA */}
+          {isAiBatchModalOpen && campaignDetails && (
+            <AiGenerateModal
+              campaignId={campaignDetails.campaign.id}
+              campaignName={campaignDetails.campaign.name}
+              pendingLeadsCount={campaignDetails.counts.pending || 0}
+              availableCredits={userAvailableCredits}
+              initialOffer={campaignDetails.campaign.aiOfferDescription}
+              initialTone={campaignDetails.campaign.aiToneStyle}
+              onSuccess={() => {
+                fetchLeadsForCampaign(campaignDetails.campaign.id, leadPage, leadFilterStatus, debouncedLeadSearchTerm)
+                  .then(res => setCampaignDetails(res.data))
+                  .catch(() => {});
+                api.get('/integrations/ai-wallet')
+                  .then(r => setUserAvailableCredits(r.data?.isUnlimited ? 999999 : (r.data?.availableBalance || 0)))
+                  .catch(() => {});
+              }}
+              onClose={() => setIsAiBatchModalOpen(false)}
+              addToast={addToast}
+            />
+          )}
+
+          {selectedLeadForMessage && campaignDetails && (
+            <LeadMessageModal
+              campaignId={campaignDetails.campaign.id}
+              lead={selectedLeadForMessage}
+              availableCredits={userAvailableCredits}
+              onSave={(leadId, newContent) => {
+                setCampaignDetails(prev => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    leads: prev.leads.map(l => l.id === leadId ? { ...l, messageContent: newContent } : l)
+                  };
+                });
+                setSelectedLeadForMessage(prev => prev ? { ...prev, messageContent: newContent } : null);
+              }}
+              onClose={() => setSelectedLeadForMessage(null)}
+              addToast={addToast}
+            />
+          )}
         </div>
       )}
 
@@ -3230,73 +3342,101 @@ export default function Dashboard() {
       )}
 
       {/* Modal: Assinatura Necessária / Cakto */}
-      {isSubscriptionModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="dash-card border border-emerald-500/20 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 relative">
-            <button 
-              onClick={() => setIsSubscriptionModalOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-            >
-              <X size={18} />
-            </button>
+      {isSubscriptionModalOpen && (() => {
+        const modalPlan = LANDING_PLANS.find(p => p.id === selectedPaywallPlanId) || LANDING_PLANS[1];
 
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/10">
-                <Crown size={24} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-white text-base">Ativação de Assinatura</h3>
-                <p className="text-xs text-slate-400">Acesso ilimitado à plataforma de disparos</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Disparos inteligentes com delay anti-bloqueio</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Importação direta de leads do Google Maps / Apify</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Motor de Spintax e personalização por lead</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
-                  <span>Execução 24/7 em segundo plano na nuvem</span>
-                </div>
-              </div>
-
-              <div className="text-center p-3 rounded-2xl bg-white/[0.02] border border-white/[0.08]">
-                <span className="text-[11px] text-slate-400 font-medium block">Plano Mensal Recorrente</span>
-                <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">R$ 145,99 <span className="text-xs font-normal text-slate-400">/mês</span></div>
-                <span className="text-[10px] text-emerald-400 block mt-1">Liberação instantânea via PIX ou Cartão</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <a
-                href={CAKTO_CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full dash-btn-primary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Zap size={15} />
-                <span>Assinar Agora</span>
-              </a>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+            <div className="dash-card border border-emerald-500/20 rounded-3xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 relative">
               <button 
                 onClick={() => setIsSubscriptionModalOpen(false)}
-                className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
+                className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
-                Talvez mais tarde
+                <X size={18} />
               </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/10">
+                  <Crown size={24} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white text-base">Ativação de Assinatura</h3>
+                  <p className="text-xs text-slate-400">Escolha o plano ideal para suas campanhas</p>
+                </div>
+              </div>
+
+              {/* Seletor rápido dos 3 planos */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {LANDING_PLANS.map((plan) => {
+                  const isSelected = plan.id === modalPlan.id;
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => setSelectedPaywallPlanId(plan.id)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-500/10 text-white shadow-sm'
+                          : 'border-white/10 bg-white/[0.02] text-slate-400 hover:text-white hover:border-white/20'
+                      }`}
+                    >
+                      <span className="text-[11px] font-semibold block">{plan.name}</span>
+                      <span className="text-xs font-bold font-mono text-emerald-400 block mt-0.5">R$ {plan.price}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-3 mb-6">
+                <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>{modalPlan.monthlyDispatches}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>{modalPlan.monthlyCredits}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>1 Conexão WhatsApp com anti-bloqueio inteligente</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    <span>Execução contínua 24/7 na nuvem</span>
+                  </div>
+                </div>
+
+                <div className="text-center p-3 rounded-2xl bg-white/[0.02] border border-white/[0.08]">
+                  <span className="text-[11px] text-slate-400 font-medium block">Plano Selecionado: {modalPlan.name}</span>
+                  <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">
+                    {modalPlan.currency} {modalPlan.price} <span className="text-xs font-normal text-slate-400">{modalPlan.period}</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 block mt-1">{modalPlan.paymentNote}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <a
+                  href={modalPlan.checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full dash-btn-primary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Zap size={15} />
+                  <span>Assinar Plano {modalPlan.name}</span>
+                </a>
+                <button 
+                  onClick={() => setIsSubscriptionModalOpen(false)}
+                  className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-medium active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  Talvez mais tarde
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal: Visualizar Última Mensagem Enviada no Histórico */}
       {selectedHistoryMessage && (
@@ -3359,108 +3499,196 @@ export default function Dashboard() {
       )}
 
       {/* Paywall Overlay Intransponível: bloqueia visualização e interação para usuários sem assinatura ativa */}
-      {isHydrated && user && !isSubscriptionActive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#08090D]/95 backdrop-blur-2xl animate-in fade-in select-none">
-          <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl relative text-center">
-            
-            {/* Ícone de bloqueio */}
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/10">
-              <Lock size={24} />
-            </div>
+      {isHydrated && user && !isSubscriptionActive && (() => {
+        const activePlan = LANDING_PLANS.find(p => p.id === selectedPaywallPlanId) || LANDING_PLANS[1];
 
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full dash-badge-neutral text-xs font-semibold mb-2">
-              <span>Assinatura Necessária</span>
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#08090D]/95 backdrop-blur-2xl animate-in fade-in select-none overflow-y-auto">
+            <div className="w-full max-w-3xl dash-card rounded-3xl p-5 sm:p-8 border border-white/10 shadow-2xl relative text-center my-auto">
+              
+              {/* Ícone de bloqueio */}
+              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-500/10">
+                <Lock size={24} />
+              </div>
 
-            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Acesso Bloqueado
-            </h2>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full dash-badge-neutral text-xs font-semibold mb-2">
+                <span>Assinatura Necessária</span>
+              </div>
 
-            <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
-              {user.subscriptionStatus === 'PAST_DUE'
-                ? 'Sua assinatura anterior venceu ou está com pagamento pendente.'
-                : user.subscriptionExpiresAt && clientTime !== null && new Date(user.subscriptionExpiresAt).getTime() <= clientTime
-                ? 'O período da sua assinatura mensal expirou.'
-                : 'Sua conta ainda não possui uma assinatura ativa para utilizar a plataforma.'}
-            </p>
+              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                Acesso Bloqueado
+              </h2>
 
-            {/* Box do Plano Oficial */}
-            <div className="my-5 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-left">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                    {OFFICIAL_PLAN.name}
-                  </span>
-                  <div className="text-2xl font-bold text-white mt-0.5 font-mono tabular-nums">
-                    {OFFICIAL_PLAN.currency} {OFFICIAL_PLAN.price}{' '}
-                    <span className="text-xs font-normal text-slate-400">{OFFICIAL_PLAN.period}</span>
+              <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed max-w-lg mx-auto">
+                {user.subscriptionStatus === 'PAST_DUE'
+                  ? 'Sua assinatura anterior venceu ou está com pagamento pendente.'
+                  : user.subscriptionExpiresAt && clientTime !== null && new Date(user.subscriptionExpiresAt).getTime() <= clientTime
+                  ? 'O período da sua assinatura mensal expirou.'
+                  : 'Sua conta ainda não possui uma assinatura ativa para utilizar a plataforma. Selecione o plano ideal abaixo para desbloquear seu acesso imediatamente.'}
+              </p>
+
+              {/* Seletor dos 3 Planos Oficiais */}
+              <div className="my-6 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
+                {LANDING_PLANS.map((plan) => {
+                  const isSelected = plan.id === activePlan.id;
+                  const isPopular = plan.isPopular;
+
+                  return (
+                    <div
+                      key={plan.id}
+                      onClick={() => setSelectedPaywallPlanId(plan.id)}
+                      className={`relative rounded-2xl p-4 sm:p-5 flex flex-col justify-between cursor-pointer transition-all duration-200 ${
+                        isSelected
+                          ? 'bg-emerald-500/[0.08] border-2 border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/40'
+                          : 'bg-white/[0.02] border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      {/* Badge Mais Escolhido */}
+                      {isPopular && (
+                        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 shadow-md">
+                          <Sparkles size={11} />
+                          <span>Mais Escolhido</span>
+                        </div>
+                      )}
+
+                      <div>
+                        {/* Topo do Card: Nome e Indicador de Seleção */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-bold text-white tracking-tight">
+                            {plan.name}
+                          </span>
+                          <div
+                            className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                              isSelected
+                                ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                                : 'border border-white/20 bg-transparent'
+                            }`}
+                          >
+                            {isSelected && <Check size={12} strokeWidth={3} />}
+                          </div>
+                        </div>
+
+                        {/* Preço */}
+                        <div className="mb-3">
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-xs font-semibold text-slate-400">{plan.currency}</span>
+                            <span className="text-2xl sm:text-3xl font-bold text-white font-mono tabular-nums">
+                              {plan.price}
+                            </span>
+                            <span className="text-xs font-normal text-slate-400">{plan.period}</span>
+                          </div>
+                          <span className="text-[10px] text-emerald-400 font-medium block mt-0.5">
+                            {plan.paymentNote}
+                          </span>
+                        </div>
+
+                        {/* Franquias Rápidas */}
+                        <div className="space-y-1.5 pt-2.5 border-t border-white/[0.06] text-xs">
+                          <div className="flex items-center gap-1.5 text-slate-300">
+                            <Zap size={13} className="text-emerald-400 shrink-0" />
+                            <span>{plan.monthlyDispatches}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-slate-300">
+                            <Sparkles size={13} className="text-emerald-400 shrink-0" />
+                            <span>{plan.monthlyCredits}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botão de seleção visual */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPaywallPlanId(plan.id);
+                        }}
+                        className={`mt-4 w-full py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          isSelected
+                            ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
+                            : 'bg-white/[0.05] text-slate-300 hover:bg-white/[0.1] hover:text-white'
+                        }`}
+                      >
+                        {isSelected ? 'Plano Selecionado' : 'Selecionar Plano'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Caixa Informativa do Plano Selecionado */}
+              <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-left">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      Incluso no Plano {activePlan.name}
+                    </span>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                      {activePlan.description}
+                    </p>
+                  </div>
+                  <div className="px-2.5 py-1 rounded-lg dash-badge-emerald font-semibold text-xs whitespace-nowrap self-start sm:self-auto">
+                    Liberação Imediata
                   </div>
                 </div>
-                <div className="px-2.5 py-1 rounded-lg dash-badge-emerald font-semibold">
-                  Liberação Imediata
+              </div>
+
+              {/* Feedback da verificação de pagamento */}
+              {verifyPaymentFeedback && (
+                <div
+                  className={`mb-4 p-3 rounded-xl text-xs font-medium border text-left leading-relaxed ${
+                    verifyPaymentFeedback.type === 'success'
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : verifyPaymentFeedback.type === 'error'
+                      ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
+                >
+                  {verifyPaymentFeedback.message}
                 </div>
+              )}
+
+              {/* Botões de Ação */}
+              <div className="space-y-2.5 max-w-md mx-auto">
+                <a
+                  href={activePlan.checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full dash-btn-primary py-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/15"
+                >
+                  <Zap size={16} />
+                  <span>Ativar Plano {activePlan.name} — {activePlan.currency} {activePlan.price}{activePlan.period}</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={handleVerifyPayment}
+                  disabled={verifyingPayment}
+                  className="w-full py-3 rounded-xl text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={verifyingPayment ? 'animate-spin' : ''} />
+                  <span>{verifyingPayment ? 'Consultando servidor...' : 'Verificar Pagamento'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
+                    router.push('/login');
+                  }}
+                  className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <LogOut size={13} />
+                  <span>Encerrar Sessão</span>
+                </button>
               </div>
-              <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                Libera conexão WhatsApp, fila inteligente com delay anti-bloqueio, spintax e execução contínua 24/7 na nuvem.
-              </p>
-            </div>
 
-            {/* Feedback da verificação de pagamento */}
-            {verifyPaymentFeedback && (
-              <div
-                className={`mb-4 p-3 rounded-xl text-xs font-medium border text-left leading-relaxed ${
-                  verifyPaymentFeedback.type === 'success'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : verifyPaymentFeedback.type === 'error'
-                    ? 'bg-red-500/10 border-red-500/30 text-red-300'
-                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                }`}
-              >
-                {verifyPaymentFeedback.message}
+              <div className="mt-5 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500 font-mono">
+                Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
               </div>
-            )}
-
-            {/* Botões de Ação */}
-            <div className="space-y-2.5">
-              <a
-                href={CAKTO_CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full dash-btn-primary py-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Zap size={16} />
-                <span>Ativar Assinatura</span>
-              </a>
-
-              <button
-                type="button"
-                onClick={handleVerifyPayment}
-                disabled={verifyingPayment}
-                className="w-full py-3 rounded-xl text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw size={14} className={verifyingPayment ? 'animate-spin' : ''} />
-                <span>{verifyingPayment ? 'Consultando servidor...' : 'Verificar Pagamento'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  logout();
-                  router.push('/login');
-                }}
-                className="w-full py-2 text-xs text-slate-400 hover:text-red-400 font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <LogOut size={13} />
-                <span>Encerrar Sessão</span>
-              </button>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-500 font-mono">
-              Pagamento 100% seguro com liberação imediata via PIX ou Cartão.
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal: Editar Nome da Empresa ({minhaEmpresa}) */}
       {isWorkspaceModalOpen && (

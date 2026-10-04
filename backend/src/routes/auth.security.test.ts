@@ -316,7 +316,7 @@ test('Concorrência: confirmação e webhook compartilham lock account:email e a
   const payload = {
     secret,
     event: 'purchase_approved',
-    data: { id: 'evt-order-test', customer: { email } }
+    data: { id: 'evt-order-test', offer_id: '1165278', customer: { email } }
   };
 
   // --- Ordem 1: Titular confirma primeiro -> Webhook roda em seguida ---
@@ -330,11 +330,11 @@ test('Concorrência: confirmação e webhook compartilham lock account:email e a
     emailVerifiedAt: new Date() // Já verificado pelo titular
   };
 
-  let lockSeen = '';
+  let locksSeen: string[] = [];
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
       $executeRaw: async (sql: TemplateStringsArray, key: string) => {
-        lockSeen = key;
+        locksSeen.push(key);
       },
       webhookLog: {
         findFirst: async () => null,
@@ -354,7 +354,7 @@ test('Concorrência: confirmação e webhook compartilham lock account:email e a
   mockMethod(t, prisma.subscriptionNotification, 'create', async () => ({}));
 
   await processCaktoWebhook(payload);
-  assert.equal(lockSeen, `account:${email}`, 'Lock deve usar a chave compartilhada account:email');
+  assert.ok(locksSeen.includes(`account:${email}`), 'Lock deve usar a chave compartilhada account:email');
   assert.equal(userConfirmed.subscriptionStatus, 'ACTIVE', 'Assinatura deve ser ativada');
   assert.equal(userConfirmed.password, 'victim-verified-password-hash', 'Senha legítima verificada NÃO deve ser alterada');
   assert.equal(userConfirmed.authVersion, 1, 'authVersion NÃO deve ser incrementado');
@@ -370,10 +370,11 @@ test('Concorrência: confirmação e webhook compartilham lock account:email e a
     emailVerifiedAt: null // Não confirmada
   };
 
+  locksSeen = [];
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
       $executeRaw: async (sql: TemplateStringsArray, key: string) => {
-        lockSeen = key;
+        locksSeen.push(key);
       },
       webhookLog: {
         findFirst: async () => null,
@@ -391,6 +392,7 @@ test('Concorrência: confirmação e webhook compartilham lock account:email e a
   });
 
   await processCaktoWebhook(payload);
+  assert.ok(locksSeen.includes(`account:${email}`), 'Lock deve usar a chave compartilhada account:email');
   assert.equal(userUnverified.subscriptionStatus, 'ACTIVE');
   assert.ok(userUnverified.password.startsWith('$WEBHOOK_TEMP$'), 'Senha de conta não verificada deve ser substituída por temporária');
   assert.deepEqual(userUnverified.authVersion, { increment: 1 }, 'authVersion deve ser incrementado para invalidar invasor');

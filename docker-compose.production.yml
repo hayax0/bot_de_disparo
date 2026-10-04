@@ -82,12 +82,16 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Defina REDIS_PASSWORD}
       CAKTO_WEBHOOK_SECRET: ${CAKTO_WEBHOOK_SECRET:?Configure o mesmo segredo forte na Cakto e no .env}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-CMPX Bot Disparo <noreply@botdisparo.cmpx.tec.br>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-cmpxsuporte@gmail.com}
       PLATFORM_URL: ${PLATFORM_URL:-https://botdisparo.cmpx.tec.br}
       CRON_SECRET: ${CRON_SECRET:?Defina CRON_SECRET forte no .env}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
     volumes:
       - ./backend/.baileys_auth:/app/.baileys_auth
       - ./backend/uploads:/app/uploads

@@ -5,6 +5,7 @@ import { WhatsappManager } from './WhatsappManager';
 import { gerarProposta } from './ProposalEngine';
 import { isSubscriptionActive } from './SubscriptionManager';
 import { ContactPolicyService } from './ContactPolicyService';
+import { QuotaService } from './QuotaService';
 
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
@@ -139,7 +140,10 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     minhaEmpresa: campaign.workspace?.name || ''
   };
 
-  const message = gerarProposta(lead, campaign, senderInfo);
+  // Prioriza mensagem personalizada da IA se já tiver sido gerada; caso contrário, usa o template da campanha
+  const message = (lead.messageContent && lead.messageContent.trim())
+    ? lead.messageContent.trim()
+    : gerarProposta(lead, campaign, senderInfo);
   if (!message) {
     await prisma.lead.update({
       where: { id: leadId },
@@ -149,6 +153,31 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       }
     });
     await checkCampaignCompletion(campaignId);
+    return;
+  }
+
+  // 6. Reserva atômica da franquia de disparos imediatamente antes da transmissão
+  const dispatchKey = `${campaignId}_${leadId}`;
+  const quotaUserId = user.id || campaign.workspace?.userId || '';
+  const quota = await QuotaService.tryConsumeDispatchQuota({
+    userId: quotaUserId,
+    dispatchKey
+  });
+  const dispatchReservationId = quota.reservationId;
+
+  if (!quota.allowed) {
+    console.warn(`[WORKER] Job ${job.id} bloqueado: Franquia de disparos esgotada para ${user.email}. Pausando campanha ${campaignId}.`);
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'PAUSED' }
+    }).catch(() => {});
+
+    if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { status: 'PENDING' }
+      }).catch(() => {});
+    }
     return;
   }
 
@@ -163,6 +192,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       });
       if (claimed.count !== 1) throw new Error('Envio interrompido ou já iniciado.');
       sendStarted = true;
+      await QuotaService.confirmDispatchQuota({ userId: user.id, dispatchKey, reservationId: dispatchReservationId });
     });
     sentSuccessfully = true;
 
@@ -223,6 +253,10 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
         data: { status: 'ERROR', errorMessage: 'Envio iniciado, mas sem confirmação final no sistema. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
       });
     } else {
+      // Falha pré-transmissão: libera a cota para não tarifar o cliente indevidamente
+      const quotaUserId = user?.id || campaign.workspace?.userId || '';
+      await QuotaService.releaseDispatchQuota({ userId: quotaUserId, dispatchKey }).catch(() => {});
+
       const maxAttempts = job.opts.attempts || 1;
       const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
       const errMsg = error?.message || String(error);

@@ -7,6 +7,12 @@ if (dsn) {
     dsn,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: 0.2,
+    beforeSend(event) {
+      if (event.request?.url?.includes('/integrations/apify')) {
+        event.request.data = '[REDACTED]';
+      }
+      return event;
+    },
   });
   console.log('[SENTRY] Observabilidade ativada.');
 } else {

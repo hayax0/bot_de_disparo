@@ -35,9 +35,15 @@ import webhooksRoutes from './routes/webhooks';
 import cronRoutes from './routes/cron';
 import contactsRoutes from './routes/contacts';
 import adminRoutes from './routes/admin';
+import searchRoutes from './routes/search';
+import integrationRoutes from './routes/integrations';
 import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
-import { messageQueue, queueEvents } from './services/queue';
+import { messageQueue, queueEvents, aiGenerationQueue, aiGenerationQueueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
+import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
+import { startAiGenerationWorker, aiGenerationWorker } from './workers/aiGenerationWorker';
+import { AiCopyService } from './services/AiCopyService';
+import { autoMigrateDaviToProIfRenewed } from './services/SubscriptionManager';
 
 const app = express();
 
@@ -84,6 +90,8 @@ app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/cron', cronRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/integrations', integrationRoutes);
 
 // Health check — Liveness probe (processo está vivo e respondendo)
 app.get('/api/health/live', (req, res) => {
@@ -200,8 +208,16 @@ const server = app.listen(ENV.PORT, async () => {
     console.error('[WORKER] Consumo da fila interrompido:', err);
     Sentry.captureException(err);
   });
+  // Inicializa worker de busca durável de empresas via BullMQ
+  startCompanySearchWorker();
+  // Inicializa worker de geração durável de mensagens por IA via BullMQ
+  startAiGenerationWorker();
+  // Recupera operações de IA que ficaram pendentes/interrompidas sem job ativo
+  await AiCopyService.recoverOrphanedAiOperations();
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
+  // Migração e ativação automática do Davi para o Plano PRO se renovado
+  await autoMigrateDaviToProIfRenewed();
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────
@@ -222,8 +238,12 @@ async function gracefulShutdown(signal: string) {
   try {
     server.close();
     await campaignWorker.close();
+    if (companySearchWorker) await companySearchWorker.close();
+    if (aiGenerationWorker) await aiGenerationWorker.close();
     await messageQueue.close();
     await queueEvents.close();
+    await aiGenerationQueue.close();
+    await aiGenerationQueueEvents.close();
     await WhatsappManager.destroyAll();
     await redisConnection.quit();
     await prisma.$disconnect();

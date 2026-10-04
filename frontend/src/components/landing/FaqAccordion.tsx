@@ -10,6 +10,16 @@ interface FaqItem {
 
 const FAQ_ITEMS: FaqItem[] = [
   {
+    question: "Como funciona o Agente de IA para criação das mensagens?",
+    answer:
+      "Nosso assistente utiliza inteligência artificial avançada de alta conversão para analisar o nicho da empresa, o nome do contato e o objetivo da sua campanha. Ele cria abordagens comerciais altamente persuasivas, personalizadas e naturais para cada lead, aumentando drasticamente as taxas de resposta. Cada geração ou refinamento com sucesso consome apenas 1 crédito de IA.",
+  },
+  {
+    question: "Como funciona a Busca Integrada de Empresas no Google Maps?",
+    answer:
+      "Você pode prospectar estabelecimentos comerciais diretamente no painel informando o nicho e a cidade (ex: 'Clínicas Odontológicas em São Paulo'). A busca roda com a sua própria conta pessoal da Apify através de chave de API, extraindo nomes, telefones higienizados e endereços sem descontar nenhum crédito de IA da sua carteira.",
+  },
+  {
     question: "Preciso deixar meu computador ou celular ligados durante os disparos?",
     answer:
       "Não. Toda a automação roda em segundo plano em servidores dedicados na nuvem. Depois de iniciar sua campanha, você pode fechar a aba, desligar seu computador ou sair de casa que os disparos continuarão sendo processados na cadência programada.",
@@ -20,9 +30,9 @@ const FAQ_ITEMS: FaqItem[] = [
       "A plataforma utiliza fila assíncrona (BullMQ) com delays aleatórios configuráveis (por exemplo, pausas de 45 a 120 segundos entre cada mensagem) para reproduzir o ritmo de digitação e envio de um ser humano. Além disso, o motor de Spintax permite alternar palavras e saudações, evitando mensagens 100% idênticas em lote. Nenhuma ferramenta séria pode prometer imunidade absoluta ao WhatsApp, mas oferecemos as melhores práticas de cadência e controle técnico disponíveis no mercado.",
   },
   {
-    question: "Como posso importar minha lista de contatos para a plataforma?",
+    question: "Como funcionam os créditos de IA e as recargas?",
     answer:
-      "Você pode importar listas extraídas do Google Maps, planilhas em formato CSV ou arquivos JSON com nome, telefone e site. A plataforma higieniza os telefones, adiciona o código do país (+55) se necessário e organiza tudo em uma campanha limpa.",
+      "Cada plano inclui uma franquia mensal de créditos de IA (50 no Essencial, 150 no Profissional e 300 no Premium), renovada a cada ciclo pago. Caso precise de mais abordagens com IA no mesmo mês, você pode comprar pacotes de recarga avulsa (100, 300 ou 700 créditos) que nunca expiram e continuam disponíveis enquanto sua assinatura estiver ativa.",
   },
   {
     question: "O sistema me avisa se eu tentar mandar mensagem para um número que já abordei?",
@@ -35,14 +45,9 @@ const FAQ_ITEMS: FaqItem[] = [
       "A conexão é direta e instantânea: basta escanear um QR Code na tela da plataforma utilizando o WhatsApp do seu celular (Menu > Aparelhos conectados), exatamente como no WhatsApp Web. O sistema possui reconexão automática resiliente caso ocorra oscilação de sinal.",
   },
   {
-    question: "Posso pausar uma campanha que já começou a disparar?",
-    answer:
-      "Sim. No painel de controle você pode acompanhar cada disparo em tempo real e pausar, retomar ou cancelar a campanha a qualquer momento com apenas um clique.",
-  },
-  {
     question: "Como funciona a contratação e liberação da minha conta?",
     answer:
-      "A assinatura é mensal no valor de R$ 145,99, processada de forma 100% segura e criptografada. Pagamentos via PIX ou Cartão de Crédito são aprovados instantaneamente e liberam seu acesso na mesma hora.",
+      "Temos planos a partir de R$ 27,99/mês (Essencial), R$ 55,99/mês (Profissional) e R$ 95,99/mês (Premium). O pagamento é processado com total segurança pela Cakto via PIX ou Cartão de Crédito, com liberação automática e imediata do seu acesso.",
   },
 ];
 

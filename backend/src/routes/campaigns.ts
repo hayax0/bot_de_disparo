@@ -11,6 +11,29 @@ import { WhatsappManager } from '../services/WhatsappManager';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
+import { isLegacyPlan, getUserCapabilities } from '../config/plans';
+import { AiCopyService, AiToneStyle } from '../services/AiCopyService';
+import { InsufficientCreditsError, WalletSuspendedError } from '../services/CreditWalletService';
+import { z } from 'zod';
+
+const requireUploadPermission = async (req: Request, res: Response, next: Function): Promise<any> => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { role: true, planId: true }
+    });
+    const caps = getUserCapabilities(user);
+    if (!caps.canUpload) {
+      return res.status(403).json({
+        error: 'O seu plano utiliza a busca integrada de empresas diretamente na plataforma. Para adicionar leads, utilize a Busca de Empresas.',
+        code: 'INTEGRATED_SEARCH_ONLY'
+      });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
 
 const router = Router();
 
@@ -197,7 +220,7 @@ router.post('/', requireActiveSubscription, validateBody(createCampaignSchema), 
 });
 
 // Prévia da importação de leads com diagnóstico completo e categorias mutuamente exclusivas
-router.post('/preview-import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
+router.post('/preview-import', requireActiveSubscription, requireUploadPermission, (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
@@ -292,7 +315,7 @@ router.post('/preview-message', async (req: Request, res: Response): Promise<any
 });
 
 // Importar leads de arquivo JSON ou CSV com limpeza e alta compatibilidade usando LeadImportService
-router.post('/:id/leads/import', requireActiveSubscription, (req: Request, res: Response, next: Function) => {
+router.post('/:id/leads/import', requireActiveSubscription, requireUploadPermission, (req: Request, res: Response, next: Function) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
@@ -649,6 +672,166 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
   } catch (error) {
     console.error('Erro ao excluir campanha:', error);
     res.status(500).json({ error: 'Erro ao excluir campanha.' });
+  }
+});
+
+// Geração em lote com IA para os leads da campanha
+const aiBatchSchema = z.object({
+  offerDescription: z.string().min(5, 'Informe o que você oferece (mínimo 5 caracteres)').max(1000, 'Descrição da oferta muito longa (máximo 1000 caracteres)'),
+  toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER']).optional(),
+  leadIds: z.array(z.string()).max(200, 'Máximo de 200 leads por lote').optional(),
+  idempotencyKey: z.string().max(128).optional(),
+});
+
+router.post('/:id/ai-generate', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+
+  const parsed = aiBatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Dados inválidos.' });
+  }
+
+  const { offerDescription, toneStyle, leadIds, idempotencyKey } = parsed.data;
+
+  try {
+    const result = await AiCopyService.initiateBatchGeneration({
+      userId,
+      workspaceId,
+      campaignId,
+      offerDescription,
+      toneStyle: toneStyle as AiToneStyle,
+      leadIds,
+      idempotencyKey,
+    });
+    res.status(202).json({ success: true, ...result });
+  } catch (error: any) {
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message, code: 'IDEMPOTENCY_CONFLICT' });
+    }
+    if (error.code === 'AI_NOT_ALLOWED') {
+      return res.status(403).json({ error: error.message, code: error.code });
+    }
+    if (error instanceof InsufficientCreditsError) {
+      return res.status(402).json({ error: error.message, code: 'INSUFFICIENT_CREDITS' });
+    }
+    if (error instanceof WalletSuspendedError) {
+      return res.status(403).json({ error: error.message, code: 'WALLET_SUSPENDED' });
+    }
+    console.error('[AI GENERATE ROUTE ERROR]', error);
+    res.status(400).json({ error: error.message || 'Erro ao gerar abordagens com IA.' });
+  }
+});
+
+// Consulta se há operação de IA em andamento na campanha
+router.get('/:id/ai-operations/active', async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+
+  try {
+    const activeOp = await AiCopyService.getActiveCampaignOperation({ userId, workspaceId, campaignId });
+    res.json({ activeOperation: activeOp || null });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Erro ao buscar operação ativa de IA.' });
+  }
+});
+
+// Consulta status e progresso de uma operação específica de IA
+router.get('/:id/ai-operations/:operationId', async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const operationId = req.params.operationId as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+
+  try {
+    const op = await AiCopyService.getOperationStatus({ userId, workspaceId, campaignId, operationId });
+    res.json(op);
+  } catch (error: any) {
+    res.status(404).json({ error: error.message || 'Operação de IA não encontrada.' });
+  }
+});
+
+// Regeneração de mensagem para lead individual
+const singleLeadAiSchema = z.object({
+  offerDescription: z.string().min(5, 'Informe a proposta com no mínimo 5 caracteres').max(1000, 'Proposta muito longa (máximo 1000 caracteres)').optional(),
+  toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER']).optional(),
+  idempotencyKey: z.string().max(128).optional(),
+});
+
+router.post('/:id/leads/:leadId/ai-regenerate', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const leadId = req.params.leadId as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+
+  const parsed = singleLeadAiSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Dados inválidos.' });
+  }
+
+  const { offerDescription, toneStyle, idempotencyKey } = parsed.data;
+
+  try {
+    const result = await AiCopyService.regenerateSingleLead({
+      userId,
+      workspaceId,
+      campaignId,
+      leadId,
+      offerDescription,
+      toneStyle: toneStyle as AiToneStyle,
+      idempotencyKey,
+    });
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    if (error.statusCode === 409) {
+      return res.status(409).json({ error: error.message, code: 'IDEMPOTENCY_CONFLICT' });
+    }
+    if (error.code === 'AI_NOT_ALLOWED') {
+      return res.status(403).json({ error: error.message, code: error.code });
+    }
+    if (error instanceof InsufficientCreditsError) {
+      return res.status(402).json({ error: error.message, code: 'INSUFFICIENT_CREDITS' });
+    }
+    if (error instanceof WalletSuspendedError) {
+      return res.status(403).json({ error: error.message, code: 'WALLET_SUSPENDED' });
+    }
+    console.error('[AI REGENERATE ROUTE ERROR]', error);
+    res.status(400).json({ error: error.message || 'Erro ao regenerar abordagem com IA.' });
+  }
+});
+
+// Edição manual de mensagem do lead
+const updateLeadMessageSchema = z.object({
+  messageContent: z.string().min(1, 'Conteúdo da mensagem não pode ser vazio.').max(2000, 'Conteúdo excede limite de 2000 caracteres.'),
+});
+
+router.put('/:id/leads/:leadId/message', async (req: Request, res: Response): Promise<any> => {
+  const campaignId = req.params.id as string;
+  const leadId = req.params.leadId as string;
+  const userId = req.user!.userId;
+  const workspaceId = req.user!.workspaceId;
+
+  const parsed = updateLeadMessageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Conteúdo da mensagem inválido.' });
+  }
+
+  const { messageContent } = parsed.data;
+
+  try {
+    const lead = await AiCopyService.updateLeadMessage({
+      userId,
+      workspaceId,
+      campaignId,
+      leadId,
+      messageContent,
+    });
+    res.json({ success: true, leadId: lead?.id, messageContent: lead?.messageContent });
+  } catch (error: any) {
+    console.error('[UPDATE LEAD MESSAGE ERROR]', error);
+    res.status(400).json({ error: error.message || 'Erro ao atualizar mensagem do lead.' });
   }
 });
 

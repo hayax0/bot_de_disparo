@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { ENV } from '../config/env';
+import { getPlanById } from '../config/plans';
 
 interface EmailSendResult {
   success: boolean;
@@ -35,6 +36,24 @@ function formatDatePtBr(date: Date | string | null | undefined): string {
   }
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+}
+
+export function renderPlanDetails(planId?: string | null): string {
+  const plan = getPlanById(planId);
+  if (!plan) return '';
+  if (plan.isLegacy) return '<p><strong>Plano legado:</strong> suas condições anteriores permanecem preservadas. As novas franquias de planos não se aplicam à sua conta.</p>';
+  if (plan.isUnlimited) return '<p><strong>Acesso administrativo vitalício:</strong> sem limites de créditos de IA.</p>';
+  return `<div class="highlight-box">
+    <p><strong>Plano contratado:</strong> ${escapeHtml(plan.name)}</p>
+    <p><strong>Mensalidade do plano:</strong> R$ ${plan.priceFormatted}</p>
+    <p><strong>Franquia mensal:</strong> ${plan.monthlyDispatches.toLocaleString('pt-BR')} disparos e ${plan.monthlyCredits} créditos de IA.</p>
+    <p>Os créditos mensais de IA não acumulam e expiram ao fim do ciclo informado. Créditos extras comprados não expiram, mas exigem assinatura ativa para uso.</p>
+    <p>Créditos são usados na geração de mensagens por IA. Recargas não aumentam a franquia de disparos. Buscas de empresas usam sua própria conta Apify, com custos cobrados pela Apify.</p>
+  </div>`;
+}
+
 function getBaseEmailTemplate(contentHtml: string, previewText: string): string {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -46,7 +65,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
     body {
       margin: 0;
       padding: 0;
-      background-color: #080c14;
+      background-color: #08090D;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       color: #e2e8f0;
       -webkit-font-smoothing: antialiased;
@@ -54,21 +73,21 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
     .wrapper {
       width: 100%;
       table-layout: fixed;
-      background-color: #080c14;
+      background-color: #08090D;
       padding: 40px 10px;
     }
     .container {
       max-width: 580px;
       margin: 0 auto;
-      background-color: #111827;
-      border: 1px solid rgba(168, 85, 247, 0.2);
+      background-color: #0E1017;
+      border: 1px solid rgba(16, 185, 129, 0.22);
       border-radius: 18px;
       overflow: hidden;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(168, 85, 247, 0.08);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(16, 185, 129, 0.06);
     }
     .header {
       padding: 30px 24px;
-      background: linear-gradient(180deg, rgba(168, 85, 247, 0.12) 0%, rgba(17, 24, 39, 0) 100%);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.12) 0%, rgba(14, 16, 23, 0) 100%);
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       text-align: center;
     }
@@ -87,18 +106,18 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
       letter-spacing: -0.3px;
     }
     .highlight-box {
-      background-color: #0b1120;
-      border-left: 4px solid #a855f7;
-      border-top: 1px solid rgba(255, 255, 255, 0.04);
-      border-right: 1px solid rgba(255, 255, 255, 0.04);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      background-color: #0A0D14;
+      border-left: 4px solid #10b981;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       padding: 18px;
       border-radius: 10px;
       margin: 22px 0;
       font-size: 14px;
     }
     .feature-card {
-      background-color: rgba(255, 255, 255, 0.03);
+      background-color: rgba(255, 255, 255, 0.02);
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 12px;
       padding: 14px 16px;
@@ -123,18 +142,18 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
     .btn {
       display: inline-block;
       padding: 16px 36px;
-      background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: #ffffff !important;
       text-decoration: none;
       font-weight: 700;
       font-size: 15px;
       border-radius: 12px;
-      box-shadow: 0 6px 20px rgba(168, 85, 247, 0.45);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.38);
       letter-spacing: 0.3px;
     }
     .footer {
       padding: 24px 28px;
-      background-color: #0b0f19;
+      background-color: #090B10;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
       text-align: center;
       font-size: 12px;
@@ -142,7 +161,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
       line-height: 1.6;
     }
     .footer a {
-      color: #a855f7;
+      color: #34d399;
       text-decoration: none;
     }
     .footer a:hover {
@@ -163,11 +182,11 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto;">
                 <tr>
                   <td style="vertical-align: middle; padding-right: 14px;">
-                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Disparador" width="42" height="42" style="display: block; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);" />
+                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Disparador" width="44" height="44" style="display: block; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); background-color: #08090D;" />
                   </td>
                   <td style="vertical-align: middle; text-align: left;">
                     <div style="font-size: 21px; font-weight: 800; color: #ffffff; line-height: 1.1; letter-spacing: -0.4px;">Disparador</div>
-                    <div style="font-size: 10px; font-weight: 700; color: #c084fc; letter-spacing: 1.6px; font-family: monospace; margin-top: 3px;">PROSPECTOR SAAS</div>
+                    <div style="font-size: 10px; font-weight: 700; color: #34d399; letter-spacing: 1.6px; font-family: monospace; margin-top: 3px;">PROSPECTOR SAAS</div>
                   </td>
                 </tr>
               </table>
@@ -198,12 +217,27 @@ export class EmailService {
     const client = getResendClient();
     if (!client) return { success: false };
     try {
+      const htmlContent = `
+        <h2>Seu Código de Confirmação 🔐</h2>
+        <p>Olá!</p>
+        <p>Use o código de segurança abaixo para confirmar seu e-mail e continuar seu cadastro no <strong>Disparador (Prospector SaaS)</strong>:</p>
+
+        <div style="background-color: #0A0D14; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 24px 16px; margin: 24px 0; text-align: center;">
+          <div style="font-size: 11px; font-weight: 600; color: #34d399; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Código de Verificação</div>
+          <div style="font-size: 32px; font-weight: 800; color: #ffffff; letter-spacing: 8px; font-family: monospace;">${code}</div>
+          <div style="font-size: 12px; color: #94a3b8; margin-top: 10px;">Válido por 10 minutos • Não compartilhe este código</div>
+        </div>
+
+        <p style="font-size: 13px; color: #94a3b8;">Se você não solicitou este cadastro, por favor desconsidere este e-mail.</p>
+      `;
+
       const response = await client.emails.send({
         from: ENV.RESEND_FROM_EMAIL,
         to: email,
         replyTo: ENV.RESEND_REPLY_TO,
         subject: 'Confirme seu e-mail — Disparador',
         text: `Seu código de confirmação é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se você não solicitou um cadastro, ignore esta mensagem.`,
+        html: getBaseEmailTemplate(htmlContent, `Seu código de confirmação do Disparador é: ${code}`),
       });
       return { success: !response.error, id: response.data?.id };
     } catch {
@@ -301,6 +335,7 @@ export class EmailService {
     email: string;
     name?: string | null;
     expiresAt?: Date | null;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt } = params;
     const client = getResendClient();
@@ -308,7 +343,7 @@ export class EmailService {
       return { success: false, error: 'RESEND_API_KEY não configurada' };
     }
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
     const loginUrl = `${ENV.PLATFORM_URL}/login`;
 
@@ -317,6 +352,7 @@ export class EmailService {
       <p>Olá, <strong>${cleanName}</strong>!</p>
       <p>Seu pagamento foi confirmado com sucesso e seu acesso à plataforma <strong>Disparador (Prospector SaaS)</strong> já está 100% disponível.</p>
       
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0 0 8px 0;"><strong>Status da Assinatura:</strong> Ativa</p>
         <p style="margin: 0;"><strong>Próxima Renovação / Validade:</strong> ${expiresFormatted}</p>
@@ -360,6 +396,45 @@ export class EmailService {
     }
   }
 
+  static async sendCreditPurchaseEmail(params: {
+    email: string;
+    name?: string | null;
+    credits: number;
+    priceCents: number;
+    orderId: string;
+    subscriptionActive: boolean;
+    expiresAt?: Date | null;
+    planId?: string | null;
+  }): Promise<EmailSendResult> {
+    const client = getResendClient();
+    if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
+    const price = (params.priceCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const subject = `Recarga confirmada: ${params.credits} créditos de IA`;
+    const content = `<h2>${subject}</h2>
+      <p>Olá, <strong>${escapeHtml(params.name || 'Cliente')}</strong>!</p>
+      <div class="highlight-box">
+        <p><strong>Créditos adicionados:</strong> ${params.credits}</p>
+        <p><strong>Valor registrado da recarga:</strong> ${price}</p>
+        <p><strong>Pedido:</strong> ${escapeHtml(params.orderId)}</p>
+        <p><strong>Validade dos créditos extras:</strong> não expiram.</p>
+      </div>
+      <p>${params.subscriptionActive
+        ? `Sua assinatura continua com validade até ${formatDatePtBr(params.expiresAt)}. A recarga não altera esse prazo.`
+        : 'Seus créditos estão guardados. Esta compra não ativa uma assinatura; para usar a IA, é necessário ter um plano ativo.'}</p>
+      <p>Os créditos extras servem para gerar ou refazer mensagens com IA. Não aumentam sua franquia de disparos e não pagam as buscas da sua conta Apify. Os créditos mensais válidos são usados primeiro.</p>
+      <p>Se ainda não possui senha, conclua o cadastro usando o mesmo e-mail da compra e confirme o código recebido.</p>
+      <div class="btn-container"><a href="${ENV.PLATFORM_URL}/login" class="btn">VER PLANO E CRÉDITOS</a></div>`;
+    try {
+      const response = await client.emails.send({
+        from: ENV.RESEND_FROM_EMAIL, replyTo: ENV.RESEND_REPLY_TO, to: [params.email],
+        subject, html: getBaseEmailTemplate(content, subject),
+      }, { idempotencyKey: `credit-purchase-${params.orderId}` });
+      return { success: !response.error, id: response.data?.id, error: response.error?.message };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   /**
    * Envia os avisos de proximidade de vencimento (5 dias ou 1 dia)
    */
@@ -368,6 +443,8 @@ export class EmailService {
     name?: string | null;
     expiresAt: Date;
     daysRemaining: 5 | 1;
+    planId?: string | null;
+    renewalCanceled?: boolean;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt, daysRemaining } = params;
     const client = getResendClient();
@@ -375,7 +452,7 @@ export class EmailService {
       return { success: false, error: 'RESEND_API_KEY não configurada' };
     }
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
     const platformUrl = ENV.PLATFORM_URL;
 
@@ -386,9 +463,11 @@ export class EmailService {
 
     const messageIntro = isFiveDays
       ? 'Passando para avisar que sua assinatura do <strong>Disparador</strong> está próxima da renovação (restam 5 dias).'
-      : `Sua assinatura do <strong>Disparador</strong> está prevista para renovar amanhã, <strong>${expiresFormatted}</strong>.`;
+      : `Sua assinatura do <strong>Disparador</strong> vence amanhã, <strong>${expiresFormatted}</strong>.`;
 
-    const paymentAdvice = isFiveDays
+    const paymentAdvice = params.renewalCanceled
+      ? 'A renovação está cancelada. Seu acesso termina na data informada; os créditos extras permanecem registrados para quando houver uma assinatura ativa.'
+      : isFiveDays
       ? 'Se sua assinatura possui renovação automática, verifique se seu meio de pagamento continua válido para que suas campanhas de prospecção continuem rodando sem interrupções.'
       : 'Para continuar utilizando a ferramenta sem interrupções, verifique se sua forma de pagamento está funcionando corretamente.';
 
@@ -397,8 +476,9 @@ export class EmailService {
       <p>Olá, <strong>${cleanName}</strong>!</p>
       <p>${messageIntro}</p>
 
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
-        <p style="margin: 0 0 6px 0;"><strong>Data Prevista da Renovação:</strong> ${expiresFormatted}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Validade do acesso:</strong> ${expiresFormatted}</p>
         <p style="margin: 0;">${paymentAdvice}</p>
       </div>
 
@@ -442,18 +522,20 @@ export class EmailService {
     email: string;
     name?: string | null;
     expiresAt: Date;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt } = params;
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
 
     const htmlContent = `
       <h2>Sua assinatura foi renovada com sucesso! 🎉</h2>
       <p>Olá, <strong>${cleanName}</strong>!</p>
       <p>Confirmamos a renovação da sua assinatura do <strong>Disparador</strong>.</p>
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;"><strong>Nova Validade do Acesso:</strong> ${expiresFormatted}</p>
       </div>
@@ -483,18 +565,20 @@ export class EmailService {
     email: string;
     name?: string | null;
     expiresAt: Date | null;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name, expiresAt } = params;
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
     const expiresFormatted = formatDatePtBr(expiresAt);
 
     const htmlContent = `
       <h2>Cancelamento de Renovação Confirmado</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
       <p>Confirmamos o cancelamento da renovação automática da sua assinatura do <strong>Disparador</strong>.</p>
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;">Você continuará com acesso total à plataforma até <strong>${expiresFormatted}</strong>. Nenhuma nova cobrança será realizada.</p>
       </div>
@@ -521,17 +605,19 @@ export class EmailService {
   static async sendPaymentFailedEmail(params: {
     email: string;
     name?: string | null;
+    planId?: string | null;
   }): Promise<EmailSendResult> {
     const { email, name } = params;
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
 
     const htmlContent = `
       <h2>Atenção: Falha no pagamento da sua assinatura Disparador</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
       <p>Houve uma falha ao processar o pagamento da renovação da sua assinatura.</p>
+      ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;">Para evitar a interrupção das suas campanhas, por favor verifique o limite do seu cartão ou atualize seus dados de pagamento.</p>
       </div>
@@ -566,7 +652,7 @@ export class EmailService {
     const client = getResendClient();
     if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
 
-    const cleanName = name ? String(name).trim() : 'Cliente';
+    const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
 
     const htmlContent = `
       <h2>Recuperação de Senha</h2>

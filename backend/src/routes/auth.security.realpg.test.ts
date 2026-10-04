@@ -32,25 +32,30 @@ test('PostgreSQL Real: Validação de concorrência com advisory lock e rejeiç�
   });
 
   // 1. Teste de bloqueio mútuo real com pg_advisory_xact_lock
-  let lock1AcquiredAt = 0;
+  let lock1Acquired = false;
+  let lock1FinishedAt = 0;
   let lock2AcquiredAt = 0;
 
   const runLockTx1 = prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`account:${testEmail1}`}))`;
-    lock1AcquiredAt = Date.now();
+    lock1Acquired = true;
     await new Promise(r => setTimeout(r, 100)); // Segura o lock por 100ms
+    lock1FinishedAt = Date.now();
   });
 
+  // Aguarda deterministicamente a Transação 1 adquirir o lock no PostgreSQL
+  while (!lock1Acquired) {
+    await new Promise(r => setTimeout(r, 5));
+  }
+
   const runLockTx2 = prisma.$transaction(async tx => {
-    // Tenta pegar o mesmo lock logo após tx1 começar
-    await new Promise(r => setTimeout(r, 10));
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`account:${testEmail1}`}))`;
     lock2AcquiredAt = Date.now();
   });
 
   await Promise.all([runLockTx1, runLockTx2]);
   assert.ok(
-    lock2AcquiredAt >= lock1AcquiredAt + 90,
+    lock2AcquiredAt >= lock1FinishedAt - 10,
     'Transação 2 deve aguardar a liberação do pg_advisory_xact_lock da Transação 1'
   );
 

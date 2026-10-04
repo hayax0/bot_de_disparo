@@ -71,7 +71,8 @@ export const registerSchema = z.object({
     val => val === true || val === 'true',
     { message: 'É obrigatório ler e aceitar os Termos de Uso e a Política de Privacidade para criar uma conta.' }
   ),
-  verificationCode: z.string().optional().nullable()
+  verificationCode: z.string().optional().nullable(),
+  planId: z.string().max(40).optional().nullable()
 });
 
 export const forgotPasswordSchema = z.object({

@@ -39,6 +39,7 @@ export class SubscriptionReminderService {
           email: true,
           name: true,
           role: true,
+          planId: true,
           subscriptionStatus: true,
           subscriptionExpiresAt: true,
         }
@@ -93,6 +94,8 @@ export class SubscriptionReminderService {
                 email: user.email,
                 name: user.name,
                 expiresAt,
+                planId: user.planId,
+                renewalCanceled: user.subscriptionStatus === 'CANCELED',
                 daysRemaining: 5
               });
 
@@ -151,6 +154,8 @@ export class SubscriptionReminderService {
                 email: user.email,
                 name: user.name,
                 expiresAt,
+                planId: user.planId,
+                renewalCanceled: user.subscriptionStatus === 'CANCELED',
                 daysRemaining: 1
               });
 
