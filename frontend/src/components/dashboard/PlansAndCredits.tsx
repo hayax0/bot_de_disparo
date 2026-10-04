@@ -93,10 +93,11 @@ export function PlansAndCredits() {
 
   if (catalog.isLegacy) return null;
 
+  const isDispatchUnlimited = Boolean(catalog.dispatch?.isUnlimited);
   const used = catalog.dispatch.used ?? 0;
   const quota = catalog.dispatch.quota ?? 0;
   const remaining = catalog.dispatch.remaining ?? 0;
-  const percentUsed = quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : 0;
+  const percentUsed = !isDispatchUnlimited && quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : 0;
 
   return (
     <section className="space-y-4" aria-label="Plano e recargas de IA">
@@ -131,6 +132,10 @@ export function PlansAndCredits() {
               <p className="text-sm text-slate-300">
                 Ambiente administrativo com disparos ilimitados e IA liberada sem consumo de créditos.
               </p>
+            ) : isDispatchUnlimited ? (
+              <p className="text-xs text-slate-400">
+                Disparos via WhatsApp ilimitados. Créditos de IA renovam a cada ciclo de pagamento.
+              </p>
             ) : (
               <p className="text-xs text-slate-400">
                 Franquia renovada mensalmente. Créditos de IA renovam a cada ciclo de pagamento.
@@ -157,18 +162,21 @@ export function PlansAndCredits() {
           <div className="mt-5 pt-4 border-t border-white/5 space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-300">
               <span>
-                Disparos realizados no ciclo: <strong>{number(used)}</strong> de {number(quota)}
+                Disparos realizados no ciclo: <strong>{number(used)}</strong>
+                {!isDispatchUnlimited && ` de ${number(quota)}`}
               </span>
               <span className="font-semibold text-emerald-400">
-                {number(remaining)} disponíveis
+                {isDispatchUnlimited ? 'Disparos ilimitados' : `${number(remaining)} disponíveis`}
               </span>
             </div>
-            <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                style={{ width: `${percentUsed}%` }}
-              />
-            </div>
+            {!isDispatchUnlimited && (
+              <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  style={{ width: `${percentUsed}%` }}
+                />
+              </div>
+            )}
           </div>
         )}
 

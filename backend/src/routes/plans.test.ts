@@ -22,8 +22,26 @@ async function setup(t: any, overrides = {}) {
     dispatchesUsedInCycle: 125,
     ...overrides,
   };
-  mockMethod(t, prisma.user, 'findUnique', async () => user);
-  mockMethod(t, prisma.user, 'findUniqueOrThrow', async () => user);
+  mockMethod(t, prisma.user, 'findUnique', async (args?: any) => {
+    if (args?.select) {
+      const filtered: any = {};
+      for (const k of Object.keys(args.select)) {
+        if (args.select[k]) filtered[k] = (user as any)[k];
+      }
+      return filtered;
+    }
+    return user;
+  });
+  mockMethod(t, prisma.user, 'findUniqueOrThrow', async (args?: any) => {
+    if (args?.select) {
+      const filtered: any = {};
+      for (const k of Object.keys(args.select)) {
+        if (args.select[k]) filtered[k] = (user as any)[k];
+      }
+      return filtered;
+    }
+    return user;
+  });
   const app = express();
   app.use(express.json()); app.use('/integrations', integrationsRouter);
   const server = app.listen(0, '127.0.0.1');
@@ -90,3 +108,48 @@ test('novas franquias bloqueiam no limite de cada plano', async () => {
     assert.equal((await QuotaService.canDispatch({ id: 'u', planId, dispatchesUsedInCycle: limit })).allowed, false);
   }
 });
+
+test('rota /plans reconhece exceção do Davi: disparos ilimitados e créditos de IA normais do PRO', async t => {
+  const { base, headers } = await setup(t, {
+    id: 'davi-user',
+    email: 'davianicetofirme@hotmail.com',
+    role: 'USER',
+    planId: 'PRO',
+    monthlyDispatchQuota: 0,
+    dispatchesUsedInCycle: 3000,
+  });
+  const response = await fetch(`${base}/plans`, { headers });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.currentPlan.id, 'PRO');
+  assert.equal(data.isUnlimited, false); // Preserva distinção: não é admin vitalício
+  assert.equal(data.isLegacy, false);
+  assert.equal(data.dispatch.allowed, true);
+  assert.equal(data.dispatch.isUnlimited, true);
+  assert.equal(data.dispatch.quota, 0);
+  assert.equal(data.dispatch.used, 3000);
+});
+
+test('rota /plans bloqueia usuário PRO comum que atingiu a franquia de 3000 disparos', async t => {
+  const { base, headers } = await setup(t, {
+    id: 'common-user',
+    email: 'comum@example.com',
+    role: 'USER',
+    planId: 'PRO',
+    monthlyDispatchQuota: 0,
+    dispatchesUsedInCycle: 3000,
+  });
+  const response = await fetch(`${base}/plans`, { headers });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.currentPlan.id, 'PRO');
+  assert.equal(data.isUnlimited, false);
+  assert.equal(data.isLegacy, false);
+  assert.equal(data.dispatch.allowed, false);
+  assert.equal(Boolean(data.dispatch.isUnlimited), false);
+  assert.equal(data.dispatch.remaining, 0);
+  assert.equal(data.dispatch.quota, 3000);
+  assert.equal(data.dispatch.used, 3000);
+  assert.ok(data.dispatch.reason.includes('Franquia mensal de disparos'));
+});
+

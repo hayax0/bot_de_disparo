@@ -14,8 +14,17 @@ const router = Router();
 router.use(authenticate);
 router.get('/plans', async (req, res) => {
   try {
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId },
-      select: { id: true, role: true, planId: true, monthlyDispatchQuota: true, dispatchesUsedInCycle: true } });
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user!.userId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        planId: true,
+        monthlyDispatchQuota: true,
+        dispatchesUsedInCycle: true,
+      },
+    });
     const isUnlimited = isUserUnlimited(user);
     const isLegacy = isLegacyPlan(user.planId);
     res.json({ ...getCommercialCatalog(),

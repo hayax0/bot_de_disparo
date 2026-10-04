@@ -47,6 +47,15 @@ export class QuotaService {
       });
     } else {
       user = userOrId;
+      if (user && user.email === undefined && user.id) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { email: true }
+        });
+        if (dbUser?.email) {
+          user = { ...user, email: dbUser.email };
+        }
+      }
     }
 
     if (!user) {
