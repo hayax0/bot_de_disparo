@@ -4,22 +4,18 @@ import { LANDING_PLANS } from "@/lib/constants";
 
 export function PricingSection() {
   return (
-    <section id="planos" className="py-24 bg-[#08090D] relative overflow-hidden border-t border-white/[0.06]">
+    <section id="planos" className="py-16 sm:py-20 scroll-mt-24 bg-[#08090D] relative overflow-hidden border-t border-white/[0.06]">
       {/* Sutil micro-brilho neutro de profundidade */}
       <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-emerald-500/[0.03] blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Cabeçalho */}
-        <div className="text-center max-w-2xl mx-auto mb-16 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs font-medium">
-            <Zap size={13} className="text-emerald-400" />
-            <span>Planos Flexíveis & Transparentes</span>
-          </div>
+        <div className="text-center max-w-2xl mx-auto mb-10 space-y-3">
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
-            Escolha o plano ideal para sua operação
+            Escolha o ritmo da sua prospecção.
           </h2>
           <p className="text-sm text-slate-400 font-normal">
-            Potencialize sua prospecção com Inteligência Artificial, busca de leads e disparos automatizados. Sem pegadinhas e com ativação imediata.
+            Todos os planos incluem busca com sua Apify, mensagens com IA e uma conexão WhatsApp.
           </p>
         </div>
 
@@ -40,7 +36,7 @@ export function PricingSection() {
                 {isPopular && (
                   <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-emerald-500 text-slate-950 text-xs font-bold tracking-wider uppercase flex items-center gap-1.5 shadow-md">
                     <Sparkles size={13} />
-                    <span>Mais Escolhido</span>
+                    <span>Mais volume</span>
                   </div>
                 )}
 
@@ -51,7 +47,7 @@ export function PricingSection() {
                       <span>{plan.name}</span>
                     </h3>
                     <p className="text-xs text-slate-400 leading-relaxed min-h-[36px]">
-                      {plan.description}
+                      {plan.id === "START" ? "Para começar sua rotina de prospecção." : plan.id === "PRO" ? "Para manter campanhas frequentes." : "Para quem precisa de mais envios e IA."}
                     </p>
 
                     {/* Preço */}
@@ -63,9 +59,7 @@ export function PricingSection() {
                       <span className="text-xs font-medium text-slate-400">{plan.period}</span>
                     </div>
 
-                    <span className="inline-block text-[11px] text-emerald-400 font-medium bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20 mt-1">
-                      {plan.paymentNote}
-                    </span>
+
                   </div>
 
                   {/* Franquias em Destaque */}
@@ -82,11 +76,8 @@ export function PricingSection() {
 
                   {/* Lista de Recursos */}
                   <div className="py-5 space-y-3">
-                    <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block font-mono">
-                      Incluso no plano:
-                    </span>
                     <ul className="space-y-2.5">
-                      {plan.features.map((feat, idx) => (
+                      {["Campanhas e histórico de contatos", ...(plan.id !== "START" ? ["Importação de listas próprias"] : [])].map((feat, idx) => (
                         <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-200">
                           <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
                           <span className="leading-relaxed">{feat}</span>
@@ -112,7 +103,7 @@ export function PricingSection() {
 
                   <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 text-center">
                     <ShieldCheck size={13} className="text-emerald-400" />
-                    <span>Crie sua conta • Ativação imediata</span>
+                    <span>Acesso após confirmação do pagamento</span>
                   </div>
                 </div>
               </div>
@@ -125,7 +116,7 @@ export function PricingSection() {
           <p className="text-xs text-slate-400 leading-relaxed">
             Cada mensagem gerada ou refinada com a Inteligência Artificial consome 1 crédito. Edições manuais são gratuitas.
             A busca de empresas utiliza sua própria chave Apify pessoal com custos direto no provedor.
-            Cancelamento simples a qualquer momento, sem fidelidade.
+            Recargas não aumentam o limite de disparos. Cancelamento sem fidelidade.
           </p>
         </div>
       </div>

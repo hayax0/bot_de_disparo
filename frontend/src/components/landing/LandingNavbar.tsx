@@ -47,11 +47,9 @@ export function LandingNavbar() {
   const isLoggedIn = Boolean(isHydrated && token);
 
   const navLinks = [
-    { label: "Recursos", href: "#recursos" },
     { label: "Como Funciona", href: "#como-funciona" },
-    { label: "Calculadora", href: "#calculadora" },
     { label: "Planos", href: "#planos" },
-    { label: "FAQ", href: "#faq" },
+    { label: "Dúvidas", href: "#faq" },
   ];
 
   const handleNavClick = () => {

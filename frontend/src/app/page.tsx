@@ -1,72 +1,22 @@
-"use client";
-
-import { useGsapScroll } from "@/components/landing/hooks/useGsapScroll";
 import { LandingNavbar } from "@/components/landing/LandingNavbar";
 import { HeroSection } from "@/components/landing/HeroSection";
-import { SocialProofBand } from "@/components/landing/SocialProofBand";
-import { TextScrollReveal } from "@/components/landing/TextScrollReveal";
-import { InteractiveRadar } from "@/components/landing/InteractiveRadar";
-import { BentoFeatures } from "@/components/landing/BentoFeatures";
-import { RoiCalculator } from "@/components/landing/RoiCalculator";
-import { ComparisonSection } from "@/components/landing/ComparisonSection";
+import { HowItWorks } from "@/components/landing/HowItWorks";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { CtaFooter } from "@/components/landing/CtaFooter";
 import { CookieConsentBanner } from "@/components/landing/CookieConsentBanner";
 
 export default function LandingPage() {
-  const { containerRef } = useGsapScroll();
-
   return (
-    <div ref={containerRef} className="landing-page min-h-screen bg-[#08090D] text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-200 overflow-x-hidden">
-      {/* Barra de Navegação Superior */}
+    <div className="landing-page min-h-screen bg-[#08090D] text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-200 overflow-x-hidden">
       <LandingNavbar />
-
-      {/* Hero Section com Simulador Interativo */}
-      <HeroSection />
-
-      {/* Faixa de Pilares de Confiabilidade Técnica */}
-      <div className="gsap-reveal">
-        <SocialProofBand />
-      </div>
-
-      {/* Efeito Scroll Reveal: O texto manifesto vai acendendo conforme o usuário rola a página */}
-      <TextScrollReveal />
-
-      {/* Esteira Visual Passo a Passo (Como Funciona) */}
-      <div className="gsap-reveal">
-        <InteractiveRadar />
-      </div>
-
-      {/* Recursos Nativos em Bento Grid */}
-      <div className="gsap-reveal">
-        <BentoFeatures />
-      </div>
-
-      {/* Calculadora Interativa de Produtividade */}
-      <div className="gsap-reveal">
-        <RoiCalculator />
-      </div>
-
-      {/* Comparativo Manual vs. Plataforma */}
-      <div className="gsap-reveal">
-        <ComparisonSection />
-      </div>
-
-      {/* Planos e Checkout Oficial */}
-      <div className="gsap-reveal">
+      <main>
+        <HeroSection />
+        <HowItWorks />
         <PricingSection />
-      </div>
-
-      {/* Perguntas Frequentes */}
-      <div className="gsap-reveal">
         <FaqAccordion />
-      </div>
-
-      {/* CTA Final & Rodapé Institucional */}
+      </main>
       <CtaFooter />
-
-      {/* Banner de Consentimento de Cookies & LGPD */}
       <CookieConsentBanner />
     </div>
   );
