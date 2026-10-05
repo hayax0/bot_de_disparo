@@ -55,12 +55,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icon.png?v=3", href: "/icon.png?v=3" },
-      { url: "/favicon.ico?v=3", href: "/favicon.ico?v=3" },
-      { url: "/logo.png?v=3", href: "/logo.png?v=3" },
+      { url: "/icon.png?v=4", href: "/icon.png?v=4" },
+      { url: "/favicon.ico?v=4", href: "/favicon.ico?v=4" },
+      { url: "/logo.png?v=4", href: "/logo.png?v=4" },
     ],
-    apple: "/icon.png?v=3",
-    shortcut: "/icon.png?v=3",
+    apple: "/icon.png?v=4",
+    shortcut: "/icon.png?v=4",
   },
 };
 
@@ -88,10 +88,10 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className={`dark ${inter.variable} antialiased`}>
       <head>
-        <link rel="icon" href="/icon.png?v=3" type="image/png" />
-        <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
-        <link rel="shortcut icon" href="/icon.png?v=3" />
-        <link rel="apple-touch-icon" href="/icon.png?v=3" />
+        <link rel="icon" href="/icon.png?v=4" type="image/png" />
+        <link rel="icon" href="/favicon.ico?v=4" sizes="any" />
+        <link rel="shortcut icon" href="/icon.png?v=4" />
+        <link rel="apple-touch-icon" href="/icon.png?v=4" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

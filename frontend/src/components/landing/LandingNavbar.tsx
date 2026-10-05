@@ -74,7 +74,7 @@ export function LandingNavbar() {
           >
             <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 shadow-sm group-hover:border-emerald-500/40 transition-colors">
               <Image
-                src="/logo.png"
+                src="/logo-v4.png"
                 alt="Logo Disparador de Mensagens"
                 width={32}
                 height={32}

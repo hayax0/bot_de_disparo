@@ -18,7 +18,7 @@ export default function PrivacidadePage() {
           <Link href="/" className="flex items-center gap-3 group">
             <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 group-hover:border-purple-500/50 transition-colors">
               <Image
-                src="/logo.png"
+                src="/logo-v4.png"
                 alt="Logo Disparador"
                 width={32}
                 height={32}
