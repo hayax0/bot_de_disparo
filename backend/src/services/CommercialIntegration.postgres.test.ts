@@ -1179,6 +1179,37 @@ test('CommercialIntegration PostgreSQL: Validacao dos 4 Bloqueadores no Banco Re
     assert.equal(afterRetryAndBoot.planId, 'SCALE');
     assert.equal(afterRetryAndBoot.subscriptionExpiresAt!.toISOString(), premiumUser.subscriptionExpiresAt!.toISOString());
     assert.equal((await CreditWalletService.getWalletSummary(daviOfficial.id)).monthlyBalance, 300);
+    // Eventos do contrato antigo, com e sem ID, não afetam Premium nem créditos.
+    await testPrisma.user.update({ where: { id: daviOfficial.id }, data: { caktoSubscriptionId: 'sub_premium_current' } });
+    for (const event of ['subscription_canceled', 'purchase_refused', 'purchase_refunded']) {
+      for (const subscription of [undefined, { id: 'sub_legacy_old' }]) {
+        await processCaktoWebhook({ secret: testWebhookSecret, event, data: {
+          id: `old_${event}_${subscription ? 'identified' : 'no_id'}`,
+          offer_id: '1080517', subscription,
+          customer: { email: daviOfficialEmail },
+        } });
+        const protectedUser = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
+        assert.equal(protectedUser.subscriptionStatus, 'ACTIVE');
+        assert.equal(protectedUser.planId, 'SCALE');
+        assert.equal(protectedUser.subscriptionExpiresAt!.toISOString(), premiumUser.subscriptionExpiresAt!.toISOString());
+        assert.equal((await CreditWalletService.getWalletSummary(daviOfficial.id)).monthlyBalance, 300);
+      }
+    }
+    // Até contratos diferentes do mesmo plano devem ser isolados.
+    await processCaktoWebhook({ secret: testWebhookSecret, event: 'subscription_canceled', data: {
+      id: 'cancel_old_premium', offer: { id: '33zk2g2' }, subscription: { id: 'sub_premium_previous' },
+      customer: { email: daviOfficialEmail },
+    } });
+    assert.equal((await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } })).subscriptionStatus, 'ACTIVE');
+    // Cancelamento legítimo continua funcionando e mantém acesso até o vencimento pago.
+    await processCaktoWebhook({ secret: testWebhookSecret, event: 'subscription_canceled', data: {
+      id: 'cancel_current_premium', offer: { id: '33zk2g2' }, subscription: { id: 'sub_premium_current' },
+      customer: { email: daviOfficialEmail },
+    } });
+    const canceledCurrent = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
+    assert.equal(canceledCurrent.subscriptionStatus, 'CANCELED');
+    assert.equal(canceledCurrent.subscriptionExpiresAt!.toISOString(), premiumUser.subscriptionExpiresAt!.toISOString());
+    assert.equal((await CreditWalletService.getWalletSummary(daviOfficial.id)).monthlyBalance, 300);
   });
 });
 

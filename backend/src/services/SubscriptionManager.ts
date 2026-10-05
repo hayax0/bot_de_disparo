@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import { ENV } from '../config/env';
 import { EmailService } from './EmailService';
-import { resolveCommercialItem, getPlanById, isLegacyPlan } from '../config/plans';
+import { resolveCommercialItem, getPlanById, isLegacyPlan, CommercialResolution } from '../config/plans';
 import { CreditWalletService } from './CreditWalletService';
 import { QuotaService } from './QuotaService';
 
@@ -14,6 +14,23 @@ export interface CaktoWebhookPayload {
   event: string;
   data?: Array<any> | Record<string, any>;
   [key: string]: any;
+}
+
+
+// O e-mail identifica o cliente, não o contrato. Eventos de outro plano/contrato
+// não podem cancelar, estornar ou notificar a assinatura atualmente vinculada.
+function belongsToCurrentSubscription(
+  user: { planId?: string | null; caktoSubscriptionId?: string | null },
+  commercial: CommercialResolution,
+  subscriptionId?: string,
+): boolean {
+  if (subscriptionId && user.caktoSubscriptionId && subscriptionId !== user.caktoSubscriptionId) return false;
+  if (commercial.type === 'PLAN') return !user.planId || commercial.plan?.id === user.planId;
+  if (commercial.type === 'LEGACY') {
+    return !user.planId || isLegacyPlan(user.planId) ||
+      (user.planId === 'PRO' && Boolean(subscriptionId && subscriptionId === user.caktoSubscriptionId));
+  }
+  return false;
 }
 
 export function isUserAdmin(email: string): boolean {
@@ -196,11 +213,10 @@ async function applyCaktoWebhook(
   const email = String(customer.email).trim().toLowerCase();
   const name = customer.name ? String(customer.name).trim() : 'Cliente';
   const transactionId = primaryItem.id ? String(primaryItem.id).trim() : undefined;
-  const subscriptionId =
-    primaryItem.subscription?.id ||
-    primaryItem.subscription ||
-    primaryItem.subscriptionId ||
-    undefined;
+  const rawSubscriptionId = primaryItem.subscription?.id ||
+    (typeof primaryItem.subscription === 'string' || typeof primaryItem.subscription === 'number' ? primaryItem.subscription : undefined) ||
+    primaryItem.subscriptionId || primaryItem.subscription_id;
+  const subscriptionId = rawSubscriptionId ? String(rawSubscriptionId).trim() : undefined;
   const customerId = customer.id ? String(customer.id).trim() : undefined;
 
   // Serializa eventos do mesmo cliente, unificado com o fluxo de cadastro e recuperação.
@@ -806,6 +822,10 @@ async function applyCaktoWebhook(
         return { success: true, message: 'Conta legada mantida intacta', user: existingUser };
       }
 
+      if (!belongsToCurrentSubscription(existingUser, commercial, subscriptionId)) {
+        return { success: true, message: 'Evento de outro contrato/plano ignorado; assinatura atual preservada', user: existingUser };
+      }
+
       const updated = await prisma.user.update({
         where: { id: existingUser.id },
         data: {
@@ -837,6 +857,10 @@ async function applyCaktoWebhook(
     if (existingUser) {
       if (existingUser.role === 'ADMIN' || existingUser.subscriptionStatus === 'LIFETIME') {
         return { success: true, message: 'Conta admin não afetada' };
+      }
+
+      if (!belongsToCurrentSubscription(existingUser, commercial, subscriptionId)) {
+        return { success: true, message: 'Evento de outro contrato/plano ignorado; assinatura atual preservada', user: existingUser };
       }
 
       // Se a data de expiração já passou, bloqueia para PAST_DUE
@@ -974,14 +998,8 @@ async function applyCaktoWebhook(
         return { success: true, message: 'Conta legada mantida intacta', user: existingUser };
       }
 
-      // Se trouxer subscriptionId e o usuário tiver assinatura ativa diferente, preserva a assinatura ativa
-      if (subscriptionId && existingUser.caktoSubscriptionId && String(subscriptionId) !== existingUser.caktoSubscriptionId) {
-        console.warn(`[CAKTO WEBHOOK] Reembolso recebido para assinatura ${subscriptionId}, mas usuário ativo possui ${existingUser.caktoSubscriptionId}. Assinatura ativa preservada.`);
-        return {
-          success: true,
-          message: 'Reembolso referente a contrato anterior/diferente. Assinatura ativa preservada.',
-          user: existingUser
-        };
+      if (!belongsToCurrentSubscription(existingUser, commercial, subscriptionId)) {
+        return { success: true, message: 'Evento de outro contrato/plano ignorado; assinatura atual preservada', user: existingUser };
       }
 
       const updated = await prisma.user.update({
