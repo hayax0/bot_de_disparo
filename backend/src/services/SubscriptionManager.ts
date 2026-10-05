@@ -275,9 +275,9 @@ async function applyCaktoWebhook(
   if (commercial.type === 'UNKNOWN') {
     const diagnosticInfo = {
       offerId: primaryItem?.offer_id || primaryItem?.offerId || primaryItem?.product?.offer_id || primaryItem?.product?.offerId || (typeof primaryItem?.offer?.id === 'number' || typeof primaryItem?.offer?.id === 'string' ? primaryItem?.offer?.id : undefined),
-      offerCode: primaryItem?.refId || primaryItem?.ref_id || primaryItem?.offer?.code || primaryItem?.offer_code || primaryItem?.code,
+      offerCode: primaryItem?.offer?.code || primaryItem?.offer_code || primaryItem?.code,
       productName: primaryItem?.product?.name || primaryItem?.product_name || primaryItem?.name,
-      checkoutUrl: primaryItem?.checkout_url || primaryItem?.payment_url || primaryItem?.url,
+      checkoutUrl: primaryItem?.checkoutUrl || primaryItem?.checkout_url || primaryItem?.payment_url || primaryItem?.url,
     };
     console.warn(`[CAKTO WEBHOOK] Produto desconhecido ou não homologado. Evento: "${normalizedEvent}". Diagnóstico:`, diagnosticInfo);
     throw new WebhookError('Produto não reconhecido na plataforma.', 400);
@@ -477,10 +477,10 @@ async function applyCaktoWebhook(
       return { success: true, message: 'Conta de Administrador (VIP) mantida ativa', user: targetUser };
     }
 
-    // 2. Davi (davianicetofirme@hotmail.com): Renovação promove e mantém no Plano PRO com 1 mês de cortesia/acesso
+    // 2. Davi (davianicetofirme@hotmail.com): Oferta legada renova PRO; compra de plano novo respeita a oferta paga
     const isOfficialDavi = existingUser && existingUser.email.toLowerCase() === 'davianicetofirme@hotmail.com';
     if (isOfficialDavi && (commercial.type === 'LEGACY' || commercial.type === 'PLAN')) {
-      const planPro = getPlanById('PRO')!;
+      const renewalPlan = commercial.type === 'PLAN' ? commercial.plan! : getPlanById('PRO')!;
       let newExpiresAt: Date;
       if (existingUser.subscriptionExpiresAt && new Date(existingUser.subscriptionExpiresAt).getTime() > now.getTime()) {
         const base = new Date(existingUser.subscriptionExpiresAt);
@@ -496,28 +496,28 @@ async function applyCaktoWebhook(
           subscriptionStatus: 'ACTIVE',
           subscriptionExpiresAt: newExpiresAt,
           subscriptionRenewedAt: now,
-          planId: 'PRO',
-          monthlyDispatchQuota: planPro.monthlyDispatches,
+          planId: renewalPlan.id,
+          monthlyDispatchQuota: renewalPlan.monthlyDispatches,
           caktoOrderId: transactionId,
           caktoSubscriptionId: subscriptionId ? String(subscriptionId) : existingUser.caktoSubscriptionId,
           subscriptionInterval
         }
       });
 
-      await QuotaService.resetCycleDispatches(existingUser.id, planPro.monthlyDispatches, prisma);
+      await QuotaService.resetCycleDispatches(existingUser.id, renewalPlan.monthlyDispatches, prisma);
 
       await CreditWalletService.grantMonthlyCredits({
         userId: existingUser.id,
-        amount: planPro.monthlyCredits,
+        amount: renewalPlan.monthlyCredits,
         expiresAt: newExpiresAt,
         idempotencyKey: cycleFinancialKey,
-        description: `Créditos mensais do Plano ${planPro.name} (Davi)`,
+        description: `Créditos mensais do Plano ${renewalPlan.name} (Davi)`,
         tx: prisma
       });
 
-      console.log(`[CAKTO WEBHOOK] Davi renovado com sucesso no Plano PRO até ${newExpiresAt.toISOString()}`);
-      afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({ email, name: existingUser.name, expiresAt: newExpiresAt, planId: 'PRO' }));
-      return { success: true, message: 'Davi renovado no Plano PRO com sucesso', user: { ...existingUser, ...updated } };
+      console.log(`[CAKTO WEBHOOK] Davi renovado com sucesso no Plano ${renewalPlan.name} até ${newExpiresAt.toISOString()}`);
+      afterCommit.push(() => EmailService.sendSubscriptionRenewedEmail({ email, name: existingUser.name, expiresAt: newExpiresAt, planId: renewalPlan.id }));
+      return { success: true, message: `Davi renovado no Plano ${renewalPlan.name} com sucesso`, user: { ...existingUser, ...updated } };
     }
 
     // 3. Proteção de Contas Legadas Genéricas: Não podem ser migradas por novos produtos sem consentimento
@@ -1028,8 +1028,8 @@ export async function autoMigrateDaviToProIfRenewed(): Promise<void> {
       davi.subscriptionExpiresAt &&
       new Date(davi.subscriptionExpiresAt).getTime() > now.getTime();
 
-    // Se possui assinatura ativa e ainda não migrou para o Plano PRO
-    if (isActivelySubscribed && davi.planId !== 'PRO') {
+    // Migra apenas conta sem plano ou legada; nunca rebaixa um plano comercial comprado.
+    if (isActivelySubscribed && (!davi.planId || getPlanById(davi.planId)?.isLegacy)) {
       const expirationDate = davi.subscriptionExpiresAt!;
       const cycleKey = `davi_auto_pro_${expirationDate.toISOString().slice(0, 10)}`;
 

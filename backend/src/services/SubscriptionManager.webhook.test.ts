@@ -394,19 +394,19 @@ test('Webhook comercial: suporta payload real da Cakto com refId e nome oficial 
   }));
 
   // Payload exatamente no formato enviado pela Cakto em produção:
-  // Contém refId, product.name com (PRO), e offer.id alfanumérico hash
+  // Contém refId, product.name com (PRO), e offer.id alfanumérico da oferta
   const realCaktoPayload = {
     secret,
     event: 'purchase_approved',
     data: {
       id: '87956abe-940e-4e8b-8a27-82c482920f64',
-      refId: '9gwgit3',
+      refId: '914vPcJ',
       customer: {
         name: 'Socia Teste',
         email: 'partner@example.test',
       },
       offer: {
-        id: 'B8BcHrY',
+        id: '9gwgit3',
         name: 'Plano Profissional',
         price: 55.99
       },
@@ -493,7 +493,7 @@ test('Webhook comercial [Item 3]: Rejeita produto com substring permissiva no no
   );
 });
 
-test('Webhook comercial [Item 3]: Rejeita oferta válida com refId/código desconhecido inconsistente', async t => {
+test('Webhook comercial [Item 3]: Rejeita oferta válida com código comercial desconhecido inconsistente', async t => {
   const previous = ENV.CAKTO_WEBHOOK_SECRET;
   ENV.CAKTO_WEBHOOK_SECRET = secret;
   t.after(() => { ENV.CAKTO_WEBHOOK_SECRET = previous; });
@@ -513,7 +513,7 @@ test('Webhook comercial [Item 3]: Rejeita oferta válida com refId/código desco
     data: {
       id: 'tx-perm-2',
       offer_id: '1165278', // PRO válido
-      refId: 'codigo_inexistente', // Código desconhecido
+      offer_code: 'codigo_inexistente', // Código comercial desconhecido
       customer: { email: 'test@example.com' },
     }
   };
