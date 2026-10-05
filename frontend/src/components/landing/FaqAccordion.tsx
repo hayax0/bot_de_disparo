@@ -9,57 +9,22 @@ interface FaqItem {
 }
 
 const FAQ_ITEMS: FaqItem[] = [
-  {
-    question: "Como funciona o Agente de IA para criação das mensagens?",
-    answer:
-      "Nosso assistente utiliza inteligência artificial avançada de alta conversão para analisar o nicho da empresa, o nome do contato e o objetivo da sua campanha. Ele cria abordagens comerciais altamente persuasivas, personalizadas e naturais para cada lead, aumentando drasticamente as taxas de resposta. Cada geração ou refinamento com sucesso consome apenas 1 crédito de IA.",
-  },
-  {
-    question: "Como funciona a Busca Integrada de Empresas no Google Maps?",
-    answer:
-      "Você pode prospectar estabelecimentos comerciais diretamente no painel informando o nicho e a cidade (ex: 'Clínicas Odontológicas em São Paulo'). A busca roda com a sua própria conta pessoal da Apify através de chave de API, extraindo nomes, telefones higienizados e endereços sem descontar nenhum crédito de IA da sua carteira.",
-  },
-  {
-    question: "Preciso deixar meu computador ou celular ligados durante os disparos?",
-    answer:
-      "Não. Toda a automação roda em segundo plano em servidores dedicados na nuvem. Depois de iniciar sua campanha, você pode fechar a aba, desligar seu computador ou sair de casa que os disparos continuarão sendo processados na cadência programada.",
-  },
-  {
-    question: "Como funciona a segurança e o controle de cadência contra bloqueios?",
-    answer:
-      "A plataforma utiliza fila assíncrona (BullMQ) com delays aleatórios configuráveis (por exemplo, pausas de 45 a 120 segundos entre cada mensagem) para reproduzir o ritmo de digitação e envio de um ser humano. Além disso, o motor de Spintax permite alternar palavras e saudações, evitando mensagens 100% idênticas em lote. Nenhuma ferramenta séria pode prometer imunidade absoluta ao WhatsApp, mas oferecemos as melhores práticas de cadência e controle técnico disponíveis no mercado.",
-  },
-  {
-    question: "Como funcionam os créditos de IA e as recargas?",
-    answer:
-      "Cada plano inclui uma franquia mensal de créditos de IA (50 no Essencial, 150 no Profissional e 300 no Premium), renovada a cada ciclo pago. Caso precise de mais abordagens com IA no mesmo mês, você pode comprar pacotes de recarga avulsa (100, 300 ou 700 créditos) que nunca expiram e continuam disponíveis enquanto sua assinatura estiver ativa.",
-  },
-  {
-    question: "O sistema me avisa se eu tentar mandar mensagem para um número que já abordei?",
-    answer:
-      "Sim! Implementamos um Histórico Permanente por Workspace. Mesmo se você criar uma nova campanha com outra lista de contatos, a plataforma avisa se um telefone já recebeu mensagens em campanhas anteriores, evitando retrabalho e o constrangimento de prospectar o mesmo cliente repetidas vezes.",
-  },
-  {
-    question: "Como é feita a conexão com o WhatsApp?",
-    answer:
-      "A conexão é direta e instantânea: basta escanear um QR Code na tela da plataforma utilizando o WhatsApp do seu celular (Menu > Aparelhos conectados), exatamente como no WhatsApp Web. O sistema possui reconexão automática resiliente caso ocorra oscilação de sinal.",
-  },
-  {
-    question: "Como funciona a contratação e liberação da minha conta?",
-    answer:
-      "Temos planos a partir de R$ 27,99/mês (Essencial), R$ 55,99/mês (Profissional) e R$ 95,99/mês (Premium). O pagamento é processado com total segurança pela Cakto via PIX ou Cartão de Crédito, com liberação automática e imediata do seu acesso.",
-  },
+  { question: "Preciso de uma conta Apify para buscar empresas?", answer: "Sim. Você conecta sua própria chave Apify no painel. O custo das buscas é cobrado pela Apify, separado da assinatura do Disparador. O painel explica como fazer a conexão." },
+  { question: "Onde uso os créditos de IA?", answer: "Cada mensagem gerada ou refinada com IA usa 1 crédito. Escrever e editar manualmente não consome créditos. A franquia renova a cada ciclo pago e não acumula; créditos comprados à parte não expiram e podem ser usados com a assinatura ativa." },
+  { question: "Preciso deixar o computador ligado?", answer: "Não. Depois de conectar seu WhatsApp e iniciar a campanha, os envios rodam na nuvem. Você acompanha o andamento pelo painel." },
+  { question: "Os intervalos evitam bloqueios no WhatsApp?", answer: "Os intervalos permitem controlar o ritmo dos envios, mas não garantem proteção contra bloqueios. Use a plataforma respeitando as regras do WhatsApp e as preferências dos destinatários." },
+  { question: "Como assino ou cancelo?", answer: "Escolha um plano, crie sua conta e conclua o pagamento pela Cakto. O acesso é liberado após a confirmação do pagamento. A assinatura é mensal e pode ser cancelada sem fidelidade." },
 ];
 
 export function FaqAccordion() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const toggle = (index: number) => {
     setOpenIndex(openIndex === index ? null : index);
   };
 
   return (
-    <section id="faq" className="py-24 bg-[#08090D] border-t border-white/[0.06] relative">
+    <section id="faq" className="py-16 sm:py-20 scroll-mt-24 bg-[#08090D] border-t border-white/[0.06] relative">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
@@ -68,10 +33,10 @@ export function FaqAccordion() {
             <span>Tire Suas Dúvidas</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
-            Perguntas Frequentes
+            Antes de começar
           </h2>
           <p className="text-sm text-slate-400 font-normal">
-            Respostas transparentes sobre o funcionamento técnico, cadência e recursos da plataforma.
+            O que você precisa saber sobre buscas, créditos e assinatura.
           </p>
         </div>
 

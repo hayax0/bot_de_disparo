@@ -1,83 +1,35 @@
-"use client";
-
-import { ArrowRight, ShieldCheck, Cloud, Sparkles, MapPin, Bot } from "lucide-react";
-import { LiveWhatsAppMockup } from "./LiveWhatsAppMockup";
+import { ArrowRight, Check, MapPin, Sparkles, Send } from "lucide-react";
 
 export function HeroSection() {
   return (
-    <section className="relative pt-24 pb-14 sm:pt-32 sm:pb-20 overflow-hidden">
-      {/* Luz ambiente sutil de fundo fosco */}
-      <div className="hidden sm:block absolute top-1/4 left-1/2 -translate-x-1/2 w-full max-w-[800px] h-[350px] bg-gradient-to-b from-emerald-500/[0.04] via-slate-500/[0.02] to-transparent blur-[140px] pointer-events-none -z-10" />
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
-          {/* Lado Esquerdo: Mensagem de Conversão */}
-          <div className="lg:col-span-6 space-y-6 text-center lg:text-left">
-            {/* Badge de Destaque Técnico */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/[0.08] border border-emerald-500/20 text-emerald-300 text-xs font-mono font-medium tracking-tight">
-              <Sparkles size={14} className="text-emerald-400 shrink-0" />
-              <span>Busca de Leads • Agente de IA • WhatsApp Oficial</span>
-            </div>
-
-            {/* Headline de Alto Contraste */}
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-[1.12] text-balance">
-              Prospecção ativa no WhatsApp com{" "}
-              <span className="text-emerald-400">
-                Agente de IA e Busca de Leads
-              </span>
-            </h1>
-
-            {/* Subheadline Objetiva */}
-            <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto lg:mx-0 leading-relaxed font-normal">
-              Encontre empresas qualificadas no Google Maps, crie abordagens sob medida com Inteligência Artificial e automatize seus disparos no WhatsApp com cadência humana anti-bloqueio. 100% em nuvem.
-            </p>
-
-            {/* CTAs de Alta Conversão */}
-            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-1">
-              <a
-                href="#planos"
-                className="w-full sm:w-auto landing-btn-emerald px-7 py-3.5 text-sm font-semibold flex items-center justify-center gap-2 text-center focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
-              >
-                <span>Ver Planos a partir de R$ 27,99</span>
-                <ArrowRight size={15} />
-              </a>
-
-              <a
-                href="#como-funciona"
-                className="w-full sm:w-auto landing-btn-secondary px-6 py-3.5 text-sm font-medium flex items-center justify-center gap-2 text-center focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-              >
-                <span>Como Funciona</span>
-              </a>
-            </div>
-
-            {/* Pontos de Confiança Reais */}
-            <div className="pt-3 flex flex-wrap items-center justify-center lg:justify-start gap-y-2 gap-x-5 text-xs text-slate-400 font-mono">
-              <div className="flex items-center gap-1.5">
-                <Bot size={14} className="text-emerald-400 shrink-0" />
-                <span>Agente de IA Integrado</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <MapPin size={14} className="text-emerald-400 shrink-0" />
-                <span>Busca Google Maps</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
-                <span>Intervalos anti-bloqueio</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Cloud size={14} className="text-slate-400 shrink-0" />
-                <span>Nuvem 24/7</span>
-              </div>
-            </div>
+    <section className="pt-32 pb-20 sm:pt-44 sm:pb-28">
+      <div className="max-w-6xl mx-auto px-5 sm:px-8 grid lg:grid-cols-2 gap-14 lg:gap-20 items-center">
+        <div>
+          <p className="text-sm text-emerald-400 font-medium mb-6">Prospecção pelo WhatsApp</p>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] text-balance">
+            Menos trabalho manual.<br /><span className="text-emerald-400">Mais tempo para conversar.</span>
+          </h1>
+          <p className="mt-6 text-base sm:text-lg leading-relaxed text-slate-300 max-w-lg">
+            Encontre empresas, prepare mensagens com IA e organize os envios pelo WhatsApp. Tudo no mesmo lugar.
+          </p>
+          <a href="#planos" className="landing-btn-emerald inline-flex items-center justify-center gap-3 px-7 py-4 mt-8 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300">
+            Escolher meu plano <ArrowRight size={17} />
+          </a>
+          <p className="mt-4 text-sm text-slate-400">A partir de R$ 27,99/mês. Cancele quando quiser.</p>
+        </div>
+        <div className="rounded-3xl border border-white/10 bg-[#0D1117] p-6 sm:p-8" aria-label="Exemplo ilustrativo do fluxo de uma campanha">
+          <div className="flex items-center justify-between gap-4 pb-6 border-b border-white/10">
+            <span className="text-sm font-medium">Sua próxima campanha</span>
+            <span className="text-xs text-slate-500">Exemplo</span>
           </div>
-
-          {/* Lado Direito: Simulador Visual Interativo */}
-          <div className="lg:col-span-6 min-w-0 w-full flex justify-center">
-            <LiveWhatsAppMockup />
+          <div className="space-y-7 py-7">
+            <div className="flex gap-4"><MapPin className="text-emerald-400 shrink-0" size={20} /><div><p className="text-sm font-medium">Encontre quem você quer abordar</p><p className="text-sm text-slate-400 mt-1">Clínicas de estética · Rio de Janeiro</p></div></div>
+            <div className="flex gap-4"><Sparkles className="text-emerald-400 shrink-0" size={20} /><div><p className="text-sm font-medium">Prepare uma mensagem com IA</p><p className="text-sm text-slate-400 mt-1">Revise o texto antes de enviar.</p></div></div>
+            <div className="rounded-2xl rounded-tl-sm bg-emerald-500/10 border border-emerald-500/15 p-5 text-sm leading-relaxed text-slate-200">Olá, Ana! Trabalho com sites para clínicas e queria entender como vocês recebem novos agendamentos hoje.</div>
           </div>
+          <div className="flex items-center gap-3 border-t border-white/10 pt-5 text-sm text-slate-300"><Send size={17} className="text-emerald-400" /> Envios com intervalos que você define <Check size={16} className="ml-auto text-emerald-400" /></div>
         </div>
       </div>
     </section>
   );
 }
-
