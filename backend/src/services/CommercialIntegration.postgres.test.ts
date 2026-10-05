@@ -1148,13 +1148,38 @@ test('CommercialIntegration PostgreSQL: Validacao dos 4 Bloqueadores no Banco Re
 
     const resRenew = await processCaktoWebhook(renewalPayload);
     assert.equal(resRenew.success, true);
-    assert.match(resRenew.message, /Plano PRO/);
+    assert.match(resRenew.message, /Plano Profissional/);
 
     const daviAfterRenewal = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
     assert.equal(daviAfterRenewal.planId, 'PRO');
     assert.equal(daviAfterRenewal.monthlyDispatchQuota, 3000);
+
+    // refId identifica o pedido; offer.id identifica SCALE, mesmo com desconto.
+    const premiumPayload = {
+      secret: testWebhookSecret,
+      event: 'purchase_approved',
+      data: {
+        id: 'tx_davi_premium_coupon', refId: '914vPcJ', status: 'paid',
+        amount: 45.99, baseAmount: 95.99, discount: '50.00',
+        checkoutUrl: 'https://pay.cakto.com.br/33zk2g2?callback=approved',
+        offer: { id: '33zk2g2', name: 'Plano Premium', price: 95.99 },
+        product: { name: 'Plano Premium (SCALE)' },
+        customer: { email: daviOfficialEmail, name: 'Davi Oficial' },
+      },
+    };
+    assert.equal((await processCaktoWebhook(premiumPayload)).success, true);
+    const premiumUser = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
+    assert.equal(premiumUser.planId, 'SCALE');
+    assert.equal(premiumUser.subscriptionStatus, 'ACTIVE');
+    assert.ok(premiumUser.subscriptionExpiresAt!.getTime() > Date.now());
+    assert.equal((await CreditWalletService.getWalletSummary(daviOfficial.id)).monthlyBalance, 300);
+    await processCaktoWebhook(premiumPayload);
+    await autoMigrateDaviToProIfRenewed();
+    const afterRetryAndBoot = await testPrisma.user.findUniqueOrThrow({ where: { id: daviOfficial.id } });
+    assert.equal(afterRetryAndBoot.planId, 'SCALE');
+    assert.equal(afterRetryAndBoot.subscriptionExpiresAt!.toISOString(), premiumUser.subscriptionExpiresAt!.toISOString());
+    assert.equal((await CreditWalletService.getWalletSummary(daviOfficial.id)).monthlyBalance, 300);
   });
 });
-
 
 

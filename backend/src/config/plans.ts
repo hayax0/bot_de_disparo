@@ -408,15 +408,14 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     addId(item.offer.id);
   }
 
-  // Códigos oficiais de checkout e refId enviados pela Cakto na oferta
-  addCode(item.refId);
-  addCode(item.ref_id);
+  // offer.id é o código alfanumérico da oferta. refId identifica o pedido, não o produto.
+  if (item.offer?.id && !/^[0-9]+$/.test(String(item.offer.id).trim())) {
+    addCode(item.offer.id);
+  }
   addCode(item.offer?.code);
   addCode(item.offer_code);
   addCode(item.code);
-  // NOTA DE ARQUITETURA: Identificadores internos da Cakto (ex: product.id UUID, product.short_id,
-  // offer.id hash alfanumérico) são identificadores de controle do painel interno da Cakto e
-  // NÃO representam códigos de oferta comerciais homologados.
+  // product.id e product.short_id não são identificadores comerciais da oferta.
 
   // Nomes de produto homologados
   addName(item.product?.name);
@@ -424,7 +423,7 @@ export function resolveCommercialItem(item: any): CommercialResolution {
   addName(item.name);
   addName(item.offer?.name);
 
-  const rawUrl = String(item.checkout_url || item.payment_url || item.url || '').trim();
+  const rawUrl = String(item.checkoutUrl || item.checkout_url || item.payment_url || item.url || '').trim();
   if (rawUrl) {
     try {
       const parsedUrl = new URL(rawUrl);
@@ -432,7 +431,7 @@ export function resolveCommercialItem(item: any): CommercialResolution {
         // Exige estritamente protocolo HTTPS e domínio oficial
         return { type: 'UNKNOWN' };
       }
-      const match = parsedUrl.pathname.match(/^\/([a-z0-9]+)_([0-9]+)$/i);
+      const match = parsedUrl.pathname.match(/^\/([a-z0-9]+)(?:_([0-9]+))?$/i);
       if (match) {
         addCode(match[1]);
         addId(match[2]);
@@ -461,7 +460,7 @@ export function resolveCommercialItem(item: any): CommercialResolution {
     matchedEntries.set(entry.key, entry);
   }
 
-  // 2. Validação de Códigos de oferta (refId, code, etc.) - não ignora códigos desconhecidos
+  // 2. Validação de Códigos de oferta (offer.id, code, etc.) - não ignora códigos desconhecidos
   for (const code of rawOfferCodes) {
     const entry = homologatedEntries.find(e => e.offerCode === code);
     if (!entry) {
