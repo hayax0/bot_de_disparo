@@ -68,7 +68,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
         <div className="flex flex-col items-center mb-8">
           <div className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5">
-            <Image src="/logo.png?v=4" alt="Logo" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
+            <Image src="/logo-v4.png" alt="Logo" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             {viewMode === 'login' ? 'Bem-vindo de volta' : 'Recuperar Senha'}

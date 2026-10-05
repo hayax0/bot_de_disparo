@@ -134,7 +134,7 @@ function RegisterForm() {
       <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
         <div className="flex flex-col items-center mb-6">
           <Link href="/" className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5 hover:border-emerald-500/40 transition-colors">
-            <Image src="/logo.png?v=4" alt="Logo Disparador" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
+            <Image src="/logo-v4.png" alt="Logo Disparador" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </Link>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             Criar sua conta
