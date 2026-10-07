@@ -7,7 +7,7 @@ export class CampaignStartError extends Error {
 }
 
 // STARTING impede o worker de enviar enquanto o lote ainda está sendo preparado.
-export async function startCampaign(db: PrismaClient, queue: Queue, id: string, workspaceId: string) {
+export async function startCampaign(db: PrismaClient, queue: Queue, id: string, workspaceId: string, retryFailed = false) {
   const campaign = await db.campaign.findFirst({ where: { id, workspaceId } });
   if (!campaign) throw new CampaignStartError('Campanha não encontrada.', 404);
   if (['RUNNING', 'STARTING'].includes(campaign.status)) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
@@ -23,8 +23,9 @@ export async function startCampaign(db: PrismaClient, queue: Queue, id: string, 
       }
     }
   }
+  const eligible = { sendStartedAt: null, sentAt: null, wppMessageId: null, status: { in: retryFailed ? ['PENDING', 'QUEUED', 'ERROR'] : ['PENDING', 'QUEUED'] } };
   const leads = await db.lead.findMany({
-    where: { campaignId: id, status: { in: ['PENDING', 'QUEUED'] } }, orderBy: { createdAt: 'asc' },
+    where: { campaignId: id, ...eligible }, orderBy: { createdAt: 'asc' },
   });
   if (!leads.length) return { message: 'Nenhum lead pendente nesta campanha.', jobsQueued: 0 };
   const claimed = await db.campaign.updateMany({
@@ -33,7 +34,7 @@ export async function startCampaign(db: PrismaClient, queue: Queue, id: string, 
   if (!claimed.count) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
   const ids = leads.map(lead => lead.id);
   try {
-    await db.lead.updateMany({ where: { id: { in: ids }, status: { in: ['PENDING', 'QUEUED'] } }, data: { status: 'QUEUED' } });
+    await db.lead.updateMany({ where: { id: { in: ids }, ...eligible }, data: { status: 'QUEUED', errorMessage: null, attempts: 0 } });
     let delay = 1000;
     const jobs = leads.map((lead, index) => {
       if (index > 0) delay += (campaign.delayMin + Math.random() * (campaign.delayMax - campaign.delayMin)) * 1000;
