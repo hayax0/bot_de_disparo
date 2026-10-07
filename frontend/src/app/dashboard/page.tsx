@@ -1172,11 +1172,11 @@ export default function Dashboard() {
     }
   };
 
-  const handleStart = async (id: string) => {
+  const handleStart = async (id: string, retryFailed = false) => {
     if (actionLoading) return;
     setActionLoading(id);
     try {
-      const res = await api.post(`/campaigns/${id}/start`);
+      const res = await api.post(`/campaigns/${id}/${retryFailed ? 'retry-failed' : 'start'}`);
       addToast('success', res.data.message || 'Campanha iniciada com sucesso!');
       fetchCampaigns();
       if (selectedCampaignId === id) openCampaignDetails(id);
@@ -2119,7 +2119,16 @@ export default function Dashboard() {
                         )}
                       </div>
 
+                      {camp.status === 'PAUSED' && waStatus?.status !== 'CONNECTED' && (
+                        <p className="text-xs text-amber-400">Reconecte o WhatsApp e clique em continuar. Os envios já feitos serão preservados.</p>
+                      )}
                       <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        {camp.status !== 'RUNNING' && camp.status !== 'STARTING' && (statsMap[camp.id]?.error || 0) > 0 && (
+                          <button onClick={() => handleStart(camp.id, true)} disabled={waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
+                            title="Repete erros sem envio iniciado. Envios sem confirmação precisam de conferência na conversa."
+                            className="dash-btn-secondary px-3 py-2 rounded-xl text-xs disabled:opacity-40">Tentar falhas</button>
+                        )}
+
                         {camp.status === 'RUNNING' ? (
                           <button
                             onClick={() => handlePause(camp.id)}
@@ -2134,7 +2143,7 @@ export default function Dashboard() {
                             onClick={() => handleStart(camp.id)}
                             disabled={camp.status === 'STARTING' || waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
                             className="dash-btn-primary p-2.5 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Iniciar Campanha'}
+                            title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Continuar campanha'}
                           >
                             {actionLoading === camp.id ? <RefreshCw size={15} className="animate-spin" /> : <Play size={15} />}
                           </button>

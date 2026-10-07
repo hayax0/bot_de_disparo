@@ -59,3 +59,24 @@ test('startCampaign: dois inícios concorrentes só liberam um lote determiníst
   assert.equal(f.campaign.status, 'RUNNING');
   assert.deepEqual([...f.jobs.keys()], ['c_l0', 'c_l1']);
 });
+
+test('startCampaign: repetição seleciona só falhas sem transmissão e mantém IDs', async () => {
+  const f = fixture();
+  const candidates = [
+    { id: 'erro', status: 'ERROR', sendStartedAt: null, sentAt: null, wppMessageId: null },
+    { id: 'ambiguo', status: 'ERROR', sendStartedAt: new Date(), sentAt: null, wppMessageId: 'msg' },
+    { id: 'enviado', status: 'SENT', sendStartedAt: new Date(), sentAt: new Date(), wppMessageId: 'msg2' },
+  ];
+  f.db.lead.findMany = async ({ where }: any) => {
+    assert.equal(where.campaignId, 'c');
+    assert.equal(where.sendStartedAt, null);
+    assert.equal(where.sentAt, null);
+    assert.equal(where.wppMessageId, null);
+    return candidates.filter(l => where.status.in.includes(l.status) && !l.sendStartedAt && !l.sentAt && !l.wppMessageId);
+  };
+  const result = await startCampaign(f.db, f.queue, 'c', 'w', true);
+  assert.equal(result.jobsQueued, 1);
+  assert.deepEqual([...f.jobs.keys()], ['c_erro']);
+  assert.equal(candidates[1].status, 'ERROR');
+  assert.equal(candidates[2].status, 'SENT');
+});

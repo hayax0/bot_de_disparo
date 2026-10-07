@@ -34,6 +34,7 @@ function fixture(t: any) {
     recontactAfterDays: 0,
     workspace: { userId: 'u-admin', user: { id: 'u-admin', role: 'ADMIN' } }
   };
+  mockMethod(t, WhatsappManager, 'getStatus', async () => ({ status: 'CONNECTED', qrCode: null }));
   let dbDown = false;
   const matches = (where: any) => {
     if (where.sendStartedAt === null && lead.sendStartedAt !== null) return false;
@@ -186,4 +187,35 @@ test('Worker: mantém bloqueio por descadastro', async t => {
   await processor(f.job);
   assert.equal(f.lead.status, 'OPTED_OUT');
   assert.equal(send.mock.callCount(), 0);
+});
+
+test('Worker: desconexão preserva pendente mesmo na última tentativa', async t => {
+  const f = fixture(t);
+  f.job.attemptsMade = 2;
+  mockMethod(t, WhatsappManager, 'getStatus', async () => ({ status: 'DISCONNECTED', qrCode: null }));
+  mockMethod(t, prisma.campaign, 'updateMany', async ({ data }: any) => { Object.assign(f.campaign, data); return { count: 1 }; });
+  let sends = 0;
+  mockMethod(t, WhatsappManager, 'sendMessage', async () => { sends++; throw new Error('não deveria enviar'); });
+  await processor(f.job);
+  assert.equal(f.lead.status, 'PENDING');
+  assert.equal(f.campaign.status, 'PAUSED');
+  assert.equal(f.lead.sendStartedAt, null);
+  assert.equal(sends, 0);
+});
+
+test('Worker: desconexão durante preparação não grava intenção nem confirma envio', async t => {
+  const f = fixture(t);
+  let connected = true;
+  mockMethod(t, WhatsappManager, 'getStatus', async () => ({ status: connected ? 'CONNECTED' : 'DISCONNECTED', qrCode: null }));
+  mockMethod(t, prisma.campaign, 'updateMany', async ({ data }: any) => { Object.assign(f.campaign, data); return { count: 1 }; });
+  mockMethod(t, WhatsappManager, 'sendMessage', async (_w, _p, _m, beforeSend) => {
+    connected = false;
+    await beforeSend!('never-sent');
+    throw new Error('Não deveria chegar à transmissão');
+  });
+  await processor(f.job);
+  assert.equal(f.lead.status, 'PENDING');
+  assert.equal(f.lead.sendStartedAt, null);
+  assert.equal(f.lead.wppMessageId, undefined);
+  assert.equal(f.campaign.status, 'PAUSED');
 });

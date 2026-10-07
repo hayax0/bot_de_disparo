@@ -594,12 +594,12 @@ router.get('/:id/queue-health', async (req: Request, res: Response): Promise<any
 });
 
 
-router.post('/:id/start', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
+router.post(['/:id/start', '/:id/retry-failed'], requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
 
   try {
-    res.json(await startCampaign(prisma, messageQueue, id, workspaceId));
+    res.json(await startCampaign(prisma, messageQueue, id, workspaceId, req.path.endsWith('/retry-failed')));
   } catch (error) {
     if (error instanceof CampaignStartError) return res.status(error.status).json({ error: error.message });
     console.error('Erro ao iniciar campanha:', error);

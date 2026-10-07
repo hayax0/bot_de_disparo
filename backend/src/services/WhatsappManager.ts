@@ -712,6 +712,7 @@ export class WhatsappManager {
     const delay = Math.max(1500, Math.min(3500, message.length * 15));
     await new Promise(r => setTimeout(r, delay));
 
+    if (sessions.get(workspaceId) !== client || (await this.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
     const outgoingId = generateMessageIDV2(client.user?.id);
     // Persiste a intenção e o ID antes de qualquer efeito externo. ACKs precoces já encontram o lead.
     if (beforeSend) await beforeSend(outgoingId);

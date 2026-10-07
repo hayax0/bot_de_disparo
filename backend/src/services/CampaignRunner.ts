@@ -20,8 +20,8 @@ async function checkCampaignCompletion(campaignId: string) {
     if (pendingCount === 0) {
       const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
       if (campaign && campaign.status === 'RUNNING') {
-        await prisma.campaign.update({
-          where: { id: campaignId },
+        await prisma.campaign.updateMany({
+          where: { id: campaignId, status: 'RUNNING' },
           data: { status: 'COMPLETED' }
         });
         console.log(`[CAMPAIGN COMPLETED] Campanha "${campaign.name}" (${campaignId}) finalizou todos os envios.`);
@@ -42,6 +42,11 @@ const UNRECOVERABLE_PATTERNS = [
 
 function isUnrecoverableError(errMsg: string): boolean {
   return UNRECOVERABLE_PATTERNS.some(p => errMsg.includes(p));
+}
+
+async function pauseDisconnectedCampaign(campaignId: string) {
+  await prisma.campaign.updateMany({ where: { id: campaignId, status: 'RUNNING' }, data: { status: 'PAUSED' } });
+  await prisma.lead.updateMany({ where: { campaignId, status: 'QUEUED', sendStartedAt: null }, data: { status: 'PENDING', errorMessage: 'WhatsApp desconectado. Reconecte e continue a campanha.' } });
 }
 
 // Job processor com isolamento, idempotência e auditoria
@@ -184,7 +189,9 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
   let sendStarted = false;
   let sentSuccessfully = false;
   try {
+    if ((await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
     const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message, async messageId => {
+      if ((await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
       const claimed = await prisma.lead.updateMany({
         where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] }, campaign: { status: 'RUNNING' } },
         data: { status: 'SENDING', sendStartedAt: new Date(), wppMessageId: messageId, messageContent: message,
@@ -257,6 +264,10 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       const quotaUserId = user?.id || campaign.workspace?.userId || '';
       await QuotaService.releaseDispatchQuota({ userId: quotaUserId, dispatchKey }).catch(() => {});
 
+      if (error?.message === 'WhatsApp não está conectado no momento.' || (await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') {
+        await pauseDisconnectedCampaign(campaignId);
+        return;
+      }
       const maxAttempts = job.opts.attempts || 1;
       const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
       const errMsg = error?.message || String(error);
@@ -318,9 +329,9 @@ campaignWorker.on('failed', async (job, err) => {
     if (leadId) {
       // Não sobrescreve se o worker já gravou o estado final no processor
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-      if (lead && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
+      if (lead && !(lead.status === 'PENDING' && !lead.sendStartedAt) && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
         await prisma.lead.updateMany({
-          where: { id: leadId, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] } },
+          where: { id: leadId, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] }, OR: [{ campaign: { status: 'RUNNING' } }, { sendStartedAt: { not: null } }] },
           data: {
             status: 'ERROR',
             errorMessage: err?.message || 'Falha definitiva após todas as tentativas'
