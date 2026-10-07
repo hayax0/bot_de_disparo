@@ -331,7 +331,7 @@ campaignWorker.on('failed', async (job, err) => {
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
       if (lead && !(lead.status === 'PENDING' && !lead.sendStartedAt) && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
         await prisma.lead.updateMany({
-          where: { id: leadId, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] } },
+          where: { id: leadId, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] }, OR: [{ campaign: { status: 'RUNNING' } }, { sendStartedAt: { not: null } }] },
           data: {
             status: 'ERROR',
             errorMessage: err?.message || 'Falha definitiva após todas as tentativas'
