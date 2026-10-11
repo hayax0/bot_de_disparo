@@ -75,7 +75,7 @@ export function BentoFeatures() {
                 Busca de Empresas no Google Maps
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed font-normal">
-                Encontre centenas de empresas locais por segmento e cidade. Importe telefones comerciais validados diretamente para suas campanhas em instantes com sua chave Apify.
+                Encontre empresas locais por segmento e cidade e organize os contatos nas suas campanhas. A configuração do serviço de busca é guiada dentro do painel.
               </p>
             </div>
             <div className="mt-6 p-3 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-slate-300 font-mono">

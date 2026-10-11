@@ -33,6 +33,7 @@ export function useGsapScroll() {
         smoothWheel: true,
         wheelMultiplier: 0.9,
         syncTouch: false,
+        anchors: true,
       });
 
       lenis.on("scroll", ScrollTrigger.update);
@@ -50,7 +51,7 @@ export function useGsapScroll() {
       // No mobile ou com preferência de redução de movimento:
       // Mantém todos os elementos 100% visíveis e com layout original imediatamente
       if (prefersReducedMotion || !isDesktop) {
-        gsap.set(".gsap-reveal, .manifesto-stagger", {
+        gsap.set(".gsap-reveal, .manifesto-stagger, [data-hero-reveal], [data-hero-preview]", {
           opacity: 1,
           y: 0,
           scale: 1,
@@ -58,6 +59,20 @@ export function useGsapScroll() {
         });
         return;
       }
+
+      // Entrada coordenada da hero; os elementos abaixo seguem o scroll.
+      const entrance = gsap.timeline({ defaults: { ease: "power3.out" } });
+      entrance.fromTo(
+        "[data-hero-reveal]",
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: 0.8, stagger: 0.1, clearProps: "opacity,transform" }
+      );
+      entrance.fromTo(
+        "[data-hero-preview]",
+        { opacity: 0, y: 32, scale: 0.97 },
+        { opacity: 1, y: 0, scale: 1, duration: 1, clearProps: "opacity,transform" },
+        0.2
+      );
 
       // No desktop: executa as revelações suaves com ScrollTrigger
       const revealElements = gsap.utils.toArray<HTMLElement>(".gsap-reveal");
@@ -69,6 +84,7 @@ export function useGsapScroll() {
             opacity: 1,
             y: 0,
             duration: 0.8,
+            clearProps: "opacity,transform",
             ease: "power2.out",
             scrollTrigger: {
               trigger: el,
@@ -91,6 +107,7 @@ export function useGsapScroll() {
             scale: 1,
             duration: 0.7,
             stagger: 0.12,
+            clearProps: "opacity,transform",
             ease: "power2.out",
             scrollTrigger: {
               trigger: ".manifesto-trigger",

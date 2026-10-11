@@ -751,23 +751,6 @@ html.lenis, html.lenis body {
 .studio-location-line {
   border-top:1px solid var(--studio-line);
   margin:14px 0}
-.studio-copy-lines {
-  width:100%;
-  padding:22px;
-  background:#1b3528;
-  border-radius:14px 14px 14px 3px;
-  margin-top:26px}
-.studio-copy-lines span {
-  display:block;
-  height:5px;
-  width:90%;
-  margin:9px 0;
-  background:rgba(116,239,179,.22);
-  border-radius:5px}
-.studio-copy-lines span:nth-child(2) {
-  width:75%}
-.studio-copy-lines span:nth-child(3) {
-  width:55%}
 .studio-cadence {
   display:flex;
   align-items:end;
@@ -1030,4 +1013,74 @@ to {
   .studio-dashboard-actions > button {
     min-height: 44px;
   }
+}
+
+/* Demonstração de escrita: espaço estável para a troca de exemplos. */
+.studio-ai-demo {
+  width: 100%;
+  margin: 24px 0 20px;
+  padding: 16px;
+  border-radius: 15px;
+  border: 1px solid rgba(116, 239, 179, .14);
+  background: #173528;
+}
+.studio-ai-demo-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.studio-ai-demo-heading > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: monospace;
+  font-size: 9px;
+  color: var(--studio-accent);
+  letter-spacing: .07em;
+}
+.studio-ai-demo-heading button {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  color: #c7e5d4;
+  border-radius: 8px;
+  background: rgba(255,255,255,.05);
+}
+.studio-ai-demo-heading button:hover { background: rgba(255,255,255,.12); }
+.studio-ai-demo-heading button:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 3px; }
+.studio-ai-demo-label {
+  display: block;
+  margin-top: 14px;
+  color: #abd7bd;
+  font-size: 10px;
+}
+.studio-feature .studio-ai-demo-message {
+  min-height: 156px;
+  margin-top: 9px;
+  color: #e0f3e8;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.studio-ai-demo-note {
+  display: block;
+  margin-top: 12px;
+  color: #b1c5b9;
+  font-size: 9px;
+  line-height: 1.6;
+}
+.studio-ai-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 12px;
+  margin-left: 3px;
+  vertical-align: middle;
+  background: var(--studio-accent);
+  animation: studio-cursor 1s steps(2, jump-none) infinite;
+}
+.studio-ai-cursor.is-paused { animation: none; }
+@keyframes studio-cursor { 50% { opacity: 0; } }
+@media (max-width: 767px) {
+  .studio-ai-demo-heading button { min-width: 44px; min-height: 44px; }
 }

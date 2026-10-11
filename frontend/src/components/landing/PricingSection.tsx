@@ -10,12 +10,12 @@ export function PricingSection() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Cabeçalho */}
-        <div className="text-center max-w-2xl mx-auto mb-10 space-y-3">
+        <div className="text-center max-w-2xl mx-auto mb-10 space-y-3 gsap-reveal">
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
             Escolha o ritmo da sua prospecção.
           </h2>
           <p className="text-sm text-slate-400 font-normal">
-            Todos os planos incluem busca com sua Apify, mensagens com IA e uma conexão WhatsApp.
+            Encontre empresas, prepare suas abordagens com IA e acompanhe suas campanhas pelo WhatsApp.
           </p>
         </div>
 
@@ -26,7 +26,7 @@ export function PricingSection() {
             return (
               <div
                 key={plan.id}
-                className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
+                className={`gsap-reveal relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
                   isPopular
                     ? "bg-[#0D121B] border-2 border-emerald-500/50 shadow-[0_0_40px_rgba(16,185,129,0.12)] lg:-translate-y-2"
                     : "bg-[#0A0D14] border border-white/[0.08] hover:border-white/[0.18]"
@@ -115,7 +115,7 @@ export function PricingSection() {
         <div className="mt-14 max-w-3xl mx-auto p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-center">
           <p className="text-xs text-slate-400 leading-relaxed">
             Cada mensagem gerada ou refinada com a Inteligência Artificial consome 1 crédito. Edições manuais são gratuitas.
-            A busca de empresas utiliza sua própria chave Apify pessoal com custos direto no provedor.
+            As buscas exigem conexão com um serviço externo, configurada no painel, com custos cobrados separadamente pelo provedor.
             Recargas não aumentam o limite de disparos. Cancelamento sem fidelidade.
           </p>
         </div>
