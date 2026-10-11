@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
+import { OperationOverview } from '@/components/dashboard/OperationOverview';
 import Image from 'next/image';
 import { api } from '@/lib/api';
 import axios from 'axios';
@@ -225,6 +226,12 @@ export default function Dashboard() {
   
   const [waStatus, setWaStatus] = useState<{ status: string; qrCode?: string | null } | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignQuery, setCampaignQuery] = useState('');
+  const [campaignFilter, setCampaignFilter] = useState('ALL');
+  const filteredCampaigns = useMemo(() => campaigns.filter(c =>
+    c.name.toLocaleLowerCase('pt-BR').includes(campaignQuery.trim().toLocaleLowerCase('pt-BR')) &&
+    (campaignFilter === 'ALL' || c.status === campaignFilter)
+  ), [campaigns, campaignQuery, campaignFilter]);
   const [statsMap, setStatsMap] = useState<Record<string, CampaignStats>>({});
   const [queueHealth, setQueueHealth] = useState<QueueHealth | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1545,7 +1552,7 @@ export default function Dashboard() {
       </aside>
 
       {/* Conteúdo Principal */}
-      <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
+      <main className="studio-dashboard-main min-w-0 flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
         {/* Banner de Regularização de Conta Necessária */}
         {verificationRequiredMessage && (
@@ -1597,7 +1604,7 @@ export default function Dashboard() {
         {/* Top Header com Botão de Ação */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white">Visão Geral</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white">Seu centro de operação</h1>
             <div className="flex items-center gap-2 flex-wrap mt-1">
               <p className="text-xs text-slate-400 font-normal">Gerencie suas campanhas de prospecção com cadência humana programada e automação na nuvem.</p>
               {lastSyncTime && (
@@ -1614,7 +1621,7 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2.5">
+          <div className="studio-dashboard-actions flex flex-wrap sm:flex-nowrap items-center gap-2.5">
             {!isLegacyUser && (
               <button 
                 onClick={() => setActiveTab('billing')}
@@ -1862,7 +1869,7 @@ export default function Dashboard() {
         </section>
 
         {/* Navegação por Abas: Campanhas x Histórico x Admin */}
-        <div className="flex items-center gap-2 border-b border-white/[0.08] pb-1">
+        <div className="studio-dashboard-tabs flex items-center gap-2 border-b border-white/[0.08] pb-1" role="navigation" aria-label="Seções do painel" tabIndex={0}>
           <button
             type="button"
             onClick={() => setActiveTab('campaigns')}
@@ -1957,52 +1964,12 @@ export default function Dashboard() {
 
         {activeTab === 'campaigns' && (
           <>
-            {/* Cards de Métricas (KPIs Globais) */}
-            <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-              <div className="dash-card p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Campanhas</span>
-                  <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <Layers size={13} />
-                  </div>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">{campaigns.length}</div>
-                <div className="text-[10px] text-slate-500 mt-1 font-mono">Configuradas na conta</div>
-              </div>
-
-              <div className="dash-card p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Total Leads</span>
-                  <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <Users size={13} />
-                  </div>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">{totalLeadsGlobal}</div>
-                <div className="text-[10px] text-slate-500 mt-1 font-mono">Importados do Apify</div>
-              </div>
-
-              <div className="dash-card p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Anti-Bloqueio</span>
-                  <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <ShieldCheck size={13} />
-                  </div>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-emerald-400">Ativo</div>
-                <div className="text-[10px] text-slate-500 mt-1 font-mono">Delays + Pausas de lote</div>
-              </div>
-
-              <div className="dash-card p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Servidor VPS</span>
-                  <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                    <Zap size={13} />
-                  </div>
-                </div>
-                <div className="text-xl sm:text-2xl font-bold text-amber-400">24/7 Online</div>
-                <div className="text-[10px] text-slate-500 mt-1 font-mono">Execução em background</div>
-              </div>
-            </section>
+            <OperationOverview campaigns={campaigns.length} running={campaigns.filter(c => c.status === 'RUNNING').length}
+              paused={campaigns.filter(c => c.status === 'PAUSED').length} leads={totalLeadsGlobal}
+              sent={campaigns.map(c => statsMap[c.id]).filter(Boolean).reduce((sum, s) => sum + s.sent + (s.delivered || 0) + (s.read || 0) + s.replied, 0)}
+              pending={campaigns.map(c => statsMap[c.id]).filter(Boolean).reduce((sum, s) => sum + s.pending + s.queued + (s.sending || 0), 0)}
+              loaded={!isLoading && !syncError} loading={isLoading} connected={waStatus?.status === 'CONNECTED'} canSearch={canUseSearch}
+              onSearch={() => setActiveTab('search')} onCreate={() => openNewCampaignModal()} />
 
             {/* Lista de Campanhas */}
             <section className="space-y-3.5">
@@ -2011,6 +1978,13 @@ export default function Dashboard() {
                 <span className="text-xs text-slate-500 font-mono tabular-nums">{campaigns.length} total</span>
               </div>
 
+              <div className="campaign-tools">
+                <label><Search size={16} /><input aria-label="Buscar campanhas" placeholder="Buscar uma campanha…" value={campaignQuery} onChange={e => setCampaignQuery(e.target.value)} /></label>
+                <select aria-label="Filtrar campanhas por status" value={campaignFilter} onChange={e => setCampaignFilter(e.target.value)}>
+                  <option value="ALL">Todas as campanhas</option><option value="RUNNING">Em execução</option><option value="PAUSED">Pausadas</option><option value="COMPLETED">Concluídas</option><option value="STARTING">Preparando</option>
+                </select>
+              </div>
+              {!isLoading && campaigns.length > 0 && filteredCampaigns.length === 0 && <div className="dash-card rounded-2xl p-8 text-center text-slate-400"><p>Nenhuma campanha encontrada com esse filtro.</p><button type="button" className="text-emerald-300 mt-3" onClick={() => { setCampaignQuery(''); setCampaignFilter('ALL'); }}>Limpar filtros</button></div>}
               {isLoading ? (
                 <div className="grid grid-cols-1 gap-3.5" aria-busy="true" aria-label="Carregando campanhas">
                   {[0, 1, 2].map(i => (
@@ -2051,7 +2025,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3.5">
-                  {campaigns.map(camp => (
+                  {filteredCampaigns.map(camp => (
                     <div 
                       key={camp.id} 
                       className="dash-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
