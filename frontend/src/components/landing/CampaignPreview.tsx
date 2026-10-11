@@ -13,7 +13,7 @@ export function CampaignPreview() {
   const [selected, setSelected] = useState(0);
   const example = examples[selected];
   return (
-    <div className="preview-shell">
+    <div className="preview-shell" data-hero-preview>
       <div className="preview-console">
         <div className="preview-toolbar"><span className="preview-dot" /><span>disparador / campanha</span><span className="preview-example">Demonstração</span></div>
         <div className="preview-body">

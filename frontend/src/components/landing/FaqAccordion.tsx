@@ -9,7 +9,7 @@ interface FaqItem {
 }
 
 const FAQ_ITEMS: FaqItem[] = [
-  { question: "Preciso de uma conta Apify para buscar empresas?", answer: "Sim. Você conecta sua própria chave Apify no painel. O custo das buscas é cobrado pela Apify, separado da assinatura do Disparador. O painel explica como fazer a conexão." },
+  { question: "Como encontro empresas na plataforma?", answer: "Escolha um segmento e uma localização para encontrar empresas. Antes da primeira busca, o painel guia você na conexão com o serviço externo utilizado para consultar os dados. Esse serviço exige uma conta própria e pode ter custos separados da assinatura." },
   { question: "Onde uso os créditos de IA?", answer: "Cada mensagem gerada ou refinada com IA usa 1 crédito. Escrever e editar manualmente não consome créditos. A franquia renova a cada ciclo pago e não acumula; créditos comprados à parte não expiram e podem ser usados com a assinatura ativa." },
   { question: "Preciso deixar o computador ligado?", answer: "Não. Depois de conectar seu WhatsApp e iniciar a campanha, os envios rodam na nuvem. Você acompanha o andamento pelo painel." },
   { question: "Os intervalos evitam bloqueios no WhatsApp?", answer: "Os intervalos permitem controlar o ritmo dos envios, mas não garantem proteção contra bloqueios. Use a plataforma respeitando as regras do WhatsApp e as preferências dos destinatários." },
@@ -25,7 +25,7 @@ export function FaqAccordion() {
 
   return (
     <section id="faq" className="py-16 sm:py-20 scroll-mt-24 bg-[#08090D] border-t border-white/[0.06] relative">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 gsap-reveal">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs font-medium">

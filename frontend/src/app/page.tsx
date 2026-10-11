@@ -1,3 +1,4 @@
+import { LandingMotion } from "@/components/landing/LandingMotion";
 import { LandingNavbar } from "@/components/landing/LandingNavbar";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { HowItWorks } from "@/components/landing/HowItWorks";
@@ -8,7 +9,7 @@ import { CookieConsentBanner } from "@/components/landing/CookieConsentBanner";
 
 export default function LandingPage() {
   return (
-    <div className="landing-page min-h-screen bg-[#08090D] text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-200 overflow-x-hidden">
+    <LandingMotion>
       <LandingNavbar />
       <main>
         <HeroSection />
@@ -18,6 +19,6 @@ export default function LandingPage() {
       </main>
       <CtaFooter />
       <CookieConsentBanner />
-    </div>
+    </LandingMotion>
   );
 }

@@ -9,7 +9,7 @@ export function CtaFooter() {
     <footer className="bg-[#050608] border-t border-white/[0.08] relative">
       {/* Banner de CTA Final */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-8">
-        <div className="rounded-3xl p-8 sm:p-12 border border-white/[0.08] bg-[#0A0C12] text-center relative overflow-hidden">
+        <div className="gsap-reveal rounded-3xl p-8 sm:p-12 border border-white/[0.08] bg-[#0A0C12] text-center relative overflow-hidden">
           {/* Micro-luz neutra sutil */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-emerald-500/[0.04] blur-3xl pointer-events-none" />
 
