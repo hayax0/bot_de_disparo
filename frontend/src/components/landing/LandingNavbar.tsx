@@ -8,7 +8,6 @@ import { useAuth } from "@/store/useAuth";
 
 export function LandingNavbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const { token, hydrate, isHydrated } = useAuth();
 
   useEffect(() => {
@@ -31,19 +30,6 @@ export function LandingNavbar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileMenuOpen, handleKeyDown]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
-    handleScroll();
-    window.addEventListener("pageshow", handleScroll);
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("pageshow", handleScroll);
-    };
-  }, []);
-
   const isLoggedIn = Boolean(isHydrated && token);
 
   const navLinks = [
@@ -57,22 +43,16 @@ export function LandingNavbar() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 sm:pt-4 sm:px-6 pointer-events-none">
-      <div
-        className={`max-w-6xl mx-auto pointer-events-auto transition-all duration-200 ${
-          scrolled
-            ? "bg-[#0E1118]/90 backdrop-blur-xl border-b sm:border border-white/[0.1] shadow-xl shadow-black/40 sm:rounded-full"
-            : "bg-[#08090D]/95 sm:bg-[#0E1118]/70 sm:backdrop-blur-lg border-b sm:border border-white/[0.07] sm:rounded-full"
-        }`}
-      >
-        <div className="px-4 sm:px-6 h-16 flex items-center justify-between">
+    <header className="studio-navbar">
+      <div className="studio-container">
+        <div className="studio-navbar-row">
           {/* Logo & Nome */}
           <Link
             href="/"
             className="flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none rounded-xl"
             aria-label="Página Inicial do Disparador de Mensagens"
           >
-            <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 shadow-sm group-hover:border-emerald-500/40 transition-colors">
+            <div className="studio-navbar-logo">
               <Image
                 src="/logo-v4.png"
                 alt="Logo Disparador de Mensagens"
@@ -86,7 +66,7 @@ export function LandingNavbar() {
               <span className="text-sm font-bold text-white tracking-tight leading-none group-hover:text-emerald-300 transition-colors">
                 Disparador
               </span>
-              <span className="text-[10px] text-slate-400 font-mono tracking-normal">
+              <span className="text-[10px] text-[var(--studio-muted)] tracking-normal">
                 Prospecção WhatsApp
               </span>
             </div>
@@ -98,7 +78,7 @@ export function LandingNavbar() {
               <a
                 key={link.href}
                 href={link.href}
-                className="text-xs font-medium text-slate-300 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none rounded-md px-1.5 py-1"
+                className="text-xs font-medium text-[var(--studio-muted)] hover:text-[var(--studio-ink)] transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none rounded-md px-1.5 py-1"
               >
                 {link.label}
               </a>
@@ -112,7 +92,7 @@ export function LandingNavbar() {
             ) : isLoggedIn ? (
               <Link
                 href="/dashboard"
-                className="landing-btn-emerald px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
+                className="studio-navbar-primary px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
               >
                 <span>Acessar Plataforma</span>
                 <ArrowRight size={13} />
@@ -121,13 +101,13 @@ export function LandingNavbar() {
               <>
                 <Link
                   href="/login"
-                  className="landing-btn-secondary px-3.5 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                  className="studio-navbar-secondary px-3.5 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 >
                   Entrar
                 </Link>
                 <Link
                   href="/register"
-                  className="landing-btn-primary px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
+                  className="studio-navbar-primary px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
                 >
                   <span>Criar Conta</span>
                   <ArrowRight size={13} />
@@ -140,7 +120,7 @@ export function LandingNavbar() {
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="lg:hidden min-h-11 min-w-11 p-2 text-slate-300 hover:text-white rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            className="lg:hidden min-h-11 min-w-11 p-2 text-[var(--studio-muted)] hover:text-[var(--studio-ink)] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
             aria-label={mobileMenuOpen ? "Fechar menu de navegação" : "Abrir menu de navegação"}
             aria-expanded={mobileMenuOpen}
           >
@@ -150,14 +130,14 @@ export function LandingNavbar() {
 
         {/* Menu Mobile Dropdown */}
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-[#0B0E17]/98 backdrop-blur-2xl border-t border-white/10 px-5 pt-3 pb-6 space-y-3 sm:rounded-b-3xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="lg:hidden bg-[var(--studio-surface)] border-t border-[var(--studio-line)] px-5 pt-3 pb-6 space-y-3 rounded-b-xl animate-in fade-in slide-in-from-top-2 duration-150">
             <nav className="flex flex-col space-y-1.5" aria-label="Navegação Mobile">
               {navLinks.map((link) => (
                 <a
                   key={link.href}
                   href={link.href}
                   onClick={handleNavClick}
-                  className="min-h-11 flex items-center px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                  className="min-h-11 flex items-center px-3 py-2 text-sm font-medium text-[var(--studio-muted)] hover:text-[var(--studio-ink)] hover:bg-white/[0.04] rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 >
                   {link.label}
                 </a>
@@ -170,7 +150,7 @@ export function LandingNavbar() {
                 <Link
                   href="/dashboard"
                   onClick={handleNavClick}
-                  className="w-full landing-btn-emerald py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                  className="w-full studio-navbar-primary py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 >
                   <span>Acessar Plataforma</span>
                   <ArrowRight size={14} />
@@ -180,14 +160,14 @@ export function LandingNavbar() {
                   <Link
                     href="/login"
                     onClick={handleNavClick}
-                    className="w-full landing-btn-secondary py-2.5 text-center text-xs focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                    className="w-full studio-navbar-secondary py-2.5 text-center text-xs focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                   >
                     Entrar na Conta
                   </Link>
                   <Link
                     href="/register"
                     onClick={handleNavClick}
-                    className="w-full landing-btn-primary py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                    className="w-full studio-navbar-primary py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                   >
                     <span>Criar Conta</span>
                     <ArrowRight size={14} />
