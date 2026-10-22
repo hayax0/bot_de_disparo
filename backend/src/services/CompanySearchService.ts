@@ -1,10 +1,10 @@
 import { ApifyCredentialService, IntegrationError } from './ApifyCredentialService';
+import { temWebsiteValido } from './ProposalEngine';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { ENV } from '../config/env';
 import { CreditWalletService } from './CreditWalletService';
-import { WhatsappManager } from './WhatsappManager';
 import { ContactPolicyService } from './ContactPolicyService';
 import { companySearchQueue } from './queue';
 
@@ -20,15 +20,30 @@ export interface RawPlaceItem {
   reviewsCount?: number | null;
 }
 
+export type WebsiteFilter = 'ALL' | 'WITH_WEBSITE' | 'WITHOUT_WEBSITE';
+
+/** Não inventa nono dígito: apenas celulares atuais com DDD e DDI opcional. */
+export function normalizeSearchMobilePhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (phone.trim().startsWith('+') && !digits.startsWith('55')) return null;
+  const normalized = digits.length === 11 ? `55${digits}` : digits;
+  return isValidBrazilianMobilePhone(normalized) ? normalized : null;
+}
+
+export function matchesWebsiteFilter(website: string | null | undefined, filter: WebsiteFilter): boolean {
+  const hasWebsite = temWebsiteValido(sanitizeCompanyWebsite(website));
+  return filter === 'ALL' || (filter === 'WITH_WEBSITE' ? hasWebsite : !hasWebsite);
+}
+
 /**
  * Validador estrito de número celular brasileiro.
- * Exige DDI 55 + DDD válido (11 a 99) + nono dígito 9 + primeiro dígito de celular (6, 7, 8 ou 9) + 7 dígitos.
+ * Exige DDI 55 + DDD brasileiro válido + nono dígito 9 + 8 dígitos do assinante.
  * Números fixos (8 dígitos ou iniciando com 2, 3, 4 ou 5) retornam false.
  */
 export function isValidBrazilianMobilePhone(phone: string): boolean {
   if (!phone) return false;
   const digits = phone.replace(/\D/g, '');
-  return /^55[1-9]{2}9[6-9][0-9]{7}$/.test(digits);
+  return /^55(?:1[1-9]|2[12478]|3[1-578]|4[1-9]|5[1345]|6[1-9]|7[134579]|8[1-9]|9[1-9])9[0-9]{8}$/.test(digits);
 }
 
 /**
@@ -69,12 +84,14 @@ export class CompanySearchService {
   /** Todas as buscas novas usam a conta pessoal. Nenhuma reserva de créditos de IA. */
   static async initiateSearch(params: {
     userId: string; workspaceId: string; segment: string; location: string;
-    requestedCount: number; targetCampaignId?: string | undefined; idempotencyKey?: string | undefined;
+    requestedCount: number; websiteFilter?: WebsiteFilter; targetCampaignId?: string | undefined; idempotencyKey?: string | undefined;
   }) {
     const { userId, workspaceId, targetCampaignId } = params;
     const segment = params.segment.trim();
     const location = params.location.trim();
     const count = params.requestedCount;
+    const websiteFilter = params.websiteFilter ?? 'ALL';
+    if (!['ALL', 'WITH_WEBSITE', 'WITHOUT_WEBSITE'].includes(websiteFilter)) throw new IntegrationError('Filtro de site inválido.');
     if (segment.length < 2 || location.length < 2 || !Number.isInteger(count) || count < 5 || count > 200) {
       throw new IntegrationError('Informe segmento, localização e quantidade entre 5 e 200.');
     }
@@ -86,7 +103,7 @@ export class CompanySearchService {
       if (targetCampaignId && !await tx.campaign.findFirst({ where: { id: targetCampaignId, workspaceId } })) throw new IntegrationError('Campanha não autorizada.', 403);
       const existing = await tx.companySearch.findUnique({ where: { idempotencyKey: key }, include: { results: true } });
       if (existing) {
-        if (existing.userId !== userId || existing.workspaceId !== workspaceId || existing.segment !== segment || existing.location !== location || existing.requestedCount !== count || (existing.targetCampaignId || null) !== (targetCampaignId || null)) {
+        if (existing.userId !== userId || existing.workspaceId !== workspaceId || existing.segment !== segment || existing.location !== location || existing.requestedCount !== count || (existing.websiteFilter ?? 'ALL') !== websiteFilter || (existing.targetCampaignId || null) !== (targetCampaignId || null)) {
           throw new IntegrationError('Chave de idempotência já utilizada com outros parâmetros.', 409);
         }
         return existing;
@@ -95,7 +112,7 @@ export class CompanySearchService {
       if (!credential) throw new IntegrationError('Conecte sua conta Apify antes de buscar empresas.');
       return tx.companySearch.create({ data: {
         userId, workspaceId, segment, location, query: `${segment} em ${location}`,
-        requestedCount: count, targetCampaignId: targetCampaignId || null,
+        requestedCount: count, websiteFilter, targetCampaignId: targetCampaignId || null,
         idempotencyKey: key, billingMode: 'PERSONAL_APIFY', creditsReserved: 0, creditsConsumed: 0,
       } });
     });
@@ -417,7 +434,7 @@ export class CompanySearchService {
       });
 
       // 2. Classificação rigorosa, sanitização e deduplicação no workspace (inclui resultados já entregues)
-      const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, targetCampaignId || undefined);
+      const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, targetCampaignId || undefined, (searchRecord.websiteFilter || 'ALL') as WebsiteFilter);
 
       const usableCount = classifiedResults.filter(r => r.isUsable).length;
       const discardedCount = classifiedResults.length - usableCount;
@@ -672,7 +689,8 @@ export class CompanySearchService {
   private static async classifyAndDeduplicate(
     rawPlaces: RawPlaceItem[],
     workspaceId: string,
-    targetCampaignId?: string
+    targetCampaignId?: string,
+    websiteFilter: WebsiteFilter = 'ALL'
   ) {
     const seenPhonesInBatch = new Set<string>();
     const classified: Array<{
@@ -711,10 +729,10 @@ export class CompanySearchService {
         continue;
       }
 
-      const normalizedPhone = WhatsappManager.normalizeBrPhone(rawPhone);
+      const normalizedPhone = normalizeSearchMobilePhone(rawPhone);
 
       // Validação estrita de celular: descarta fixos e números mal formatados
-      if (!isValidBrazilianMobilePhone(normalizedPhone)) {
+      if (!normalizedPhone) {
         classified.push({
           name,
           phone: rawPhone,
@@ -728,6 +746,12 @@ export class CompanySearchService {
           isUsable: false,
           discardReason: 'INVALID_PHONE'
         });
+        continue;
+      }
+
+      if (!matchesWebsiteFilter(sanitizedWebsite, websiteFilter)) {
+        classified.push({ name, phone: normalizedPhone, website: sanitizedWebsite,
+          isUsable: false, discardReason: 'WEBSITE_FILTER' });
         continue;
       }
 
@@ -1002,11 +1026,15 @@ export class CompanySearchService {
                 language: 'pt-BR',
                 countryCode: 'br',
                 skipClosedPlaces: true,
+                // O provedor trata redes sociais como website. Para 'sem site próprio',
+                // traga todos e aplique nosso classificador, sem excluir empresas que só têm Instagram.
+                website: search?.websiteFilter === 'WITH_WEBSITE' ? 'withWebsite' : 'allPlaces',
                 customData: {
                   searchId,
                   segment,
                   location,
-                  requestedCount
+                  requestedCount,
+                  websiteFilter: search?.websiteFilter || 'ALL'
                 }
               }),
               signal: AbortSignal.timeout(45000)

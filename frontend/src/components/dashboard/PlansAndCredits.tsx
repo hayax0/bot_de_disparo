@@ -85,7 +85,7 @@ export function PlansAndCredits() {
 
   if (!catalog) {
     return (
-      <div className="dash-card rounded-2xl p-5 border border-white/10 text-sm text-slate-400">
+      <div className="dash-card rounded-2xl p-5 border border-white/10 text-sm text-[var(--studio-muted)]">
         Carregando informações do plano e créditos…
       </div>
     );
@@ -106,7 +106,7 @@ export function PlansAndCredits() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--studio-muted)]">
                 Seu Plano
               </span>
               {catalog.isUnlimited ? (
@@ -129,15 +129,15 @@ export function PlansAndCredits() {
             </h2>
 
             {catalog.isUnlimited ? (
-              <p className="text-sm text-slate-300">
+              <p className="text-sm text-[var(--studio-muted)]">
                 Ambiente administrativo com disparos ilimitados e IA liberada sem consumo de créditos.
               </p>
             ) : isDispatchUnlimited ? (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[var(--studio-muted)]">
                 Disparos via WhatsApp ilimitados. Créditos de IA renovam a cada ciclo de pagamento.
               </p>
             ) : (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[var(--studio-muted)]">
                 Franquia renovada mensalmente. Créditos de IA renovam a cada ciclo de pagamento.
               </p>
             )}
@@ -148,7 +148,7 @@ export function PlansAndCredits() {
               <button
                 type="button"
                 onClick={() => setShowPlansModal(!showPlansModal)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-xs font-medium text-[var(--studio-ink)] transition"
               >
                 <span>{showPlansModal ? 'Ocultar opções de plano' : 'Trocar ou renovar plano'}</span>
                 <ChevronRight size={14} className={`transition-transform ${showPlansModal ? 'rotate-90' : ''}`} />
@@ -160,7 +160,7 @@ export function PlansAndCredits() {
         {/* Barra de Progresso de Disparos (para usuários não-unlimited) */}
         {!catalog.isUnlimited && (
           <div className="mt-5 pt-4 border-t border-white/5 space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-300">
+            <div className="flex items-center justify-between text-xs text-[var(--studio-muted)]">
               <span>
                 Disparos realizados no ciclo: <strong>{number(used)}</strong>
                 {!isDispatchUnlimited && ` de ${number(quota)}`}
@@ -183,7 +183,7 @@ export function PlansAndCredits() {
         {/* Modal / Acordeão sutil para quem desejar trocar de plano */}
         {showPlansModal && !catalog.isUnlimited && (
           <div className="mt-5 pt-5 border-t border-white/10 space-y-3">
-            <p className="text-xs text-slate-300 font-medium">
+            <p className="text-xs text-[var(--studio-muted)] font-medium">
               Escolha um plano para atualizar sua assinatura ou fazer upgrade:
             </p>
             <div className="grid sm:grid-cols-3 gap-3">
@@ -209,9 +209,9 @@ export function PlansAndCredits() {
                       </div>
                       <p className="text-base font-bold text-white mt-1">
                         R$ {p.priceFormatted}
-                        <span className="text-[10px] text-slate-400 font-normal">/mês</span>
+                        <span className="text-[10px] text-[var(--studio-muted)] font-normal">/mês</span>
                       </p>
-                      <ul className="mt-2 space-y-1 text-slate-400">
+                      <ul className="mt-2 space-y-1 text-[var(--studio-muted)]">
                         <li>• {number(p.monthlyDispatches)} disparos/mês</li>
                         <li>• {number(p.monthlyCredits)} créditos IA</li>
                       </ul>
@@ -232,7 +232,7 @@ export function PlansAndCredits() {
                     ) : (
                       <button
                         disabled
-                        className="mt-3 w-full py-1.5 px-2 rounded-lg text-center font-medium bg-white/5 text-slate-500 cursor-not-allowed block text-xs"
+                        className="mt-3 w-full py-1.5 px-2 rounded-lg text-center font-medium bg-white/5 text-[var(--studio-muted)] cursor-not-allowed block text-xs"
                       >
                         Indisponível
                       </button>
@@ -256,7 +256,7 @@ export function PlansAndCredits() {
                   Recarga Avulsa de Créditos de IA
                 </h3>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-[var(--studio-muted)] mt-1">
                 Pagamento único via PIX ou Cartão. Os créditos comprados <strong>nunca expiram</strong> e são liberados na mesma hora.
               </p>
             </div>
@@ -295,14 +295,14 @@ export function PlansAndCredits() {
                           R$ {pack.priceFormatted}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
+                      <p className="text-[11px] text-[var(--studio-muted)] mt-0.5">
                         {pack.credits === 100 && 'R$ 0,10 por mensagem gerada'}
                         {pack.credits === 300 && 'R$ 0,08 por mensagem gerada'}
                         {pack.credits === 700 && 'R$ 0,07 por mensagem gerada'}
                       </p>
                     </div>
 
-                    <p className="text-xs text-slate-300 leading-relaxed pt-1">
+                    <p className="text-xs text-[var(--studio-muted)] leading-relaxed pt-1">
                       {pack.description || 'Abasteça seu saldo de IA sem mensalidade extra.'}
                     </p>
                   </div>
@@ -324,7 +324,7 @@ export function PlansAndCredits() {
                   ) : (
                     <button
                       disabled
-                      className="mt-4 w-full py-2 px-3 rounded-lg text-xs font-medium bg-white/5 text-slate-500 cursor-not-allowed"
+                      className="mt-4 w-full py-2 px-3 rounded-lg text-xs font-medium bg-white/5 text-[var(--studio-muted)] cursor-not-allowed"
                     >
                       Indisponível
                     </button>
@@ -334,11 +334,11 @@ export function PlansAndCredits() {
             })}
           </div>
 
-          <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400">
+          <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-[var(--studio-muted)]">
             <span>
               💡 Dica: Créditos mensais inclusos no plano são consumidos primeiro. Créditos avulsos só entram em ação quando os mensais acabam.
             </span>
-            <span className="text-slate-500 shrink-0">Liberação via webhook instantâneo</span>
+            <span className="text-[var(--studio-muted)] shrink-0">Liberação via webhook instantâneo</span>
           </div>
         </div>
       )}

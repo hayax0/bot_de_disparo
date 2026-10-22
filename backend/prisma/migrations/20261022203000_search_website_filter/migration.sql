@@ -1,0 +1,1 @@
+ALTER TABLE "CompanySearch" ADD COLUMN "websiteFilter" TEXT NOT NULL DEFAULT 'ALL';

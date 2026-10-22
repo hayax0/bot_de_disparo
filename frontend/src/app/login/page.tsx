@@ -61,19 +61,19 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--studio-bg)] p-4 relative overflow-hidden">
       {/* Sutil iluminação neutra de profundidade */}
       <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/[0.02] blur-[140px] pointer-events-none" />
 
       <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5">
+          <div className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[var(--studio-surface)] p-0.5">
             <Image src="/logo-v4.png" alt="Logo" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             {viewMode === 'login' ? 'Bem-vindo de volta' : 'Recuperar Senha'}
           </h1>
-          <p className="text-xs text-slate-400 mt-1.5 text-center font-normal">
+          <p className="text-xs text-[var(--studio-muted)] mt-1.5 text-center font-normal">
             {viewMode === 'login'
               ? 'Acesse o painel do Disparador de Mensagens'
               : 'Informe seu e-mail para receber as instruções de recuperação'}
@@ -104,7 +104,7 @@ export default function LoginPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold text-white">Verifique sua caixa de entrada</h2>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed font-normal">
+              <p className="text-xs text-[var(--studio-muted)] mt-1.5 leading-relaxed font-normal">
                 Se este e-mail estiver cadastrado, enviamos um link temporário para redefinição de senha (válido por 15 minutos).
               </p>
             </div>
@@ -123,9 +123,9 @@ export default function LoginPage() {
         ) : viewMode === 'login' ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
+              <label className="block text-[11px] font-medium text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">E-mail</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--studio-muted)]">
                   <Mail size={15} />
                 </div>
                 <input
@@ -141,7 +141,7 @@ export default function LoginPage() {
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider">Senha</label>
+                <label className="block text-[11px] font-medium text-[var(--studio-muted)] uppercase tracking-wider">Senha</label>
                 <button
                   type="button"
                   onClick={() => {
@@ -154,7 +154,7 @@ export default function LoginPage() {
                 </button>
               </div>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--studio-muted)]">
                   <Lock size={15} />
                 </div>
                 <input
@@ -189,9 +189,9 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleForgotPassword} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">E-mail Cadastrado</label>
+              <label className="block text-[11px] font-medium text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">E-mail Cadastrado</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--studio-muted)]">
                   <Mail size={15} />
                 </div>
                 <input
@@ -229,7 +229,7 @@ export default function LoginPage() {
                 setViewMode('login');
                 setErrorMessage(null);
               }}
-              className="w-full text-center text-xs text-slate-400 hover:text-slate-200 transition-colors py-2 cursor-pointer flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:underline"
+              className="w-full text-center text-xs text-[var(--studio-muted)] hover:text-[var(--studio-ink)] transition-colors py-2 cursor-pointer flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:underline"
             >
               <ArrowLeft size={12} />
               Voltar ao Login
@@ -243,7 +243,7 @@ export default function LoginPage() {
               onClick={() => {
                 router.push('/register');
               }}
-              className="text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-pointer focus-visible:outline-none focus-visible:underline"
+              className="text-xs font-medium text-[var(--studio-muted)] hover:text-[var(--studio-ink)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:underline"
             >
               Não tem conta?{' '}
               <span className="text-emerald-400 font-medium underline underline-offset-4">

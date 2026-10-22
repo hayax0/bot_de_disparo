@@ -1529,3 +1529,26 @@ test('Cenário 21: Concorrência com barreira determinística em regenerateSingl
 });
 
 
+
+
+test('IA: todos os tons exigem copy curta, objetivo real e nenhuma escassez inventada', () => {
+  for (const toneStyle of ['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'CURIOSITY', 'VALUE'] as const) {
+    const { systemPrompt, userPrompt } = AiCopyService.buildPrompts({ leadTitle: 'Empresa', phone: '5521999998888', senderName: 'Ana', senderCompany: 'Agência', offerDescription: 'Quero oferecer fotografia de produtos e pedir permissão para enviar portfólio.', toneStyle });
+    assert.ok(systemPrompt.includes('320 caracteres'));
+    assert.ok(systemPrompt.includes('45 palavras'));
+    assert.ok(systemPrompt.includes('uma única pergunta'));
+    assert.ok(systemPrompt.includes('nunca afirme perda de clientes'));
+    assert.ok(userPrompt.includes('fotografia de produtos'));
+  }
+});
+
+test('IA: rejeita resposta excessiva em vez de entregar texto longo ou cortar a mensagem', async () => {
+  const originalFetch = global.fetch;
+  const originalKey = ENV.GEMINI_API_KEY;
+  setTestAiProvider(null);
+  ENV.GEMINI_API_KEY = 'fake-key-local-length-test';
+  try {
+    global.fetch = (async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Texto muito longo. '.repeat(40) }] } }] }), { status: 200 })) as typeof fetch;
+    await assert.rejects(AiCopyService.callGeminiApi({ leadTitle: 'Empresa', phone: '5521999998888', senderName: 'Ana', senderCompany: 'Agência', offerDescription: 'Oferecer um serviço e pedir permissão para enviar um exemplo', toneStyle: 'DIRECT' }), /longa demais/);
+  } finally { global.fetch = originalFetch; ENV.GEMINI_API_KEY = originalKey; }
+});

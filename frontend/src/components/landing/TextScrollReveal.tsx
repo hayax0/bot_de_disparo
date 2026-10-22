@@ -25,7 +25,7 @@ export function TextScrollReveal() {
   ];
 
   return (
-    <section className="py-24 sm:py-32 bg-[#08090D] relative overflow-hidden manifesto-trigger">
+    <section className="py-24 sm:py-32 bg-[var(--studio-bg)] relative overflow-hidden manifesto-trigger">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Cabeçalho Aberto e Tipográfico */}
         <div className="max-w-3xl mx-auto text-center space-y-4 mb-16">
@@ -36,12 +36,12 @@ export function TextScrollReveal() {
 
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight leading-tight text-balance">
             Prospecção ativa no WhatsApp{" "}
-            <span className="text-slate-400 font-normal">
+            <span className="text-[var(--studio-muted)] font-normal">
               sem a exaustão do copia e cola manual
             </span>
           </h2>
 
-          <p className="text-sm text-slate-300 leading-relaxed max-w-2xl mx-auto font-normal">
+          <p className="text-sm text-[var(--studio-muted)] leading-relaxed max-w-2xl mx-auto font-normal">
             Arquitetura de envio inteligente com fila assíncrona que executa o trabalho repetitivo, respeitando intervalos humanos e liberando seu time para fechar negócios.
           </p>
         </div>
@@ -59,7 +59,7 @@ export function TextScrollReveal() {
                   <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                     <Icon size={18} />
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded-full border border-white/[0.06]">
+                  <span className="text-[10px] font-mono text-[var(--studio-muted)] bg-white/[0.04] px-2 py-0.5 rounded-full border border-white/[0.06]">
                     {item.tag}
                   </span>
                 </div>
@@ -68,7 +68,7 @@ export function TextScrollReveal() {
                   {item.title}
                 </h3>
 
-                <p className="text-xs text-slate-400 leading-relaxed font-normal">
+                <p className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
                   {item.desc}
                 </p>
               </div>
@@ -77,19 +77,19 @@ export function TextScrollReveal() {
         </div>
 
         {/* Linha de Proteção e Recursos */}
-        <div className="pt-6 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400 font-mono">
-          <div className="flex items-center gap-2 text-slate-300">
+        <div className="pt-6 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-[var(--studio-muted)] font-mono">
+          <div className="flex items-center gap-2 text-[var(--studio-muted)]">
             <ShieldCheck size={15} className="text-emerald-400 shrink-0" />
             <span className="font-semibold text-white">Recursos Nativos da Fila:</span>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             <div className="flex items-center gap-1.5">
-              <History size={13} className="text-slate-400 shrink-0" />
+              <History size={13} className="text-[var(--studio-muted)] shrink-0" />
               <span>Memória permanente de contatos</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Shuffle size={13} className="text-slate-400 shrink-0" />
+              <Shuffle size={13} className="text-[var(--studio-muted)] shrink-0" />
               <span>Intervalos aleatórios entre envios</span>
             </div>
           </div>

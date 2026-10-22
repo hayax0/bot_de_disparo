@@ -43,6 +43,7 @@ interface SearchHistorySummary {
   segment: string;
   location: string;
   requestedCount: number;
+  websiteFilter?: string;
   foundCount: number;
   usableCount: number;
   discardedCount: number;
@@ -79,12 +80,15 @@ export function CompanySearchTab({
   onRefreshCampaigns,
   addToast
 }: CompanySearchTabProps) {
+  const websiteFilterLabel = (filter?: string) => filter === 'WITH_WEBSITE' ? 'Com site próprio' : filter === 'WITHOUT_WEBSITE' ? 'Sem site próprio' : 'Todos os sites';
   const [apifyReady, setApifyReady] = useState(false);
   // Parâmetros de Busca
   const [segment, setSegment] = useState("");
   const [location, setLocation] = useState("");
   const [requestedCount, setRequestedCount] = useState<number>(20);
   
+  const [websiteFilter, setWebsiteFilter] = useState("ALL");
+
   // Estados de Execução
   const [isSearching, setIsSearching] = useState(false);
   const [currentSearch, setCurrentSearch] = useState<{
@@ -92,6 +96,7 @@ export function CompanySearchTab({
     query: string;
     status: string;
     errorMessage?: string | null;
+    websiteFilter?: string;
     foundCount: number;
     usableCount: number;
     discardedCount: number;
@@ -156,6 +161,7 @@ export function CompanySearchTab({
         segment: segment.trim(),
         location: location.trim(),
         requestedCount,
+        websiteFilter,
         idempotencyKey: searchIdempotencyKey
       });
 
@@ -322,13 +328,13 @@ export function CompanySearchTab({
             <Building2 className="text-emerald-400" size={20} />
             <span>Busca de Empresas & Prospecção Integrada</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-[var(--studio-muted)] mt-0.5">
             Localize empresas com dados enriquecidos (nome, WhatsApp comercial, endereço e site) diretamente dentro da plataforma.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2 text-xs text-slate-300">
+          <div className="px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2 text-xs text-[var(--studio-muted)]">
             <Coins size={14} className="text-emerald-400" />
             <span>Busca pela sua conta Apify</span>
           </div>
@@ -342,17 +348,18 @@ export function CompanySearchTab({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Segmento */}
             <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+              <label className="block text-[11px] font-semibold text-[var(--studio-muted)] uppercase tracking-wider">
                 Segmento / Nicho
               </label>
               <div className="relative">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--studio-muted)]" />
                 <input
                   type="text"
                   required
                   placeholder="Ex: Clínicas Odontológicas, Pizzarias"
+                  disabled={isSearching}
                   value={segment}
-                  onChange={(e) => setSegment(e.target.value)}
+                  onChange={(e) => { setSegment(e.target.value); setSearchIdempotencyKey(crypto.randomUUID()); }}
                   className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs text-white placeholder-slate-500"
                 />
               </div>
@@ -360,17 +367,18 @@ export function CompanySearchTab({
 
             {/* Localização */}
             <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+              <label className="block text-[11px] font-semibold text-[var(--studio-muted)] uppercase tracking-wider">
                 Localização / Cidade / Bairro
               </label>
               <div className="relative">
-                <MapPin size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <MapPin size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--studio-muted)]" />
                 <input
                   type="text"
                   required
                   placeholder="Ex: São Paulo, SP ou Moema"
+                  disabled={isSearching}
                   value={location}
-                  onChange={(e) => setLocation(e.target.value)}
+                  onChange={(e) => { setLocation(e.target.value); setSearchIdempotencyKey(crypto.randomUUID()); }}
                   className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs text-white placeholder-slate-500"
                 />
               </div>
@@ -378,7 +386,7 @@ export function CompanySearchTab({
 
             {/* Quantidade */}
             <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+              <label className="block text-[11px] font-semibold text-[var(--studio-muted)] uppercase tracking-wider">
                 Quantidade Solicitada
               </label>
               <div className="flex items-center gap-1.5">
@@ -386,11 +394,12 @@ export function CompanySearchTab({
                   <button
                     key={qty}
                     type="button"
-                    onClick={() => setRequestedCount(qty)}
+                    disabled={isSearching}
+                    onClick={() => { setRequestedCount(qty); setSearchIdempotencyKey(crypto.randomUUID()); }}
                     className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                       requestedCount === qty
                         ? "bg-emerald-500 text-slate-950 shadow-sm"
-                        : "bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:bg-white/[0.08]"
+                        : "bg-white/[0.04] text-[var(--studio-muted)] border border-white/[0.08] hover:bg-white/[0.08]"
                     }`}
                   >
                     {qty}
@@ -400,9 +409,21 @@ export function CompanySearchTab({
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label htmlFor="search-website-filter" className="block text-xs font-semibold text-[var(--studio-muted)]">Presença de site</label>
+            <select id="search-website-filter" value={websiteFilter} disabled={isSearching}
+              onChange={e => { setWebsiteFilter(e.target.value); setSearchIdempotencyKey(crypto.randomUUID()); }}
+              className="dash-input w-full sm:max-w-xs rounded-xl px-3 py-2.5 text-sm">
+              <option value="ALL">Todas as empresas</option>
+              <option value="WITH_WEBSITE">Com site próprio</option>
+              <option value="WITHOUT_WEBSITE">Sem site próprio</option>
+            </select>
+            <p className="text-xs text-[var(--studio-muted)]">Apenas celulares brasileiros com 9 dígitos. Telefones fixos são descartados; isso não confirma que o número tenha WhatsApp. Redes sociais não contam como site próprio. A quantidade final pode ser menor após os filtros.</p>
+          </div>
+
           {/* Rodapé do Formulário: Estimativa e Botão */}
           <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-white/[0.06]">
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-2 text-[11px] text-[var(--studio-muted)]">
               <HelpCircle size={13} className="text-emerald-400 shrink-0" />
               <span>
                 Até <strong>{requestedCount} empresas</strong>. A Apify cobra o consumo na sua conta, inclusive resultados descartados. <strong>Não utiliza créditos de IA.</strong>
@@ -434,7 +455,7 @@ export function CompanySearchTab({
       {currentSearch && currentSearch.status !== 'COMPLETED' && (
         <div role="status" className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-3">
           <h3 className="font-semibold text-white">{currentSearch.query}</h3>
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-[var(--studio-muted)]">
             {currentSearch.status === 'FAILED'
               ? `Busca falhou. ${currentSearch.errorMessage || 'Não foi possível concluir a consulta.'}`
               : currentSearch.status === 'CANCELED'
@@ -449,20 +470,22 @@ export function CompanySearchTab({
 
       {currentSearch?.status === 'COMPLETED' && (
         <div className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-4">
+          {currentSearch.usableCount === 0 && <p className="rounded-xl border border-[var(--studio-line)] p-4 text-sm text-[var(--studio-muted)]">Nenhuma empresa elegível nesta busca. Telefones fixos, duplicados e empresas fora do filtro são descartados. Tente outro segmento ou região.</p>}
           {/* Métricas do Resultado */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
             <div>
-              <span className="text-[11px] text-slate-400 uppercase tracking-wider block">Resultado da Consulta</span>
+              <span className="text-[11px] text-[var(--studio-muted)] uppercase tracking-wider block">Resultado da Consulta</span>
               <h3 className="text-sm font-semibold text-white mt-0.5">
                 {currentSearch.query}
               </h3>
+              <p className="text-xs text-[var(--studio-muted)] mt-1">{websiteFilterLabel(currentSearch.websiteFilter)} · Somente celulares</p>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
               <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-semibold">
                 {currentSearch.usableCount} Aproveitáveis
               </div>
-              <div className="px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 text-xs font-mono">
+              <div className="px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[var(--studio-muted)] text-xs font-mono">
                 {currentSearch.discardedCount} Descartadas
               </div>
               <div className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono">
@@ -483,7 +506,7 @@ export function CompanySearchTab({
                   ? "Desmarcar todas"
                   : "Selecionar todas as aptas"}
               </button>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-[var(--studio-muted)]">
                 <strong>{selectedIds.size}</strong> de {currentSearch.usableCount} selecionadas
               </span>
             </div>
@@ -494,7 +517,7 @@ export function CompanySearchTab({
                   <select
                     value={targetCampaignId}
                     onChange={(e) => setTargetCampaignId(e.target.value)}
-                    className="px-3 py-1.5 dash-input rounded-xl text-xs text-slate-200 bg-[#0c0d12]"
+                    className="px-3 py-1.5 dash-input rounded-xl text-xs text-[var(--studio-ink)] bg-[var(--studio-surface)]"
                   >
                     <option value="">Selecionar Campanha Existente...</option>
                     {campaigns.map((c) => (
@@ -532,8 +555,8 @@ export function CompanySearchTab({
 
           {/* Tabela de Empresas Encontradas */}
           <div className="overflow-x-auto max-h-[460px] overflow-y-auto border border-white/[0.06] rounded-xl">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="sticky top-0 bg-[#0e1017] text-slate-400 uppercase text-[10px] tracking-wider border-b border-white/[0.08]">
+            <table className="w-full text-left text-xs text-[var(--studio-muted)]">
+              <thead className="sticky top-0 bg-[var(--studio-surface)] text-[var(--studio-muted)] uppercase text-[10px] tracking-wider border-b border-white/[0.08]">
                 <tr>
                   <th className="p-3 w-10 text-center">
                     <input
@@ -581,18 +604,18 @@ export function CompanySearchTab({
                               href={company.website}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-slate-500 hover:text-emerald-400"
+                              className="text-[var(--studio-muted)] hover:text-emerald-400"
                               title={company.website}
                             >
                               <ExternalLink size={11} />
                             </a>
                           )}
                         </div>
-                        <span className={`mt-1 inline-block rounded px-2 py-0.5 text-[10px] ${company.hasWebsite ? 'bg-emerald-500/10 text-emerald-300' : 'bg-white/5 text-slate-400'}`}>
+                        <span className={`mt-1 inline-block rounded px-2 py-0.5 text-[10px] ${company.hasWebsite ? 'bg-emerald-500/10 text-emerald-300' : 'bg-white/5 text-[var(--studio-muted)]'}`}>
                           {company.hasWebsite ? 'Com site' : 'Sem site informado'}
                         </span>
                         {company.category && (
-                          <span className="text-[10px] text-slate-500 block">{company.category}</span>
+                          <span className="text-[10px] text-[var(--studio-muted)] block">{company.category}</span>
                         )}
                       </td>
 
@@ -603,11 +626,11 @@ export function CompanySearchTab({
                             <span>{company.phone}</span>
                           </div>
                         ) : (
-                          <span className="text-slate-500 italic">Sem telefone informado</span>
+                          <span className="text-[var(--studio-muted)] italic">Sem telefone informado</span>
                         )}
                       </td>
 
-                      <td className="p-3 text-slate-400">
+                      <td className="p-3 text-[var(--studio-muted)]">
                         {company.neighborhood || company.city || "—"}
                       </td>
 
@@ -617,7 +640,7 @@ export function CompanySearchTab({
                             <Star size={11} className="fill-amber-400 text-amber-400" />
                             <span>{company.rating}</span>
                             {company.reviewsCount && (
-                              <span className="text-slate-500 text-[10px]">({company.reviewsCount})</span>
+                              <span className="text-[var(--studio-muted)] text-[10px]">({company.reviewsCount})</span>
                             )}
                           </div>
                         ) : (
@@ -638,6 +661,7 @@ export function CompanySearchTab({
                             {company.discardReason === 'DUPLICATE' && 'Duplicado'}
                             {company.discardReason === 'BLACKLISTED' && 'Bloqueado LGPD'}
                             {company.discardReason === 'INVALID_PHONE' && 'Número inválido'}
+                            {company.discardReason === 'WEBSITE_FILTER' && 'Fora do filtro de site'}
                           </span>
                         )}
                       </td>
@@ -654,14 +678,14 @@ export function CompanySearchTab({
       {history.length > 0 && (
         <div className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <h4 className="text-xs font-semibold text-[var(--studio-muted)] uppercase tracking-wider flex items-center gap-2">
               <Layers size={13} className="text-emerald-400" />
               <span>Histórico de Buscas do Workspace</span>
             </h4>
             {loadingHistory ? (
               <RefreshCw size={12} className="animate-spin text-emerald-400" />
             ) : (
-              <span className="text-[11px] text-slate-500 font-mono">{history.length} buscas</span>
+              <span className="text-[11px] text-[var(--studio-muted)] font-mono">{history.length} buscas</span>
             )}
           </div>
 
@@ -680,12 +704,13 @@ export function CompanySearchTab({
                     {h.status === 'COMPLETED' ? `${h.usableCount} aptas` : h.status === 'FAILED' ? 'Falhou' : h.status === 'CANCELED' ? 'Cancelada' : 'Processando'}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <div className="flex items-center justify-between text-[11px] text-[var(--studio-muted)]">
                   <span className="truncate">{h.location}</span>
-                  <span className="font-mono text-[10px] text-slate-500">
+                  <span className="font-mono text-[10px] text-[var(--studio-muted)]">
                     {new Date(h.createdAt).toLocaleDateString('pt-BR')}
                   </span>
                 </div>
+                <p className="text-[11px] text-[var(--studio-muted)]">{websiteFilterLabel(h.websiteFilter)}</p>
               </div>
             ))}
           </div>

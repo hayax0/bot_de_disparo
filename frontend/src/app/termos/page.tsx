@@ -11,12 +11,12 @@ export default function TermosPage() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <div className="min-h-screen bg-[#050608] text-slate-200 selection:bg-purple-600/30 selection:text-white">
+    <div className="min-h-screen bg-[var(--studio-bg)] text-[var(--studio-ink)] selection:bg-emerald-600/30 selection:text-white">
       {/* Top Header */}
-      <header className="border-b border-white/[0.08] bg-[#050608]/80 backdrop-blur-md sticky top-0 z-40">
+      <header className="border-b border-white/[0.08] bg-[var(--studio-bg)]/80 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 group-hover:border-purple-500/50 transition-colors">
+            <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 group-hover:border-emerald-500/50 transition-colors">
               <Image
                 src="/logo-v4.png"
                 alt="Logo Disparador"
@@ -32,7 +32,7 @@ export default function TermosPage() {
 
           <Link
             href="/"
-            className="text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors"
+            className="text-xs font-semibold text-[var(--studio-muted)] hover:text-white flex items-center gap-1.5 transition-colors"
           >
             <ArrowLeft size={14} />
             <span>Voltar ao Início</span>
@@ -50,7 +50,7 @@ export default function TermosPage() {
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
             Termos de Uso e Condições de Serviço
           </h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-[var(--studio-muted)]">
             Última atualização: Março de {currentYear} • Versão 1.0
           </p>
         </div>
@@ -70,11 +70,11 @@ export default function TermosPage() {
         </div>
 
         {/* Artigos dos Termos */}
-        <div className="space-y-10 text-sm leading-relaxed text-slate-300">
+        <div className="space-y-10 text-sm leading-relaxed text-[var(--studio-muted)]">
           {/* Seção 1 */}
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">1.</span> Objeto do Serviço
+              <span className="text-emerald-400">1.</span> Objeto do Serviço
             </h2>
             <p>
               A plataforma disponibiliza um sistema SaaS (Software as a Service) para gestão operacional de prospecção, organização de listas de contatos (leads), parametrização de intervalos de tempo (delays), personalização contextual de mensagens com recurso de spintax e automação técnica de disparos.
@@ -87,12 +87,12 @@ export default function TermosPage() {
           {/* Seção 2 */}
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">2.</span> Uso Responsável do WhatsApp e Isenção de Responsabilidade
+              <span className="text-emerald-400">2.</span> Uso Responsável do WhatsApp e Isenção de Responsabilidade
             </h2>
             <p>
               Ao utilizar a plataforma, o Usuário declara estar ciente e concordar expressamente com os seguintes preceitos:
             </p>
-            <ul className="space-y-2 list-disc list-inside pl-2 text-slate-300">
+            <ul className="space-y-2 list-disc list-inside pl-2 text-[var(--studio-muted)]">
               <li>
                 <strong className="text-white">Autonomia da Meta:</strong> A Meta Platforms, Inc. possui termos próprios e mecanismos automatizados de monitoramento de comportamento. A plataforma não interfere nem possui controle sobre essas avaliações.
               </li>
@@ -111,12 +111,12 @@ export default function TermosPage() {
           {/* Seção 3 */}
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">3.</span> Responsabilidade sobre Conteúdo e Legitimidade de Contatos
+              <span className="text-emerald-400">3.</span> Responsabilidade sobre Conteúdo e Legitimidade de Contatos
             </h2>
             <p>
               O Usuário é integral e exclusivamente responsável por todas as mensagens elaboradas, importadas e enviadas por meio de sua conta, bem como pela legitimidade jurídica da base de leads utilizada:
             </p>
-            <ul className="space-y-2 list-disc list-inside pl-2 text-slate-300">
+            <ul className="space-y-2 list-disc list-inside pl-2 text-[var(--studio-muted)]">
               <li>
                 <strong className="text-white">Práticas Terminantemente Proibidas:</strong> É vedado o uso da plataforma para disseminar mensagens fraudulentas, golpes financeiros, pirâmides, esquemas de enriquecimento rápido, pornografia, assédio, ódio, discriminação, venda de produtos ilegais ou qualquer modalidade de spam abusivo e massivo sem consentimento ou pertinência de contato.
               </li>
@@ -132,12 +132,12 @@ export default function TermosPage() {
           {/* Seção 4 */}
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">4.</span> Planos, Assinaturas e Acesso ao Sistema
+              <span className="text-emerald-400">4.</span> Planos, Assinaturas e Acesso ao Sistema
             </h2>
             <p>
               O acesso às funcionalidades produtivas da plataforma (criação de campanhas, conexão de instâncias de WhatsApp, importação de leads e processamento de disparos) é condicionado à manutenção de uma assinatura ativa e regular.
             </p>
-            <ul className="space-y-2 list-disc list-inside pl-2 text-slate-300">
+            <ul className="space-y-2 list-disc list-inside pl-2 text-[var(--studio-muted)]">
               <li>
                 <strong className="text-white">Validação pelo Servidor:</strong> A validação da assinatura é executada diretamente pelo servidor e pelo motor de filas em cada operação e antes do envio de cada mensagem.
               </li>
@@ -153,7 +153,7 @@ export default function TermosPage() {
           {/* Seção 5 */}
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">5.</span> Limitação de Responsabilidade
+              <span className="text-emerald-400">5.</span> Limitação de Responsabilidade
             </h2>
             <p>
               Nos limites autorizados pela legislação brasileira, a plataforma não responderá por lucros cessantes, perdas de oportunidade negocial, instabilidade temporária de servidores de terceiros ou indisponibilidades do serviço do WhatsApp decorrentes de atualizações promovidas pela Meta.
@@ -163,7 +163,7 @@ export default function TermosPage() {
           {/* Seção 6 */}
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">6.</span> Foro e Legislação Aplicável
+              <span className="text-emerald-400">6.</span> Foro e Legislação Aplicável
             </h2>
             <p>
               Estes Termos de Uso são regidos pelas leis vigentes na República Federativa do Brasil, em especial pelo Marco Civil da Internet (Lei nº 12.965/2014) e pela Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
@@ -173,12 +173,12 @@ export default function TermosPage() {
           {/* Seção 7 */}
           <section className="space-y-3 pt-4 border-t border-white/[0.08]">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="text-purple-400">7.</span> Canal de Atendimento e Suporte
+              <span className="text-emerald-400">7.</span> Canal de Atendimento e Suporte
             </h2>
             <p>
               Para esclarecimentos, dúvidas operacionais ou reporte de condutas irregulares, entre em contato com nossa equipe através do e-mail oficial:
             </p>
-            <p className="font-semibold text-purple-400">
+            <p className="font-semibold text-emerald-400">
               suporte@cmpx.tec.br
             </p>
           </section>
@@ -186,7 +186,7 @@ export default function TermosPage() {
       </main>
 
       {/* Footer Legal */}
-      <footer className="border-t border-white/[0.08] py-8 text-center text-xs text-slate-500">
+      <footer className="border-t border-white/[0.08] py-8 text-center text-xs text-[var(--studio-muted)]">
         <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© {currentYear} Disparador de Mensagens. Todos os direitos reservados.</p>
           <div className="flex items-center gap-6">

@@ -343,6 +343,7 @@ model CompanySearch {
   segment         String?
   location        String?
   requestedCount  Int
+  websiteFilter   String                @default("ALL")
   foundCount      Int                   @default(0)
   usableCount     Int                   @default(0)
   discardedCount  Int                   @default(0)

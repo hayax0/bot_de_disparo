@@ -24,18 +24,18 @@ export function FaqAccordion() {
   };
 
   return (
-    <section id="faq" className="py-16 sm:py-20 scroll-mt-24 bg-[#08090D] border-t border-white/[0.06] relative">
+    <section id="faq" className="py-16 sm:py-20 scroll-mt-24 bg-[var(--studio-bg)] border-t border-white/[0.06] relative">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 gsap-reveal">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs font-medium">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[var(--studio-muted)] text-xs font-medium">
             <HelpCircle size={13} className="text-emerald-400" />
             <span>Tire Suas Dúvidas</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
             Antes de começar
           </h2>
-          <p className="text-sm text-slate-400 font-normal">
+          <p className="text-sm text-[var(--studio-muted)] font-normal">
             O que você precisa saber sobre buscas, créditos e assinatura.
           </p>
         </div>
@@ -60,7 +60,7 @@ export function FaqAccordion() {
                     {item.question}
                   </span>
                   <div
-                    className={`p-1.5 rounded-md text-slate-400 shrink-0 transition-transform duration-200 motion-reduce:transition-none ${
+                    className={`p-1.5 rounded-md text-[var(--studio-muted)] shrink-0 transition-transform duration-200 motion-reduce:transition-none ${
                       isOpen ? "rotate-180 text-emerald-400" : ""
                     }`}
                   >
@@ -73,7 +73,7 @@ export function FaqAccordion() {
                     id={panelId}
                     role="region"
                     aria-labelledby={btnId}
-                    className="pb-5 pt-1 text-xs sm:text-sm text-slate-300 leading-relaxed font-normal"
+                    className="pb-5 pt-1 text-xs sm:text-sm text-[var(--studio-muted)] leading-relaxed font-normal"
                   >
                     <p>{item.answer}</p>
                   </div>

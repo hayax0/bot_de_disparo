@@ -6,7 +6,7 @@ import { formatarNomeEmpresa, temWebsiteValido } from './ProposalEngine';
 import crypto, { randomUUID } from 'node:crypto';
 import { aiGenerationQueue } from './queue';
 
-export type AiToneStyle = 'CONSULTATIVE' | 'FRIENDLY' | 'DIRECT' | 'SPECIAL_OFFER' | 'URGENT_OFFER';
+export type AiToneStyle = 'CONSULTATIVE' | 'FRIENDLY' | 'DIRECT' | 'SPECIAL_OFFER' | 'URGENT_OFFER' | 'CURIOSITY' | 'VALUE';
 
 export interface GenerateCopyInput {
   leadTitle: string;
@@ -93,8 +93,10 @@ export class AiCopyService {
       CONSULTATIVE: 'Tom consultivo, profissional e respeitoso. Foque em agregar valor e diagnóstico.',
       FRIENDLY: 'Tom amigável, acolhedor e descontraído, como quem conhece a empresa e quer bater um papo.',
       DIRECT: 'Tom direto ao ponto, enxuto e ágil, com no máximo 2 a 3 frases respeitando o tempo do empresário.',
-      SPECIAL_OFFER: 'Tom de oportunidade única, destacando condição especial ou exclusividade para a região.',
-      URGENT_OFFER: 'Tom de oportunidade única, destacando condição especial ou exclusividade para a região.',
+      SPECIAL_OFFER: 'Apresente uma condição especial apenas se estiver expressamente informada na oferta. Não invente urgência ou exclusividade.',
+      CURIOSITY: 'Abra com uma pergunta relevante para o negócio e desperte curiosidade sem esconder ou inventar o que é oferecido.',
+      VALUE: 'Destaque um único benefício concreto da oferta e convide a uma conversa, sem promessas de resultado.',
+      URGENT_OFFER: 'Apresente uma condição especial apenas se estiver expressamente informada na oferta. Não invente urgência ou exclusividade.',
     };
 
     const systemPrompt = `Você é um copywriter de elite especializado em prospecção B2B humanizada e de alta conversão via WhatsApp no Brasil.
@@ -102,11 +104,11 @@ Seu objetivo é redigir UMA mensagem de primeiro contato altamente personalizada
 
 DIRETRIZES OBRIGATÓRIAS:
 1. Escreva em português do Brasil coloquial e natural. NUNCA use clichês robóticos ("Espero que este e-mail o encontre bem", "Venho por meio desta", "Prezado senhor").
-2. Parágrafos curtos (1 a 3 linhas por parágrafo). Use espaçamento limpo entre blocos para leitura rápida na tela do celular.
+2. Seja CURTO em TODOS os estilos: 2 ou 3 frases, no máximo 45 palavras e 320 caracteres. Uma ideia central e uma única pergunta no final. Nada de listas, títulos, apresentações longas ou vários parágrafos.
 3. Formatação WhatsApp: use *negrito* apenas em 1 ou 2 palavras de alto impacto. Não use itálico, sublinhado nem títulos Markdown com #.
 4. NUNCA invente links fictícios, valores ou promessas não citados na oferta.
-5. Se a empresa NÃO tem site e a oferta envolve serviços web/marketing, comente de forma construtiva como isso pode estar custando clientes para concorrentes no bairro.
-6. Se a empresa JÁ tem site, reconheça a presença dela e foque em otimização, conversão ou novos resultados.
+5. Respeite o objetivo e a oferta do usuário. Só mencione ausência de site quando for relevante ao serviço oferecido; nunca afirme perda de clientes ou finja ter feito uma auditoria.
+6. Use apenas o contexto fornecido. Ter site não prova necessidade de otimização. Não elogie algo que você não analisou nem invente problemas, resultados, descontos ou escassez.
 7. Finalize sempre com uma pergunta aberta e leve de baixo atrito (Call to Action / CTA suave) que estimule uma resposta rápida ("Faz sentido para vocês?", "Como está a demanda por aí?").
 8. Retorne EXCLUSIVAMENTE o texto final da mensagem, sem aspas, introduções ou explicações.`;
 
@@ -166,7 +168,7 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
             ],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 350,
+              maxOutputTokens: 220,
             },
           }),
           signal: AbortSignal.timeout(30000),
@@ -194,6 +196,9 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       // Remove eventuais blocos de markdown ``` se o modelo envelopar a resposta
       content = content.replace(/^```(?:markdown)?\n?/i, '').replace(/\n?```$/i, '').trim();
 
+      if (content.length > 360 || content.split(/\s+/).length > 55) {
+        throw new Error('A IA retornou uma mensagem longa demais. Tente novamente com um objetivo mais específico; nenhum crédito será consumido por esta falha.');
+      }
       return content;
     } catch (err: any) {
       if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {

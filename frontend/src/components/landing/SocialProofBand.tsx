@@ -25,7 +25,7 @@ export function SocialProofBand() {
   ];
 
   return (
-    <section className="py-10 border-y border-white/[0.06] bg-[#090B10]">
+    <section className="py-10 border-y border-white/[0.06] bg-[var(--studio-surface)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
           {trustPillars.map((item, index) => {
@@ -42,7 +42,7 @@ export function SocialProofBand() {
                   <h3 className="text-xs sm:text-sm font-semibold text-white tracking-tight">
                     {item.title}
                   </h3>
-                  <p className="text-xs text-slate-400 leading-relaxed font-normal">
+                  <p className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
                     {item.desc}
                   </p>
                 </div>

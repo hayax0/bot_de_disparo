@@ -6,10 +6,10 @@ export function CtaFooter() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="bg-[#050608] border-t border-white/[0.08] relative">
+    <footer className="bg-[var(--studio-bg)] border-t border-white/[0.08] relative">
       {/* Banner de CTA Final */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-8">
-        <div className="gsap-reveal rounded-3xl p-8 sm:p-12 border border-white/[0.08] bg-[#0A0C12] text-center relative overflow-hidden">
+        <div className="gsap-reveal rounded-3xl p-8 sm:p-12 border border-white/[0.08] bg-[var(--studio-surface)] text-center relative overflow-hidden">
           {/* Micro-luz neutra sutil */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-emerald-500/[0.04] blur-3xl pointer-events-none" />
 
@@ -18,7 +18,7 @@ export function CtaFooter() {
               Sua próxima campanha começa aqui.
             </h2>
 
-            <p className="text-sm text-slate-400 leading-relaxed font-normal">
+            <p className="text-sm text-[var(--studio-muted)] leading-relaxed font-normal">
               Escolha um plano e organize sua prospecção pelo WhatsApp.
             </p>
 
@@ -42,7 +42,7 @@ export function CtaFooter() {
         </div>
 
         {/* Rodapé Institucional */}
-        <div className="mt-10 pt-8 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-500">
+        <div className="mt-10 pt-8 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-[var(--studio-muted)]">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg overflow-hidden border border-white/10">
               <Image
@@ -53,14 +53,14 @@ export function CtaFooter() {
                 className="w-full h-full object-cover"
               />
             </div>
-            <span className="font-medium text-slate-300">
+            <span className="font-medium text-[var(--studio-muted)]">
               Disparador de Mensagens
             </span>
             <span>—</span>
             <span>Plataforma SaaS de Prospecção</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-5 text-slate-400">
+          <div className="flex flex-wrap items-center gap-5 text-[var(--studio-muted)]">
             <a href="#como-funciona" className="hover:text-white transition-colors focus-visible:outline-none focus-visible:text-white">
               Como Funciona
             </a>
@@ -81,7 +81,7 @@ export function CtaFooter() {
             </Link>
           </div>
 
-          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1 text-[11px] text-[var(--studio-muted)]">
             <span>© {currentYear} Disparador. Todos os direitos reservados.</span>
           </div>
         </div>

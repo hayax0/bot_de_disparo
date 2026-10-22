@@ -120,11 +120,11 @@ export function LiveWhatsAppMockup() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 mb-3 border-b border-white/[0.08]">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-          <span className="text-xs font-semibold text-slate-200">
+          <span className="text-xs font-semibold text-[var(--studio-ink)]">
             Simulador de Cadência e Personalização
           </span>
         </div>
-        <span className="text-[10px] text-slate-300 font-mono uppercase tracking-wider bg-white/[0.05] px-2.5 py-0.5 rounded-full border border-white/[0.1] w-fit">
+        <span className="text-[10px] text-[var(--studio-muted)] font-mono uppercase tracking-wider bg-white/[0.05] px-2.5 py-0.5 rounded-full border border-white/[0.1] w-fit">
           Demonstração Interativa
         </span>
       </div>
@@ -152,7 +152,7 @@ export function LiveWhatsAppMockup() {
               className={`min-w-0 min-h-11 flex-1 py-2 px-1 sm:px-2 rounded-lg text-xs font-semibold transition-all focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                 isSelected
                   ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 shadow-sm"
-                  : "text-slate-400 hover:text-white hover:bg-white/[0.04] border border-transparent"
+                  : "text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent"
               }`}
             >
               {item.title}
@@ -172,11 +172,11 @@ export function LiveWhatsAppMockup() {
               <span className="text-xs font-bold text-white leading-tight">
                 {current.leadName}
               </span>
-              <span className="text-[9px] px-1.5 py-0.2 bg-white/[0.08] text-slate-300 rounded font-mono">
+              <span className="text-[9px] px-1.5 py-0.2 bg-white/[0.08] text-[var(--studio-muted)] rounded font-mono">
                 Lead
               </span>
             </div>
-            <span className="text-xs text-slate-400 leading-snug break-words">
+            <span className="text-xs text-[var(--studio-muted)] leading-snug break-words">
               {current.leadCompany}
             </span>
           </div>
@@ -185,14 +185,14 @@ export function LiveWhatsAppMockup() {
         {/* Indicador de Status do Disparo na Fila */}
         <div className="shrink-0 max-w-full flex items-center gap-1 text-[11px] font-mono">
           {deliveryStep === "queued" && (
-            <span className="text-slate-300 flex items-center gap-1 bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.08]">
-              <Clock size={12} className="text-slate-400" />
+            <span className="text-[var(--studio-muted)] flex items-center gap-1 bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.08]">
+              <Clock size={12} className="text-[var(--studio-muted)]" />
               <span>Na Fila (delay)</span>
             </span>
           )}
           {deliveryStep === "sent" && (
-            <span className="text-slate-300 flex items-center gap-1 bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.08]">
-              <Check size={12} className="text-slate-400" />
+            <span className="text-[var(--studio-muted)] flex items-center gap-1 bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.08]">
+              <Check size={12} className="text-[var(--studio-muted)]" />
               <span>Enviado</span>
             </span>
           )}
@@ -212,7 +212,7 @@ export function LiveWhatsAppMockup() {
       </div>
 
       {/* Caixa de Mensagens Simulada */}
-      <div className="bg-[#090B10] rounded-xl p-3.5 space-y-3 min-h-[190px] flex flex-col justify-between border border-white/[0.04]">
+      <div className="bg-[var(--studio-surface)] rounded-xl p-3.5 space-y-3 min-h-[190px] flex flex-col justify-between border border-white/[0.04]">
         {/* Mensagem Enviada pela Plataforma */}
         <div className="flex justify-end">
           <div className="max-w-[88%] bg-[#005c4b] text-[#e9edef] rounded-2xl rounded-tr-sm p-3 text-sm sm:text-xs leading-relaxed shadow-md relative">
@@ -222,8 +222,8 @@ export function LiveWhatsAppMockup() {
             </p>
             <div className="flex items-center justify-end gap-1 mt-1.5 text-[10px] text-emerald-200/70 font-mono">
               <span>10:42</span>
-              {deliveryStep === "queued" && <Clock size={11} className="text-slate-300" />}
-              {deliveryStep === "sent" && <Check size={11} className="text-slate-200" />}
+              {deliveryStep === "queued" && <Clock size={11} className="text-[var(--studio-muted)]" />}
+              {deliveryStep === "sent" && <Check size={11} className="text-[var(--studio-ink)]" />}
               {(deliveryStep === "delivered" || deliveryStep === "replied") && (
                 <CheckCheck size={12} className="text-sky-300" />
               )}
@@ -236,7 +236,7 @@ export function LiveWhatsAppMockup() {
           <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
             <div className="max-w-[85%] bg-[#202c33] text-[#e9edef] rounded-2xl rounded-tl-sm p-3 text-xs leading-relaxed shadow-md">
               <p>{current.leadReply}</p>
-              <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-slate-400 font-mono">
+              <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-[var(--studio-muted)] font-mono">
                 <span>10:43</span>
               </div>
             </div>
@@ -245,14 +245,14 @@ export function LiveWhatsAppMockup() {
       </div>
 
       {/* Legenda explicativa transparente */}
-      <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-slate-400 font-mono">
+      <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-[var(--studio-muted)] font-mono">
         <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <Braces size={12} className="text-emerald-400 shrink-0" />
           <span>Variáveis:</span>
-          <code className="text-slate-200 bg-white/[0.06] px-1 py-0.2 rounded text-[10px]">{"{nome}"}</code>
-          <code className="text-slate-200 bg-white/[0.06] px-1 py-0.2 rounded text-[10px]">{"{empresa}"}</code>
+          <code className="text-[var(--studio-ink)] bg-white/[0.06] px-1 py-0.2 rounded text-[10px]">{"{nome}"}</code>
+          <code className="text-[var(--studio-ink)] bg-white/[0.06] px-1 py-0.2 rounded text-[10px]">{"{empresa}"}</code>
         </span>
-        <span className="text-slate-500">Intervalos configuráveis na fila</span>
+        <span className="text-[var(--studio-muted)]">Intervalos configuráveis na fila</span>
       </div>
     </div>
   );
