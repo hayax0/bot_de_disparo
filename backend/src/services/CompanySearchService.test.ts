@@ -4,6 +4,8 @@ import { mockMethod } from '../test-support/mockMethod';
 import { prisma } from '../lib/prisma';
 import {
   CompanySearchService,
+  normalizeSearchMobilePhone,
+  matchesWebsiteFilter,
   isValidBrazilianMobilePhone,
   sanitizeCompanyWebsite,
   setTestPlacesProvider
@@ -285,4 +287,27 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
   const outraCampanha = resultsSaved.find(r => r.name.includes('Outra Campanha'));
   assert.equal(outraCampanha.isUsable, false);
   assert.equal(outraCampanha.discardReason, 'ALREADY_IN_WORKSPACE');
+});
+
+
+test('Busca: não converte fixos ou números antigos em celulares e preserva DDD 55', () => {
+  assert.equal(normalizeSearchMobilePhone('(21) 3333-4444'), null);
+  assert.equal(normalizeSearchMobilePhone('+55 21 3333-4444'), null);
+  assert.equal(normalizeSearchMobilePhone('(21) 8888-7777'), null);
+  assert.equal(normalizeSearchMobilePhone('+55 21 8888-7777'), null);
+  assert.equal(normalizeSearchMobilePhone('(55) 99123-4567'), '5555991234567');
+  assert.equal(normalizeSearchMobilePhone('(21) 91234-5678'), '5521912345678');
+  assert.equal(normalizeSearchMobilePhone('+1 212 555 1234'), null);
+  assert.equal(normalizeSearchMobilePhone('+1 999 999 9999'), null);
+  assert.equal(normalizeSearchMobilePhone('(20) 99999-8888'), null);
+});
+
+test('Busca: filtro por site próprio não confunde redes sociais, Maps ou URL vazia', () => {
+  assert.equal(matchesWebsiteFilter('empresa.com.br', 'WITH_WEBSITE'), true);
+  for (const website of [null, '', 'https://instagram.com/empresa', 'https://maps.app.goo.gl/test']) {
+    assert.equal(matchesWebsiteFilter(website, 'WITH_WEBSITE'), false);
+    assert.equal(matchesWebsiteFilter(website, 'WITHOUT_WEBSITE'), true);
+    assert.equal(matchesWebsiteFilter(website, 'ALL'), true);
+  }
+  assert.equal(matchesWebsiteFilter('https://empresa.com', 'WITHOUT_WEBSITE'), false);
 });

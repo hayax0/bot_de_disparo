@@ -127,19 +127,19 @@ function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--studio-bg)] p-4 relative overflow-hidden">
       {/* Sutil iluminação neutra de profundidade */}
       <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/[0.02] blur-[140px] pointer-events-none" />
 
       <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
         <div className="flex flex-col items-center mb-6">
-          <Link href="/" className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[#0A0C12] p-0.5 hover:border-emerald-500/40 transition-colors">
+          <Link href="/" className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[var(--studio-surface)] p-0.5 hover:border-emerald-500/40 transition-colors">
             <Image src="/logo-v4.png" alt="Logo Disparador" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />
           </Link>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
             Criar sua conta
           </h1>
-          <p className="text-xs text-slate-400 mt-1 text-center font-normal">
+          <p className="text-xs text-[var(--studio-muted)] mt-1 text-center font-normal">
             Cadastre-se para ativar sua assinatura e iniciar os disparos
           </p>
         </div>
@@ -156,13 +156,13 @@ function RegisterForm() {
             <p className="text-sm sm:text-base font-bold text-white mt-1">
               {selectedPlan.name} — <span className="font-mono text-emerald-300">{selectedPlan.currency} {selectedPlan.price}{selectedPlan.period}</span>
             </p>
-            <p className="text-xs text-slate-300 mt-0.5">
+            <p className="text-xs text-[var(--studio-muted)] mt-0.5">
               {selectedPlan.monthlyDispatches} • {selectedPlan.monthlyCredits}
             </p>
           </div>
           <Link
             href="/#planos"
-            className="text-xs text-slate-400 hover:text-emerald-400 underline transition-colors shrink-0 whitespace-nowrap"
+            className="text-xs text-[var(--studio-muted)] hover:text-emerald-400 underline transition-colors shrink-0 whitespace-nowrap"
           >
             Trocar
           </Link>
@@ -177,9 +177,9 @@ function RegisterForm() {
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">Seu Nome</label>
+            <label className="block text-[11px] font-medium text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">Seu Nome</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--studio-muted)]">
                 <User size={15} />
               </div>
               <input 
@@ -194,9 +194,9 @@ function RegisterForm() {
           </div>
           
           <div>
-            <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">E-mail</label>
+            <label className="block text-[11px] font-medium text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">E-mail</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--studio-muted)]">
                 <Mail size={15} />
               </div>
               <input 
@@ -211,9 +211,9 @@ function RegisterForm() {
           </div>
           
           <div>
-            <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wider mb-1.5">Senha</label>
+            <label className="block text-[11px] font-medium text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">Senha</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--studio-muted)]">
                 <Lock size={15} />
               </div>
               <input 
@@ -231,7 +231,7 @@ function RegisterForm() {
             <div className="space-y-2.5 p-3.5 bg-emerald-500/[0.06] border border-emerald-500/25 rounded-2xl animate-in fade-in" aria-live="polite">
               <div className="flex items-start gap-2">
                 <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-slate-200 leading-relaxed font-normal">
+                <p className="text-xs text-[var(--studio-ink)] leading-relaxed font-normal">
                   Enviamos um código de 6 dígitos para seu e-mail. Digite-o abaixo para concluir o cadastro e prosseguir ao pagamento.
                 </p>
               </div>
@@ -243,7 +243,7 @@ function RegisterForm() {
               )}
 
               <div className="pt-1">
-                <label htmlFor="verification-code" className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                <label htmlFor="verification-code" className="block text-[11px] font-semibold text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">
                   Código de confirmação (6 dígitos)
                 </label>
                 <input 
@@ -280,7 +280,7 @@ function RegisterForm() {
                 onChange={e => setTermsAccepted(e.target.checked)}
                 className="mt-1 w-4 h-4 rounded border-white/20 bg-white/[0.05] text-emerald-500 focus:ring-emerald-400 focus:ring-offset-0 cursor-pointer"
               />
-              <span className="text-xs text-slate-400 leading-relaxed font-normal">
+              <span className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
                 Li e concordo expressamente com os{' '}
                 <Link 
                   href="/termos" 
@@ -329,7 +329,7 @@ function RegisterForm() {
         <div className="mt-6 text-center pt-4 border-t border-white/[0.06]">
           <Link 
             href="/login"
-            className="text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:underline"
+            className="text-xs font-medium text-[var(--studio-muted)] hover:text-[var(--studio-ink)] transition-colors focus-visible:outline-none focus-visible:underline"
           >
             Já tem uma conta?{' '}
             <span className="text-emerald-400 font-medium underline underline-offset-4">
@@ -345,7 +345,7 @@ function RegisterForm() {
 export default function RegisterPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-[#08090D] p-4 text-slate-400 text-xs">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--studio-bg)] p-4 text-[var(--studio-muted)] text-xs">
         Carregando...
       </div>
     }>

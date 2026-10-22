@@ -241,7 +241,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
           <AlertCircle size={28} />
         </div>
         <h2 className="text-xl font-bold text-white">Acesso Não Autorizado</h2>
-        <p className="text-sm text-slate-400 max-w-md mx-auto">
+        <p className="text-sm text-[var(--studio-muted)] max-w-md mx-auto">
           Esta área é estritamente restrita aos administradores do sistema.
         </p>
       </div>
@@ -261,7 +261,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
               Nível Master
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-[var(--studio-muted)] mt-1">
             Gestão centralizada de contas cadastradas, assinaturas e acompanhamento de infraestrutura.
           </p>
         </div>
@@ -285,24 +285,24 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
         
         {/* Card 1: Total de Usuários */}
         <div className="dash-card p-4 relative overflow-hidden group">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Total de Contas</span>
-            <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-300">
+          <div className="flex items-center justify-between text-[var(--studio-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--studio-muted)]">Total de Contas</span>
+            <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-[var(--studio-muted)]">
               <Users size={14} />
             </div>
           </div>
           <div className="text-2xl sm:text-3xl font-bold text-white font-mono tabular-nums">
             {metrics ? metrics.totalUsers : <div className="h-8 w-16 bg-white/[0.05] rounded animate-pulse" />}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1 font-mono">
+          <div className="text-[11px] text-[var(--studio-muted)] mt-1.5 flex items-center gap-1 font-mono">
             <span>Base total cadastrada</span>
           </div>
         </div>
 
         {/* Card 2: Assinantes Ativos */}
         <div className="dash-card p-4 relative overflow-hidden group">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Assinantes Ativos</span>
+          <div className="flex items-center justify-between text-[var(--studio-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--studio-muted)]">Assinantes Ativos</span>
             <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
               <CreditCard size={14} />
             </div>
@@ -318,24 +318,24 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
 
         {/* Card 3: VIPs e Admins */}
         <div className="dash-card p-4 relative overflow-hidden group">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">VIPs / Lifetime</span>
-            <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-300">
+          <div className="flex items-center justify-between text-[var(--studio-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--studio-muted)]">VIPs / Lifetime</span>
+            <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-[var(--studio-muted)]">
               <Crown size={14} />
             </div>
           </div>
           <div className="text-2xl sm:text-3xl font-bold text-white font-mono tabular-nums">
             {metrics ? metrics.lifetimeAdmins : <div className="h-8 w-16 bg-white/[0.05] rounded animate-pulse" />}
           </div>
-          <div className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1 font-mono">
+          <div className="text-[11px] text-[var(--studio-muted)] mt-1.5 flex items-center gap-1 font-mono">
             <span>Acesso vitalício irrestrito</span>
           </div>
         </div>
 
         {/* Card 4: Inativos / Oportunidades */}
         <div className="dash-card p-4 relative overflow-hidden group">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Leads Inativos</span>
+          <div className="flex items-center justify-between text-[var(--studio-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--studio-muted)]">Leads Inativos</span>
             <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
               <Clock size={14} />
             </div>
@@ -355,7 +355,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
         
         {/* Campo de Pesquisa */}
         <div className="relative flex-1 max-w-md">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--studio-muted)]" />
           <input
             type="text"
             placeholder="Buscar por nome ou e-mail..."
@@ -388,7 +388,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
               className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
                 statusFilter === item.id
                   ? 'bg-white/[0.1] text-white border border-white/[0.15] shadow-sm font-semibold'
-                  : 'text-slate-400 hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-transparent'
+                  : 'text-[var(--studio-muted)] hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-transparent'
               }`}
             >
               {item.label}
@@ -403,7 +403,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-white/[0.06] bg-white/[0.02] text-slate-400 font-semibold tracking-wider uppercase text-[10px]">
+              <tr className="border-b border-white/[0.06] bg-white/[0.02] text-[var(--studio-muted)] font-semibold tracking-wider uppercase text-[10px]">
                 <th className="p-3.5 pl-4">Usuário</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5">Perfil</th>
@@ -416,7 +416,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
             <tbody className="divide-y divide-white/[0.04]">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-400">
+                  <td colSpan={7} className="p-12 text-center text-[var(--studio-muted)]">
                     <div className="flex items-center justify-center gap-2">
                       <RefreshCw size={16} className="animate-spin text-emerald-400" />
                       <span>Consultando base de usuários no servidor...</span>
@@ -425,11 +425,11 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-500">
+                  <td colSpan={7} className="p-12 text-center text-[var(--studio-muted)]">
                     <div className="max-w-sm mx-auto space-y-2">
                       <Users size={30} className="text-slate-600 mx-auto mb-1" />
-                      <p className="font-semibold text-slate-300">Nenhum usuário encontrado</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="font-semibold text-[var(--studio-muted)]">Nenhum usuário encontrado</p>
+                      <p className="text-xs text-[var(--studio-muted)]">
                         {search ? 'Tente buscar por outro termo ou limpe os filtros.' : 'Nenhum cadastro localizado no sistema.'}
                       </p>
                     </div>
@@ -446,7 +446,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                       {/* Usuário (Nome + Email) */}
                       <td className="p-3.5 pl-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center font-bold text-slate-200 shrink-0 uppercase">
+                          <div className="w-8 h-8 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center font-bold text-[var(--studio-ink)] shrink-0 uppercase">
                             {u.name ? u.name.charAt(0) : u.email.charAt(0)}
                           </div>
                           <div className="min-w-0">
@@ -458,7 +458,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-400 font-mono truncate">{u.email}</p>
+                            <p className="text-[11px] text-[var(--studio-muted)] font-mono truncate">{u.email}</p>
                           </div>
                         </div>
                       </td>
@@ -496,7 +496,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                             ADMIN
                           </span>
                         ) : (
-                          <span className="text-slate-400 text-[11px]">
+                          <span className="text-[var(--studio-muted)] text-[11px]">
                             Cliente
                           </span>
                         )}
@@ -505,7 +505,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                       {/* Uso: Campanhas e WhatsApp */}
                       <td className="p-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.08] text-slate-300 text-[11px] font-mono tabular-nums" title="Campanhas criadas">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.08] text-[var(--studio-muted)] text-[11px] font-mono tabular-nums" title="Campanhas criadas">
                             <Layers size={11} className="text-emerald-400" />
                             <b>{u.stats?.campaignsCount || 0}</b> camp.
                           </span>
@@ -513,7 +513,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] border font-medium ${
                             u.stats?.whatsappStatus === 'CONNECTED'
                               ? 'dash-badge-emerald'
-                              : 'bg-white/[0.03] border-white/[0.06] text-slate-500'
+                              : 'bg-white/[0.03] border-white/[0.06] text-[var(--studio-muted)]'
                           }`} title="Status da sessão de WhatsApp">
                             <Smartphone size={11} />
                             {u.stats?.whatsappStatus === 'CONNECTED' ? 'Conectado' : 'Off'}
@@ -522,9 +522,9 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                       </td>
 
                       {/* Expiração */}
-                      <td className="p-3.5 whitespace-nowrap text-slate-400 font-mono text-[11px] tabular-nums">
+                      <td className="p-3.5 whitespace-nowrap text-[var(--studio-muted)] font-mono text-[11px] tabular-nums">
                         {u.subscriptionStatus === 'LIFETIME' ? (
-                          <span className="text-slate-200 font-semibold">Sem expiração</span>
+                          <span className="text-[var(--studio-ink)] font-semibold">Sem expiração</span>
                         ) : u.subscriptionExpiresAt ? (
                           new Date(u.subscriptionExpiresAt).toLocaleDateString('pt-BR')
                         ) : (
@@ -533,7 +533,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                       </td>
 
                       {/* Data de Cadastro */}
-                      <td className="p-3.5 whitespace-nowrap text-slate-400 font-mono text-[11px] tabular-nums">
+                      <td className="p-3.5 whitespace-nowrap text-[var(--studio-muted)] font-mono text-[11px] tabular-nums">
                         {new Date(u.createdAt).toLocaleDateString('pt-BR')}
                       </td>
 
@@ -559,7 +559,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                               type="button"
                               disabled={isActionLoading}
                               onClick={() => void handleQuickInactivate(u)}
-                              className="p-1.5 rounded-xl text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
+                              className="p-1.5 rounded-xl text-[var(--studio-muted)] hover:text-amber-300 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
                               title="Suspender acesso da conta"
                             >
                               <Clock size={14} />
@@ -572,7 +572,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                               type="button"
                               disabled={isActionLoading}
                               onClick={() => void handleDeleteUser(u)}
-                              className="p-1.5 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
+                              className="p-1.5 rounded-xl text-[var(--studio-muted)] hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
                               title="Excluir conta do sistema"
                             >
                               <Trash2 size={14} />
@@ -592,7 +592,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
 
         {/* Paginação */}
         {totalPages > 1 && (
-          <div className="p-3.5 bg-white/[0.02] border-t border-white/[0.06] flex items-center justify-between text-xs text-slate-400">
+          <div className="p-3.5 bg-white/[0.02] border-t border-white/[0.06] flex items-center justify-between text-xs text-[var(--studio-muted)]">
             <div className="font-mono tabular-nums">
               Exibindo página <b className="text-white">{page}</b> de <b className="text-white">{totalPages}</b> ({totalCount} contas)
             </div>
@@ -630,13 +630,13 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                 </div>
                 <div>
                   <h3 className="font-semibold text-sm text-white">Gerenciar Conta</h3>
-                  <p className="text-xs text-slate-400 font-mono truncate max-w-[280px]">{selectedUser.email}</p>
+                  <p className="text-xs text-[var(--studio-muted)] font-mono truncate max-w-[280px]">{selectedUser.email}</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsEditModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+                className="text-[var(--studio-muted)] hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <X size={18} />
               </button>
@@ -646,7 +646,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
               
               {/* Status da Assinatura */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-[var(--studio-muted)] mb-1.5">
                   Status da Assinatura:
                 </label>
                 <select
@@ -654,17 +654,17 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                   onChange={(e) => setEditStatus(e.target.value)}
                   className="dash-input w-full px-3 py-2 text-xs rounded-xl"
                 >
-                  <option value="ACTIVE" className="bg-[#0B0D14]">Ativo (ACTIVE)</option>
-                  <option value="LIFETIME" className="bg-[#0B0D14]">VIP Vitalício (LIFETIME)</option>
-                  <option value="INACTIVE" className="bg-[#0B0D14]">Inativo (INACTIVE)</option>
-                  <option value="PAST_DUE" className="bg-[#0B0D14]">Vencido / Atrasado (PAST_DUE)</option>
-                  <option value="CANCELED" className="bg-[#0B0D14]">Cancelado (CANCELED)</option>
+                  <option value="ACTIVE" className="bg-[var(--studio-surface)]">Ativo (ACTIVE)</option>
+                  <option value="LIFETIME" className="bg-[var(--studio-surface)]">VIP Vitalício (LIFETIME)</option>
+                  <option value="INACTIVE" className="bg-[var(--studio-surface)]">Inativo (INACTIVE)</option>
+                  <option value="PAST_DUE" className="bg-[var(--studio-surface)]">Vencido / Atrasado (PAST_DUE)</option>
+                  <option value="CANCELED" className="bg-[var(--studio-surface)]">Cancelado (CANCELED)</option>
                 </select>
               </div>
 
               {/* Perfil de Acesso */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-[var(--studio-muted)] mb-1.5">
                   Nível de Acesso (Role):
                 </label>
                 <select
@@ -673,8 +673,8 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                   disabled={selectedUser.id === currentUserId}
                   className="dash-input w-full px-3 py-2 text-xs rounded-xl disabled:opacity-50"
                 >
-                  <option value="USER" className="bg-[#0B0D14]">Cliente Comum (USER)</option>
-                  <option value="ADMIN" className="bg-[#0B0D14]">Administrador Geral (ADMIN)</option>
+                  <option value="USER" className="bg-[var(--studio-surface)]">Cliente Comum (USER)</option>
+                  <option value="ADMIN" className="bg-[var(--studio-surface)]">Administrador Geral (ADMIN)</option>
                 </select>
                 {selectedUser.id === currentUserId && (
                   <p className="text-[10px] text-amber-400 mt-1">Você não pode alterar seu próprio nível de administrador.</p>
@@ -684,7 +684,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
               {/* Dias de Prorrogação (apenas se for ACTIVE) */}
               {editStatus === 'ACTIVE' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-[var(--studio-muted)] mb-1.5">
                     Adicionar dias de acesso (opcional):
                   </label>
                   <div className="flex items-center gap-2">
@@ -696,7 +696,7 @@ export function AdminTab({ userRole, currentUserId, addToast }: AdminTabProps) {
                       onChange={(e) => setExtendDays(Math.max(0, Number(e.target.value)))}
                       className="dash-input w-24 px-3 py-2 text-xs rounded-xl font-mono tabular-nums"
                     />
-                    <span className="text-xs text-slate-400 font-mono">dias extras (deixe 0 para não alterar a data)</span>
+                    <span className="text-xs text-[var(--studio-muted)] font-mono">dias extras (deixe 0 para não alterar a data)</span>
                   </div>
                 </div>
               )}

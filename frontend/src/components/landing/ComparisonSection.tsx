@@ -36,27 +36,27 @@ export function ComparisonSection() {
   ];
 
   return (
-    <section className="py-24 bg-[#08090D] border-t border-white/[0.06] relative">
+    <section className="py-24 bg-[var(--studio-bg)] border-t border-white/[0.06] relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabeçalho */}
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs font-medium">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[var(--studio-muted)] text-xs font-medium">
             <span>Análise Comparativa</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
             Processo Manual vs. Plataforma Automatizada
           </h2>
-          <p className="text-sm text-slate-400 font-normal">
+          <p className="text-sm text-[var(--studio-muted)] font-normal">
             Veja a diferença de controle, cadência de envio e produtividade entre abordar contatos manualmente ou utilizar a esteira inteligente.
           </p>
         </div>
 
         {/* Tabela / Grid Comparativo */}
-        <div className="max-w-4xl mx-auto rounded-2xl border border-white/[0.08] bg-[#0E1017]/80 backdrop-blur-md overflow-hidden">
+        <div className="max-w-4xl mx-auto rounded-2xl border border-white/[0.08] bg-[var(--studio-surface)]/80 backdrop-blur-md overflow-hidden">
           {/* Header da Tabela */}
           <div className="grid grid-cols-1 md:grid-cols-12 bg-white/[0.02] border-b border-white/[0.08] text-xs font-semibold uppercase tracking-wider">
-            <div className="md:col-span-4 p-4 text-slate-400 hidden md:block">Aspecto Operacional</div>
-            <div className="md:col-span-4 p-4 text-slate-400 border-x border-white/[0.06] flex items-center gap-1.5">
+            <div className="md:col-span-4 p-4 text-[var(--studio-muted)] hidden md:block">Aspecto Operacional</div>
+            <div className="md:col-span-4 p-4 text-[var(--studio-muted)] border-x border-white/[0.06] flex items-center gap-1.5">
               <XCircle size={14} className="text-rose-400" />
               <span>Prospecção Manual</span>
             </div>
@@ -74,18 +74,18 @@ export function ComparisonSection() {
                 className="grid grid-cols-1 md:grid-cols-12 hover:bg-white/[0.015] transition-colors"
               >
                 {/* Título do Aspecto */}
-                <div className="md:col-span-4 p-4 text-xs font-semibold text-slate-200 flex items-center">
+                <div className="md:col-span-4 p-4 text-xs font-semibold text-[var(--studio-ink)] flex items-center">
                   {row.feature}
                 </div>
 
                 {/* Coluna Manual */}
-                <div className="md:col-span-4 p-4 text-xs text-slate-400 md:border-x border-white/[0.06] flex items-start gap-2">
+                <div className="md:col-span-4 p-4 text-xs text-[var(--studio-muted)] md:border-x border-white/[0.06] flex items-start gap-2">
                   <XCircle size={14} className="text-rose-400/80 shrink-0 mt-0.5" />
                   <span>{row.manual}</span>
                 </div>
 
                 {/* Coluna Plataforma */}
-                <div className="md:col-span-4 p-4 text-xs text-slate-200 flex items-start gap-2 font-medium">
+                <div className="md:col-span-4 p-4 text-xs text-[var(--studio-ink)] flex items-start gap-2 font-medium">
                   <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                   <span>{row.platform}</span>
                 </div>
@@ -95,7 +95,7 @@ export function ComparisonSection() {
 
           {/* Rodapé da Tabela */}
           <div className="p-4 bg-white/[0.01] border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-[var(--studio-muted)]">
               Mais reuniões e contatos qualificados com uma fração do esforço operacional diário.
             </span>
             <Link

@@ -1,7 +1,7 @@
 import { temWebsiteValido } from '../services/ProposalEngine';
 import { Router, Request, Response } from 'express';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
-import { CompanySearchService } from '../services/CompanySearchService';
+import { normalizeSearchMobilePhone, CompanySearchService } from '../services/CompanySearchService';
 import { IntegrationError } from '../services/ApifyCredentialService';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
@@ -17,6 +17,7 @@ const searchSchema = z.object({
   segment: z.string().min(2, 'O segmento/nicho deve ter ao menos 2 caracteres.'),
   location: z.string().min(2, 'A localização/cidade deve ter ao menos 2 caracteres.'),
   requestedCount: z.coerce.number().int().min(5, 'Mínimo de 5 empresas por busca.').max(200, 'Máximo de 200 empresas por busca.').default(20),
+  websiteFilter: z.enum(['ALL', 'WITH_WEBSITE', 'WITHOUT_WEBSITE']).default('ALL'),
   targetCampaignId: z.string().uuid().optional(),
   idempotencyKey: z.string().optional(),
 });
@@ -45,7 +46,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Dados inválidos.' });
   }
 
-  const { segment, location, requestedCount, targetCampaignId } = parsed.data;
+  const { segment, location, requestedCount, targetCampaignId, websiteFilter } = parsed.data;
   const idempotencyKey = (req.headers['idempotency-key'] as string) || (req.body.idempotencyKey as string) || undefined;
 
   try {
@@ -55,6 +56,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
       segment,
       location,
       requestedCount,
+      websiteFilter,
       targetCampaignId,
       idempotencyKey
     });
@@ -91,6 +93,7 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
         segment: true,
         location: true,
         requestedCount: true,
+        websiteFilter: true,
         foundCount: true,
         usableCount: true,
         discardedCount: true,
@@ -139,7 +142,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'Busca não encontrada.' });
     }
 
-    res.json({ ...search, results: search.results.map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
+    res.json({ ...search, results: search.results.filter(result => result.phone && normalizeSearchMobilePhone(result.phone)).map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
   } catch (error: any) {
     console.error('Erro ao buscar detalhes:', error);
     res.status(500).json({ error: 'Erro ao carregar detalhes da busca.' });

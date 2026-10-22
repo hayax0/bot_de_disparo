@@ -14,7 +14,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-export type AiToneStyle = "CONSULTATIVE" | "FRIENDLY" | "DIRECT" | "SPECIAL_OFFER" | "URGENT_OFFER";
+export type AiToneStyle = "CONSULTATIVE" | "FRIENDLY" | "DIRECT" | "SPECIAL_OFFER" | "URGENT_OFFER" | "CURIOSITY" | "VALUE";
 
 interface AiGenerateModalProps {
   campaignId: string;
@@ -43,13 +43,13 @@ export function AiGenerateModal({
   pendingLeadsCount,
   availableCredits,
   initialOffer = "",
-  initialTone = "CONSULTATIVE",
+  initialTone = "DIRECT",
   onSuccess,
   onClose,
   addToast,
 }: AiGenerateModalProps) {
   const [offerDescription, setOfferDescription] = useState(initialOffer || "");
-  const [toneStyle, setToneStyle] = useState<AiToneStyle>((initialTone as AiToneStyle) || "CONSULTATIVE");
+  const [toneStyle, setToneStyle] = useState<AiToneStyle>((initialTone as AiToneStyle) || "DIRECT");
   const [submitting, setSubmitting] = useState(false);
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
   const [batchIdempotencyKey, setBatchIdempotencyKey] = useState<string>(() => `ai_batch_${campaignId}_${Date.now()}`);
@@ -169,20 +169,20 @@ export function AiGenerateModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-      <div className="dash-card border border-white/10 rounded-3xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
-        <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+      <div className="dash-card studio-dialog w-full max-w-xl max-h-[92dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+        <div className="p-5 shrink-0 border-b border-white/[0.08] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
               <Sparkles size={18} />
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-semibold text-white">Personalizar Abordagens com IA</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Campanha: {campaignName}</p>
+              <p className="text-xs text-[var(--studio-muted)] mt-0.5">Campanha: {campaignName}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer"
+            className="text-[var(--studio-muted)] hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer"
           >
             <X size={18} />
           </button>
@@ -195,7 +195,7 @@ export function AiGenerateModal({
             </div>
             <div>
               <h3 className="text-sm font-semibold text-white">Processando lote em segundo plano</h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-[var(--studio-muted)] mt-1">
                 A IA está personalizando suas mensagens individualmente. Você pode fechar esta janela se quiser; o progresso continuará rodando.
               </p>
             </div>
@@ -209,7 +209,7 @@ export function AiGenerateModal({
               />
             </div>
 
-            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+            <div className="flex items-center justify-between text-xs text-[var(--studio-muted)] px-1">
               <span>{activeOp.completedLeads} de {activeOp.totalLeads} concluídos</span>
               {activeOp.failedLeads > 0 && <span className="text-amber-400">{activeOp.failedLeads} falhas</span>}
               <span className="font-semibold text-white">
@@ -221,21 +221,21 @@ export function AiGenerateModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[var(--studio-muted)] bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
               >
                 Acompanhar depois
               </button>
             </div>
           </div>
         ) : (
-          <form onSubmit={handleGenerate} className="p-5 space-y-4 overflow-y-auto max-h-[80vh]">
+          <form onSubmit={handleGenerate} className="p-5 space-y-4 overflow-y-auto min-h-0 flex-1">
             {/* Informações da Carteira de Créditos */}
             <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
               <div className="flex items-center gap-2">
                 <Coins size={16} className="text-amber-400" />
                 <div>
-                  <p className="text-xs text-slate-300 font-medium">Consumo de Créditos de IA</p>
-                  <p className="text-[11px] text-slate-500">1 crédito por mensagem gerada e entregue</p>
+                  <p className="text-xs text-[var(--studio-muted)] font-medium">Consumo de Créditos de IA</p>
+                  <p className="text-[11px] text-[var(--studio-muted)]">1 crédito por mensagem gerada e entregue</p>
                 </div>
               </div>
               <div className="text-right">
@@ -250,7 +250,7 @@ export function AiGenerateModal({
 
             {/* O que sua empresa oferece */}
             <div>
-              <label className="block text-xs font-semibold text-slate-200 mb-1.5">
+              <label className="block text-xs font-semibold text-[var(--studio-ink)] mb-1.5">
                 O que sua empresa oferece? <span className="text-emerald-400">*</span>
               </label>
               <textarea
@@ -261,14 +261,14 @@ export function AiGenerateModal({
                 className="w-full text-xs dash-input rounded-xl p-3 bg-white/[0.03] border border-white/[0.08] text-white placeholder-slate-500 focus:border-emerald-500/50"
                 disabled={submitting}
               />
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-[var(--studio-muted)] mt-1">
                 A IA combinará essa oferta com os dados de cada lead (site, bairro e segmento) para criar abordagens exclusivas.
               </p>
             </div>
 
             {/* Tom de Voz / Estilo de Abordagem */}
             <div>
-              <label className="block text-xs font-semibold text-slate-200 mb-2">
+              <label className="block text-xs font-semibold text-[var(--studio-ink)] mb-2">
                 Estilo da Abordagem
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -276,7 +276,7 @@ export function AiGenerateModal({
                   {
                     key: "CONSULTATIVE" as AiToneStyle,
                     title: "🎯 Consultivo",
-                    desc: "Profissional, diagnóstico e foco em agregar valor",
+                    desc: "Uma pergunta consultiva, sem apresentação longa",
                   },
                   {
                     key: "FRIENDLY" as AiToneStyle,
@@ -291,8 +291,10 @@ export function AiGenerateModal({
                   {
                     key: "SPECIAL_OFFER" as AiToneStyle,
                     title: "🔥 Oferta Especial",
-                    desc: "Gatilho de oportunidade e exclusividade regional",
+                    desc: "Condição real informada na sua oferta",
                   },
+                  { key: "CURIOSITY" as AiToneStyle, title: "Curiosidade", desc: "Uma pergunta relevante para abrir a conversa" },
+                  { key: "VALUE" as AiToneStyle, title: "Benefício claro", desc: "Uma ideia útil, com convite simples para responder" },
                 ].map((t) => (
                   <button
                     type="button"
@@ -302,23 +304,24 @@ export function AiGenerateModal({
                     className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                       toneStyle === t.key
                         ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300 shadow-sm"
-                        : "bg-white/[0.02] border-white/[0.06] text-slate-400 hover:bg-white/[0.04]"
+                        : "bg-white/[0.02] border-white/[0.06] text-[var(--studio-muted)] hover:bg-white/[0.04]"
                     }`}
                   >
                     <p className="text-xs font-semibold text-white">{t.title}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{t.desc}</p>
+                    <p className="text-[10px] text-[var(--studio-muted)] mt-0.5 leading-tight">{t.desc}</p>
                   </button>
                 ))}
               </div>
             </div>
 
+            <p className="text-xs text-[var(--studio-muted)]">Mensagens curtas por padrão: 2–3 frases, uma ideia e uma pergunta. Descreva o que vende, para quem e qual resposta deseja receber.</p>
             {/* Botões de Ação */}
             <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-white/[0.08]">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={submitting}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-medium text-[var(--studio-muted)] hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
               >
                 Cancelar
               </button>
@@ -378,6 +381,8 @@ export function LeadMessageModal({
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [regenKey, setRegenKey] = useState<string>(() => `ai_single_${lead.id}_${Date.now()}`);
+  const [regenerationGoal, setRegenerationGoal] = useState("");
+  const [regenerationTone, setRegenerationTone] = useState<AiToneStyle | "">("");
 
   const isAlreadySentOrSending =
     lead.status &&
@@ -421,6 +426,8 @@ export function LeadMessageModal({
     try {
       const res = await api.post(`/campaigns/${campaignId}/leads/${lead.id}/ai-regenerate`, {
         idempotencyKey: regenKey,
+        ...(regenerationGoal.trim() ? { offerDescription: regenerationGoal.trim() } : {}),
+        ...(regenerationTone ? { toneStyle: regenerationTone } : {}),
       });
       const newCopy = res.data.messageContent;
       setContent(newCopy);
@@ -439,8 +446,8 @@ export function LeadMessageModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-      <div className="dash-card border border-white/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
-        <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
+      <div className="dash-card studio-dialog w-full max-w-lg max-h-[92dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+        <div className="p-5 shrink-0 border-b border-white/[0.08] flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold text-white">{lead.title}</h2>
@@ -449,22 +456,22 @@ export function LeadMessageModal({
                   <Sparkles size={10} /> IA Gerada
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/10 text-[var(--studio-muted)] border border-slate-500/20">
                   Template Padrão
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5 font-mono">{lead.phone}</p>
+            <p className="text-xs text-[var(--studio-muted)] mt-0.5 font-mono">{lead.phone}</p>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer"
+            className="text-[var(--studio-muted)] hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] transition-all cursor-pointer"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto min-h-0">
           {isAlreadySentOrSending && (
             <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2.5">
               <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
@@ -477,25 +484,25 @@ export function LeadMessageModal({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--studio-muted)]">
             {lead.website ? (
               <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium border border-emerald-500/20">
                 <Globe size={11} /> {lead.website}
               </span>
             ) : (
-              <span className="text-slate-500">Sem site informado</span>
+              <span className="text-[var(--studio-muted)]">Sem site informado</span>
             )}
             {lead.neighborhood && (
-              <span className="inline-flex items-center gap-1 text-slate-400">
-                <MapPin size={11} className="text-slate-500" /> {lead.neighborhood}
+              <span className="inline-flex items-center gap-1 text-[var(--studio-muted)]">
+                <MapPin size={11} className="text-[var(--studio-muted)]" /> {lead.neighborhood}
               </span>
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-200 mb-1.5 flex items-center justify-between">
+            <label className="block text-xs font-semibold text-[var(--studio-ink)] mb-1.5 flex items-center justify-between">
               <span>Mensagem de Envio para WhatsApp</span>
-              <span className="text-[10px] text-slate-500 font-normal">Edição manual não consome créditos</span>
+              <span className="text-[10px] text-[var(--studio-muted)] font-normal">Edição manual não consome créditos</span>
             </label>
             <textarea
               rows={8}
@@ -507,11 +514,29 @@ export function LeadMessageModal({
             />
           </div>
 
+          {!isAlreadySentOrSending && <div className="space-y-2">
+            <label htmlFor="lead-ai-goal" className="block text-xs text-[var(--studio-muted)]">Objetivo para a próxima versão (opcional)</label>
+            <textarea id="lead-ai-goal" rows={2} maxLength={1000} value={regenerationGoal} disabled={regenerating || saving}
+              onChange={e => { setRegenerationGoal(e.target.value); setRegenKey(crypto.randomUUID()); }}
+              placeholder="Ex.: oferecer fotografia e pedir permissão para enviar o portfólio. Vazio mantém a oferta da campanha."
+              className="dash-input w-full rounded-xl p-3 text-xs" />
+            <label htmlFor="lead-ai-tone" className="block text-xs text-[var(--studio-muted)]">Estilo da próxima versão</label>
+            <select id="lead-ai-tone" value={regenerationTone} disabled={regenerating || saving}
+              onChange={e => { setRegenerationTone(e.target.value as AiToneStyle | ""); setRegenKey(crypto.randomUUID()); }}
+              className="dash-input w-full rounded-xl p-3 text-xs">
+              <option value="">Manter estilo da campanha</option>
+              <option value="DIRECT">Direto ao ponto</option><option value="CONSULTATIVE">Consultivo</option>
+              <option value="FRIENDLY">Amigável</option><option value="CURIOSITY">Curiosidade</option>
+              <option value="VALUE">Benefício claro</option><option value="SPECIAL_OFFER">Oferta especial real</option>
+            </select>
+            <p className="text-xs text-[var(--studio-muted)]">A IA cria uma abordagem curta. Você revisa antes de enviar. Apenas uma nova geração consome crédito; editar manualmente é gratuito.</p>
+          </div>}
+
           <div className="pt-2 flex items-center justify-between gap-2 border-t border-white/[0.08]">
             <button
               type="button"
               onClick={handleRegenerate}
-              disabled={Boolean(isAlreadySentOrSending) || regenerating || saving || availableCredits < 1}
+              disabled={Boolean(isAlreadySentOrSending) || regenerating || saving || availableCredits < 1 || (regenerationGoal.trim().length > 0 && regenerationGoal.trim().length < 5)}
               className="px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               title="Gera uma nova cópia usando 1 crédito de IA"
             >
@@ -532,7 +557,7 @@ export function LeadMessageModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
+                className="px-3 py-1.5 rounded-xl text-xs font-medium text-[var(--studio-muted)] hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
               >
                 Fechar
               </button>

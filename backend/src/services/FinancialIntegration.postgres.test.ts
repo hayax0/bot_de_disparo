@@ -88,7 +88,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
     const other = await testPrisma.user.create({ data: { email: 'byok-other@test.local', password: 'hash', planId: 'START', subscriptionStatus: 'ACTIVE' } });
     const workspace = await testPrisma.workspace.create({ data: { name: 'BYOK', userId: user.id } });
     const otherWorkspace = await testPrisma.workspace.create({ data: { name: 'Outro', userId: other.id } });
-    const input = { userId: user.id, workspaceId: workspace.id, segment: 'Clínicas', location: 'Rio', requestedCount: 5, idempotencyKey: 'byok-one' };
+    const input = { userId: user.id, workspaceId: workspace.id, segment: 'Clínicas', location: 'Rio', requestedCount: 5, idempotencyKey: 'byok-one', websiteFilter: 'WITH_WEBSITE' as const };
     try {
       await assert.rejects(CompanySearchService.initiateSearch(input), /Conecte/);
       global.fetch = (async (_url: any, options: any) => {
@@ -114,6 +114,8 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       assert.equal(a.id, b.id);
       assert.equal(a.billingMode, 'PERSONAL_APIFY');
       assert.equal(a.creditsReserved, 0);
+      assert.equal(a.websiteFilter, 'WITH_WEBSITE');
+      await assert.rejects(CompanySearchService.initiateSearch({ ...input, websiteFilter: 'WITHOUT_WEBSITE' }), /idempotência/);
       await assert.rejects(ApifyCredentialService.remove(user.id), /Aguarde/);
       await assert.rejects(ApifyCredentialService.save(user.id, 'personal-test-token'), /Aguarde/);
       await assert.rejects(CompanySearchService.initiateSearch({ ...input, segment: 'Outro' }), /idempotência/);
@@ -122,8 +124,11 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       global.fetch = (async (url: any, options: any) => {
         assert.ok(!String(url).includes('token='));
         headers.push(options.headers.Authorization);
-        if (String(url).includes('/datasets/')) return new Response(JSON.stringify([{ title: 'Clínica', phone: '5521999997777', website: 'https://example.com' }]));
-        if (options.method === 'POST') return new Response(JSON.stringify({ data: { id: 'byok-run', defaultDatasetId: 'byok-data' } }));
+        if (String(url).includes('/datasets/')) return new Response(JSON.stringify([{ title: 'Clínica', phone: '5521999997777', website: 'https://example.com' }, { title: 'Fixo', phone: '552133334444', website: 'https://fixo.com' }, { title: 'Sem site', phone: '5521988886666', website: null } ]));
+        if (options.method === 'POST') {
+          assert.equal(JSON.parse(options.body).website, 'withWebsite');
+          return new Response(JSON.stringify({ data: { id: 'byok-run', defaultDatasetId: 'byok-data' } }));
+        }
         if (String(url).includes('/actor-runs/')) return new Response(JSON.stringify({ data: { status: 'SUCCEEDED', defaultDatasetId: 'byok-data' } }));
         return new Response(JSON.stringify({ data: { items: [] } }));
       }) as typeof fetch;
@@ -131,9 +136,24 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       assert.equal(completed?.status, 'COMPLETED');
       assert.equal(completed?.creditsConsumed, 0);
       assert.equal(completed?.usableCount, 1);
+      assert.equal(completed?.discardedCount, 2);
       assert.ok(headers.length > 0 && headers.every(value => value === 'Bearer personal-test-token'));
       assert.equal(await testPrisma.creditTransaction.count({ where: { userId: user.id } }), 0);
       assert.equal(await testPrisma.creditReservation.count({ where: { userId: user.id } }), 0);
+      setTestPlacesProvider(async () => [
+        { title: 'Site próprio', phone: '5521999990001', website: 'https://empresa.com.br' },
+        { title: 'Só Instagram', phone: '5521999990002', website: 'https://instagram.com/empresa' },
+        { title: 'Sem site', phone: '5521999990003', website: null },
+        { title: 'Fixo', phone: '552133330004', website: null },
+      ]);
+      const without = await CompanySearchService.initiateSearch({ ...input, idempotencyKey: 'byok-without-site', websiteFilter: 'WITHOUT_WEBSITE' });
+      await CompanySearchService.processSearchJob(without.id);
+      const withoutResults = await testPrisma.companySearch.findUniqueOrThrow({ where: { id: without.id }, include: { results: true } });
+      assert.equal(withoutResults.websiteFilter, 'WITHOUT_WEBSITE');
+      assert.equal(withoutResults.usableCount, 2);
+      assert.equal(withoutResults.discardedCount, 2);
+      assert.deepEqual(withoutResults.results.filter(r => r.isUsable).map(r => r.name).sort(), ['Sem site', 'Só Instagram']);
+      assert.equal(withoutResults.creditsConsumed, 0);
       await ApifyCredentialService.remove(user.id);
       assert.equal((await ApifyCredentialService.status(user.id)).configured, false);
       assert.equal((await CompanySearchService.initiateSearch(input)).id, a.id);

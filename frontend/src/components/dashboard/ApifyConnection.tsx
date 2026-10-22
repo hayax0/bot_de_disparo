@@ -32,8 +32,8 @@ export function ApifyConnection({ onConnectionChange }: { onConnectionChange: (r
   }
   return <section className="dash-card rounded-2xl p-5 space-y-4 border border-white/10">
     <div><h3 className="text-white font-semibold">Sua conta Apify {account && <span className="text-emerald-400 text-sm">• Conectada: {account}</span>}</h3>
-      <p className="text-sm text-slate-400 mt-2">Busque empresas aqui usando sua própria conta Apify. O consumo é cobrado pela Apify, conforme seu saldo e plano. Créditos de IA da plataforma não são usados nas buscas.</p></div>
-    <details className="text-sm text-slate-300" open={!account}>
+      <p className="text-sm text-[var(--studio-muted)] mt-2">Busque empresas aqui usando sua própria conta Apify. O consumo é cobrado pela Apify, conforme seu saldo e plano. Créditos de IA da plataforma não são usados nas buscas.</p></div>
+    <details className="text-sm text-[var(--studio-muted)]" open={!account}>
       <summary className="cursor-pointer text-emerald-400 font-medium">Como conectar minha Apify — passo a passo</summary>
       <ol className="list-decimal pl-5 space-y-2 mt-3">
         <li>Crie uma conta ou entre em <a className="underline" href="https://console.apify.com/" target="_blank" rel="noopener noreferrer">console.apify.com</a>.</li>
@@ -51,6 +51,6 @@ export function ApifyConnection({ onConnectionChange }: { onConnectionChange: (r
       <button disabled={busy || !token.trim()} className="dash-btn-primary px-4 py-2 disabled:opacity-40">{busy ? 'Aguarde…' : 'Validar e salvar'}</button>
       {account && <button type="button" disabled={busy} onClick={() => void update(true)} className="dash-btn-secondary px-4 py-2">Remover chave</button>}
     </form>
-    <p role="status" className="text-sm text-slate-300">{message}</p>
+    <p role="status" className="text-sm text-[var(--studio-muted)]">{message}</p>
   </section>;
 }

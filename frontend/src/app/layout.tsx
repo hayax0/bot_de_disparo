@@ -97,7 +97,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className="bg-[#08090D] text-slate-100 font-sans selection:bg-purple-500/30 selection:text-purple-200 min-h-screen">
+      <body className="bg-[var(--studio-bg)] text-[var(--studio-ink)] font-sans selection:bg-emerald-500/30 selection:text-emerald-200 min-h-screen">
         {/* Google Analytics GA4 */}
         {GA_MEASUREMENT_ID && (
           <>

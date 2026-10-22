@@ -4,7 +4,7 @@ import { LANDING_PLANS } from "@/lib/constants";
 
 export function PricingSection() {
   return (
-    <section id="planos" className="py-16 sm:py-20 scroll-mt-24 bg-[#08090D] relative overflow-hidden border-t border-white/[0.06]">
+    <section id="planos" className="py-16 sm:py-20 scroll-mt-24 bg-[var(--studio-bg)] relative overflow-hidden border-t border-white/[0.06]">
       {/* Sutil micro-brilho neutro de profundidade */}
       <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-emerald-500/[0.03] blur-[140px] pointer-events-none" />
 
@@ -14,7 +14,7 @@ export function PricingSection() {
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-white tracking-tight">
             Escolha o ritmo da sua prospecção.
           </h2>
-          <p className="text-sm text-slate-400 font-normal">
+          <p className="text-sm text-[var(--studio-muted)] font-normal">
             Encontre empresas, prepare suas abordagens com IA e acompanhe suas campanhas pelo WhatsApp.
           </p>
         </div>
@@ -46,17 +46,17 @@ export function PricingSection() {
                     <h3 className="text-xl font-bold text-white tracking-tight flex items-center justify-between">
                       <span>{plan.name}</span>
                     </h3>
-                    <p className="text-xs text-slate-400 leading-relaxed min-h-[36px]">
+                    <p className="text-xs text-[var(--studio-muted)] leading-relaxed min-h-[36px]">
                       {plan.id === "START" ? "Para começar sua rotina de prospecção." : plan.id === "PRO" ? "Para manter campanhas frequentes." : "Para quem precisa de mais envios e IA."}
                     </p>
 
                     {/* Preço */}
                     <div className="pt-3 flex items-baseline gap-1">
-                      <span className="text-sm font-semibold text-slate-400">{plan.currency}</span>
+                      <span className="text-sm font-semibold text-[var(--studio-muted)]">{plan.currency}</span>
                       <span className="text-4xl sm:text-5xl font-black text-white tracking-tight font-mono tabular-nums">
                         {plan.price}
                       </span>
-                      <span className="text-xs font-medium text-slate-400">{plan.period}</span>
+                      <span className="text-xs font-medium text-[var(--studio-muted)]">{plan.period}</span>
                     </div>
 
 
@@ -65,7 +65,7 @@ export function PricingSection() {
                   {/* Franquias em Destaque */}
                   <div className="py-4 border-b border-white/[0.08] grid grid-cols-2 gap-2 text-center">
                     <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-                      <span className="text-[10px] text-slate-400 block uppercase font-mono">Disparos</span>
+                      <span className="text-[10px] text-[var(--studio-muted)] block uppercase font-mono">Disparos</span>
                       <span className="text-xs font-bold text-white mt-0.5 block">{plan.monthlyDispatches.split(" ")[0]} /mês</span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-emerald-500/[0.05] border border-emerald-500/15">
@@ -78,7 +78,7 @@ export function PricingSection() {
                   <div className="py-5 space-y-3">
                     <ul className="space-y-2.5">
                       {["Campanhas e histórico de contatos", ...(plan.id !== "START" ? ["Importação de listas próprias"] : [])].map((feat, idx) => (
-                        <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-200">
+                        <li key={idx} className="flex items-start gap-2.5 text-xs text-[var(--studio-ink)]">
                           <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
                           <span className="leading-relaxed">{feat}</span>
                         </li>
@@ -101,7 +101,7 @@ export function PricingSection() {
                     <span>Começar com {plan.name}</span>
                   </Link>
 
-                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 text-center">
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-[var(--studio-muted)] text-center">
                     <ShieldCheck size={13} className="text-emerald-400" />
                     <span>Acesso após confirmação do pagamento</span>
                   </div>
@@ -113,7 +113,7 @@ export function PricingSection() {
 
         {/* Rodapé Informativo */}
         <div className="mt-14 max-w-3xl mx-auto p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-center">
-          <p className="text-xs text-slate-400 leading-relaxed">
+          <p className="text-xs text-[var(--studio-muted)] leading-relaxed">
             Cada mensagem gerada ou refinada com a Inteligência Artificial consome 1 crédito. Edições manuais são gratuitas.
             As buscas exigem conexão com um serviço externo, configurada no painel, com custos cobrados separadamente pelo provedor.
             Recargas não aumentam o limite de disparos. Cancelamento sem fidelidade.

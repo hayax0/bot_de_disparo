@@ -678,7 +678,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
 // Geração em lote com IA para os leads da campanha
 const aiBatchSchema = z.object({
   offerDescription: z.string().min(5, 'Informe o que você oferece (mínimo 5 caracteres)').max(1000, 'Descrição da oferta muito longa (máximo 1000 caracteres)'),
-  toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER']).optional(),
+  toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER', 'CURIOSITY', 'VALUE']).optional(),
   leadIds: z.array(z.string()).max(200, 'Máximo de 200 leads por lote').optional(),
   idempotencyKey: z.string().max(128).optional(),
 });
@@ -756,7 +756,7 @@ router.get('/:id/ai-operations/:operationId', async (req: Request, res: Response
 // Regeneração de mensagem para lead individual
 const singleLeadAiSchema = z.object({
   offerDescription: z.string().min(5, 'Informe a proposta com no mínimo 5 caracteres').max(1000, 'Proposta muito longa (máximo 1000 caracteres)').optional(),
-  toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER']).optional(),
+  toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER', 'CURIOSITY', 'VALUE']).optional(),
   idempotencyKey: z.string().max(128).optional(),
 });
 
