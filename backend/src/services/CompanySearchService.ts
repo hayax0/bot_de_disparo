@@ -35,6 +35,13 @@ export function matchesWebsiteFilter(website: string | null | undefined, filter:
   return filter === 'ALL' || (filter === 'WITH_WEBSITE' ? hasWebsite : !hasWebsite);
 }
 
+/** Projeção pública: descartes de site ficam na auditoria, nunca na lista entregue. */
+export function visibleCompanySearchResults<T extends { phone: string | null; website?: string | null; discardReason?: string | null }>(results: T[], filter: WebsiteFilter = 'ALL'): T[] {
+  return results.filter(result => result.discardReason !== 'WEBSITE_FILTER'
+    && result.phone && normalizeSearchMobilePhone(result.phone)
+    && matchesWebsiteFilter(result.website, filter));
+}
+
 /**
  * Validador estrito de número celular brasileiro.
  * Exige DDI 55 + DDD brasileiro válido + nono dígito 9 + 8 dígitos do assinante.

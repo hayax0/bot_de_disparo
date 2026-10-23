@@ -6,6 +6,7 @@ import {
   CompanySearchService,
   normalizeSearchMobilePhone,
   matchesWebsiteFilter,
+  visibleCompanySearchResults,
   isValidBrazilianMobilePhone,
   sanitizeCompanyWebsite,
   setTestPlacesProvider
@@ -310,4 +311,19 @@ test('Busca: filtro por site próprio não confunde redes sociais, Maps ou URL v
     assert.equal(matchesWebsiteFilter(website, 'ALL'), true);
   }
   assert.equal(matchesWebsiteFilter('https://empresa.com', 'WITHOUT_WEBSITE'), false);
+});
+
+
+test('Busca: resposta pública e histórico só exibem empresas do filtro aplicado', () => {
+  const results = [
+    { id: 'site', phone: '5521999990001', website: 'https://empresa.com.br', discardReason: null },
+    { id: 'sem-site', phone: '5521999990002', website: null, discardReason: null },
+    { id: 'instagram', phone: '5521999990003', website: 'https://instagram.com/empresa', discardReason: null },
+    { id: 'fora-filtro', phone: '5521999990004', website: 'https://outra.com', discardReason: 'WEBSITE_FILTER' },
+    { id: 'fixo', phone: '552133330005', website: null, discardReason: 'INVALID_PHONE' },
+  ];
+  assert.deepEqual(visibleCompanySearchResults(results, 'WITHOUT_WEBSITE').map(r => r.id), ['sem-site', 'instagram']);
+  assert.deepEqual(visibleCompanySearchResults(results, 'WITH_WEBSITE').map(r => r.id), ['site']);
+  assert.deepEqual(visibleCompanySearchResults(results).map(r => r.id), ['site', 'sem-site', 'instagram']);
+  assert.equal(results.length, 5, 'A projeção não apaga os registros internos nem suas contagens');
 });
