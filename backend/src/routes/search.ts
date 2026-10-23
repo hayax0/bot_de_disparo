@@ -1,7 +1,8 @@
+import type { CompanySearchResult } from '@prisma/client';
 import { temWebsiteValido } from '../services/ProposalEngine';
 import { Router, Request, Response } from 'express';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
-import { normalizeSearchMobilePhone, CompanySearchService } from '../services/CompanySearchService';
+import { visibleCompanySearchResults, WebsiteFilter, CompanySearchService } from '../services/CompanySearchService';
 import { IntegrationError } from '../services/ApifyCredentialService';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
@@ -61,7 +62,9 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
       idempotencyKey
     });
 
-    res.status(202).json(searchResult);
+    const results: CompanySearchResult[] = 'results' in searchResult && Array.isArray(searchResult.results) ? searchResult.results : [];
+    res.status(202).json({ ...searchResult, results: visibleCompanySearchResults(results, (searchResult.websiteFilter || 'ALL') as WebsiteFilter)
+      .map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
   } catch (error: any) {
     if (error instanceof IntegrationError) return res.status(error.status).json({ error: error.message });
     if (error.name === 'InsufficientCreditsError') {
@@ -142,7 +145,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'Busca não encontrada.' });
     }
 
-    res.json({ ...search, results: search.results.filter(result => result.phone && normalizeSearchMobilePhone(result.phone)).map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
+    res.json({ ...search, results: visibleCompanySearchResults(search.results, (search.websiteFilter || 'ALL') as WebsiteFilter).map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
   } catch (error: any) {
     console.error('Erro ao buscar detalhes:', error);
     res.status(500).json({ error: 'Erro ao carregar detalhes da busca.' });
