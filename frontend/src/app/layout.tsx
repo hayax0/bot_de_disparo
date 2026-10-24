@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/logo.png",
+        url: "/logo-abordai-v1.png",
         width: 512,
         height: 512,
         alt: "Abordai Logo",
@@ -48,19 +48,19 @@ export const metadata: Metadata = {
     title: "Abordai — Prospecção e abordagens com IA",
     description:
       "Automatize sua prospecção ativa no WhatsApp com cadência humana, delays inteligentes e execução 24/7 na nuvem.",
-    images: ["/logo.png"],
+    images: ["/logo-abordai-v1.png"],
   },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
   },
   icons: {
     icon: [
-      { url: "/icon.png?v=4", href: "/icon.png?v=4" },
-      { url: "/favicon.ico?v=4", href: "/favicon.ico?v=4" },
-      { url: "/logo.png?v=4", href: "/logo.png?v=4" },
+      { url: "/icon.png?v=abordai-1", href: "/icon.png?v=abordai-1" },
+      { url: "/favicon.ico?v=abordai-1", href: "/favicon.ico?v=abordai-1" },
+      { url: "/logo-abordai-v1.png?v=abordai-1", href: "/logo-abordai-v1.png?v=abordai-1" },
     ],
-    apple: "/icon.png?v=4",
-    shortcut: "/icon.png?v=4",
+    apple: "/icon.png?v=abordai-1",
+    shortcut: "/icon.png?v=abordai-1",
   },
 };
 
@@ -88,10 +88,10 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className={`dark ${inter.variable} antialiased`}>
       <head>
-        <link rel="icon" href="/icon.png?v=4" type="image/png" />
-        <link rel="icon" href="/favicon.ico?v=4" sizes="any" />
-        <link rel="shortcut icon" href="/icon.png?v=4" />
-        <link rel="apple-touch-icon" href="/icon.png?v=4" />
+        <link rel="icon" href="/icon.png?v=abordai-1" type="image/png" />
+        <link rel="icon" href="/favicon.ico?v=abordai-1" sizes="any" />
+        <link rel="shortcut icon" href="/icon.png?v=abordai-1" />
+        <link rel="apple-touch-icon" href="/icon.png?v=abordai-1" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

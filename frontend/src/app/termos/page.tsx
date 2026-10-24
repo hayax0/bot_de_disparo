@@ -18,7 +18,7 @@ export default function TermosPage() {
           <Link href="/" className="flex items-center gap-3 group">
             <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 group-hover:border-emerald-500/50 transition-colors">
               <Image
-                src="/logo-v4.png"
+                src="/logo-abordai-v1.png"
                 alt="Logo Abordai"
                 width={32}
                 height={32}

@@ -1,6 +1,6 @@
 # Marca Abordai
 
-Abordai é o nome público da plataforma: encontrar empresas, personalizar abordagens com IA e acompanhar campanhas no WhatsApp. O símbolo verde existente permanece como identidade visual.
+Abordai é o nome público da plataforma: encontrar empresas, personalizar abordagens com IA e acompanhar campanhas no WhatsApp. O símbolo é um monograma “a” com balão de conversa, em verde menta sobre fundo escuro. A fonte vetorial fica em frontend/public/abordai-mark.svg; execute node frontend/scripts/generate-brand-assets.cjs para regenerar PNGs e favicon ICO (16 a 256 px). Site e e-mails usam logo-abordai-v1.png para separar o cache da marca anterior.
 
 A mudança contempla landing page, painel, autenticação, páginas legais, metadados de busca/compartilhamento e todos os e-mails transacionais. O remetente exibe Abordai mantendo o endereço verificado no Resend.
 

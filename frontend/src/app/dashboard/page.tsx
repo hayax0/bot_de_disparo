@@ -1284,7 +1284,7 @@ export default function Dashboard() {
       <div className="min-h-screen bg-[var(--studio-bg)] flex items-center justify-center relative selection:bg-emerald-500/20">
         <div className="flex flex-col items-center gap-4 z-10">
           <div className="w-11 h-11 rounded-2xl overflow-hidden border border-white/[0.12] bg-[var(--studio-surface)] p-0.5 flex items-center justify-center">
-            <Image src="/logo-v4.png" alt="Logo" width={40} height={40} priority className="w-full h-full object-cover rounded-xl" />
+            <Image src="/logo-abordai-v1.png" alt="Logo" width={40} height={40} priority className="w-full h-full object-cover rounded-xl" />
           </div>
           <div className="flex items-center gap-2 text-xs font-mono tabular-nums text-[var(--studio-muted)]">
             <RefreshCw size={13} className="animate-spin text-emerald-400" />
@@ -1321,7 +1321,7 @@ export default function Dashboard() {
       <header className="md:hidden flex items-center justify-between p-4 bg-[var(--studio-surface)] border-b border-white/[0.08] sticky top-0 z-30">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl overflow-hidden border border-white/[0.1] bg-[var(--studio-surface)] p-0.5">
-            <Image src="/logo-v4.png" alt="Logo" width={32} height={32} priority className="w-full h-full object-cover rounded-lg" />
+            <Image src="/logo-abordai-v1.png" alt="Logo" width={32} height={32} priority className="w-full h-full object-cover rounded-lg" />
           </div>
           <span className="font-semibold text-sm tracking-tight text-white">Abordai</span>
         </div>
@@ -1343,7 +1343,7 @@ export default function Dashboard() {
           {/* Logo */}
           <div className="flex items-center gap-3 mb-6 px-2">
             <div className="w-9 h-9 rounded-2xl overflow-hidden border border-white/[0.12] bg-[var(--studio-surface)] p-0.5">
-              <Image src="/logo-v4.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover rounded-xl" />
+              <Image src="/logo-abordai-v1.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover rounded-xl" />
             </div>
             <div>
               <span className="font-semibold text-sm tracking-tight text-white block">Abordai</span>

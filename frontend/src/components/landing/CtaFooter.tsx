@@ -46,7 +46,7 @@ export function CtaFooter() {
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-lg overflow-hidden border border-white/10">
               <Image
-                src="/logo-v4.png"
+                src="/logo-abordai-v1.png"
                 alt="Logo Abordai"
                 width={28}
                 height={28}
