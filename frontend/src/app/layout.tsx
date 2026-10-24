@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_ID || "G-KREW1ZNY8S";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://botdisparo.cmpx.tec.br"),
+  metadataBase: new URL("https://abordai.cmpx.tec.br"),
   title: "Abordai — Prospecção e abordagens com IA",
   description:
     "Plataforma de automação e prospecção ativa via WhatsApp com controle de cadência humana, execução 100% em nuvem e histórico permanente por workspace.",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     title: "Abordai — Prospecção e abordagens com IA",
     description:
       "Automatize sua prospecção ativa no WhatsApp com cadência humana, delays inteligentes e execução 24/7 na nuvem.",
-    url: "https://botdisparo.cmpx.tec.br",
+    url: "https://abordai.cmpx.tec.br",
     siteName: "Abordai",
     locale: "pt_BR",
     type: "website",
@@ -75,7 +75,7 @@ export default function RootLayout({
     name: "Abordai",
     operatingSystem: "Web",
     applicationCategory: "BusinessApplication",
-    url: "https://botdisparo.cmpx.tec.br",
+    url: "https://abordai.cmpx.tec.br",
     description:
       "Plataforma SaaS de prospecção e disparo de mensagens humanizado via WhatsApp com controle de cadência e motor de execução na nuvem.",
     offers: {

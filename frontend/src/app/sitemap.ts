@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://botdisparo.cmpx.tec.br';
+  const baseUrl = 'https://abordai.cmpx.tec.br';
   const now = new Date();
 
   return [
