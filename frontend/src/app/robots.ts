@@ -16,6 +16,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: 'https://botdisparo.cmpx.tec.br/sitemap.xml',
+    sitemap: 'https://abordai.cmpx.tec.br/sitemap.xml',
   };
 }

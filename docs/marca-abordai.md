@@ -16,3 +16,11 @@ O endereço atual https://botdisparo.cmpx.tec.br continua válido. Não renomear
 - Registrar marca e verificar disponibilidade jurídica/comercial antes de investir em divulgação: a troca no código não comprova exclusividade do nome.
 
 E-mails já recebidos, prévias de compartilhamento e resultados de buscadores podem manter o nome anterior até atualização de cache/indexação.
+
+## Endereço principal
+
+O endereço principal passa a ser https://abordai.cmpx.tec.br. O endereço antigo redireciona páginas mantendo caminho e query string. A rota /api/ antiga continua sendo encaminhada diretamente ao backend para preservar webhooks e integrações.
+
+Configuração versionada em infra/nginx/abordai.conf. Emitir o certificado do novo nome antes de instalar essa configuração; manter os dois certificados com renovação automática. Na VPS, PLATFORM_URL deve apontar ao novo endereço e CORS_ORIGIN deve permitir os dois endereços durante a transição. O remetente Resend continua no domínio verificado botdisparo.cmpx.tec.br; não requer novos registros de e-mail.
+
+O login poderá ser solicitado novamente no novo endereço, pois o armazenamento do navegador é separado por origem. Contas, senhas, campanhas e saldos são os mesmos.
