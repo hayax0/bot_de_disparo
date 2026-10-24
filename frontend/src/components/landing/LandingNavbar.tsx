@@ -54,7 +54,7 @@ export function LandingNavbar() {
           >
             <div className="studio-navbar-logo">
               <Image
-                src="/logo-v4.png"
+                src="/logo-abordai-v1.png"
                 alt="Logo Abordai"
                 width={32}
                 height={32}

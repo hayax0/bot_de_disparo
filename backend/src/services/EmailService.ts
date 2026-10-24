@@ -182,7 +182,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto;">
                 <tr>
                   <td style="vertical-align: middle; padding-right: 14px;">
-                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Abordai" width="44" height="44" style="display: block; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); background-color: #08090D;" />
+                    <img src="${ENV.PLATFORM_URL}/logo-abordai-v1.png" alt="Abordai" width="44" height="44" style="display: block; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); background-color: #08090D;" />
                   </td>
                   <td style="vertical-align: middle; text-align: left;">
                     <div style="font-size: 21px; font-weight: 800; color: #ffffff; line-height: 1.1; letter-spacing: -0.4px;">Abordai</div>
