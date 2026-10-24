@@ -21,6 +21,6 @@ E-mails já recebidos, prévias de compartilhamento e resultados de buscadores p
 
 O endereço principal passa a ser https://abordai.cmpx.tec.br. O endereço antigo redireciona páginas mantendo caminho e query string. A rota /api/ antiga continua sendo encaminhada diretamente ao backend para preservar webhooks e integrações.
 
-Configuração versionada em infra/nginx/abordai.conf. Emitir o certificado do novo nome antes de instalar essa configuração; manter os dois certificados com renovação automática. Na VPS, PLATFORM_URL deve apontar ao novo endereço e CORS_ORIGIN deve permitir os dois endereços durante a transição. O remetente Resend continua no domínio verificado botdisparo.cmpx.tec.br; não requer novos registros de e-mail.
+Configuração versionada em infra/nginx/abordai.conf. Emitir o certificado do novo nome antes de instalar essa configuração; manter os dois certificados com renovação automática. Na VPS, PLATFORM_URL deve apontar ao novo endereço e CORS_ORIGIN deve permitir os dois endereços durante a transição. O domínio abordai.cmpx.tec.br foi verificado no Resend com registros DKIM e SPF. O remetente transacional é Abordai <noreply@abordai.cmpx.tec.br>. Manter os registros antigos durante a transição e o reply-to de suporte existente.
 
 O login poderá ser solicitado novamente no novo endereço, pois o armazenamento do navegador é separado por origem. Contas, senhas, campanhas e saldos são os mesmos.

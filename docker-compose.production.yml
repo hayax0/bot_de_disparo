@@ -86,7 +86,7 @@ services:
       APIFY_API_TOKEN: ${APIFY_API_TOKEN:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Abordai <noreply@botdisparo.cmpx.tec.br>}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-Abordai <noreply@abordai.cmpx.tec.br>}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-cmpxsuporte@gmail.com}
       PLATFORM_URL: ${PLATFORM_URL:-https://abordai.cmpx.tec.br}
       CRON_SECRET: ${CRON_SECRET:?Defina CRON_SECRET forte no .env}
