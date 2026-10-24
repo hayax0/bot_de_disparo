@@ -1,8 +1,9 @@
 // Fonte vetorial única; gera os tamanhos consumidos pelo site, e-mails e navegadores.
-const fs = require('node:fs/promises');
-const path = require('node:path');
-const sharp = require('sharp');
-const root = path.resolve(__dirname, '..');
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 async function main() {
   const svg = await fs.readFile(path.join(root, 'public/abordai-mark.svg'));
   const png = await sharp(svg).resize(512, 512).png().toBuffer();
