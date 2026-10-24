@@ -3,7 +3,7 @@ import Image from "next/image";
 import { ArrowLeft, FileText, AlertTriangle } from "lucide-react";
 
 export const metadata = {
-  title: "Termos de Uso | Disparador de Mensagens",
+  title: "Termos de Uso | Abordai",
   description: "Termos e condições gerais de uso da plataforma SaaS de prospecção e disparo de mensagens via WhatsApp.",
 };
 
@@ -19,14 +19,14 @@ export default function TermosPage() {
             <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 group-hover:border-emerald-500/50 transition-colors">
               <Image
                 src="/logo-v4.png"
-                alt="Logo Disparador"
+                alt="Logo Abordai"
                 width={32}
                 height={32}
                 className="w-full h-full object-cover"
               />
             </div>
             <span className="font-bold text-white text-sm tracking-tight">
-              Disparador de Mensagens
+              Abordai
             </span>
           </Link>
 
@@ -188,7 +188,7 @@ export default function TermosPage() {
       {/* Footer Legal */}
       <footer className="border-t border-white/[0.08] py-8 text-center text-xs text-[var(--studio-muted)]">
         <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© {currentYear} Disparador de Mensagens. Todos os direitos reservados.</p>
+          <p>© {currentYear} Abordai. Todos os direitos reservados.</p>
           <div className="flex items-center gap-6">
             <Link href="/privacidade" className="hover:text-white transition-colors">
               Política de Privacidade (LGPD)

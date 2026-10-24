@@ -15,7 +15,7 @@ export function CampaignPreview() {
   return (
     <div className="preview-shell" data-hero-preview>
       <div className="preview-console">
-        <div className="preview-toolbar"><span className="preview-dot" /><span>disparador / campanha</span><span className="preview-example">Demonstração</span></div>
+        <div className="preview-toolbar"><span className="preview-dot" /><span>abordai / campanha</span><span className="preview-example">Demonstração</span></div>
         <div className="preview-body">
           <div className="preview-topline"><div><span className="studio-eyebrow">DO CONTATO À CONVERSA</span><h2>Sua abordagem. Seu ritmo.</h2></div><ArrowUpRight size={22} strokeWidth={1.5} /></div>
           <div className="preview-switch" role="group" aria-label="Escolha um exemplo de segmento">

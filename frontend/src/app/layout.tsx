@@ -10,16 +10,16 @@ const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_ID || "G-KREW1ZNY8S";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://botdisparo.cmpx.tec.br"),
-  title: "Disparador de Mensagens — Prospecção Automática no WhatsApp",
+  title: "Abordai — Prospecção e abordagens com IA",
   description:
     "Plataforma de automação e prospecção ativa via WhatsApp com controle de cadência humana, execução 100% em nuvem e histórico permanente por workspace.",
   keywords: [
     "prospecção whatsapp",
-    "disparador de mensagens",
+    "Abordai",
     "automação whatsapp",
     "vendas b2b",
     "cadência de disparo",
-    "envio em massa seguro",
+    "abordagens com inteligência artificial",
     "whatsapp marketing",
     "geração de leads whatsapp",
   ],
@@ -27,11 +27,11 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "Disparador de Mensagens — Prospecção Automática no WhatsApp",
+    title: "Abordai — Prospecção e abordagens com IA",
     description:
       "Automatize sua prospecção ativa no WhatsApp com cadência humana, delays inteligentes e execução 24/7 na nuvem.",
     url: "https://botdisparo.cmpx.tec.br",
-    siteName: "Disparador de Mensagens",
+    siteName: "Abordai",
     locale: "pt_BR",
     type: "website",
     images: [
@@ -39,13 +39,13 @@ export const metadata: Metadata = {
         url: "/logo.png",
         width: 512,
         height: 512,
-        alt: "Disparador de Mensagens Logo",
+        alt: "Abordai Logo",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Disparador de Mensagens — Prospecção Automática no WhatsApp",
+    title: "Abordai — Prospecção e abordagens com IA",
     description:
       "Automatize sua prospecção ativa no WhatsApp com cadência humana, delays inteligentes e execução 24/7 na nuvem.",
     images: ["/logo.png"],
@@ -72,7 +72,7 @@ export default function RootLayout({
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "Disparador de Mensagens",
+    name: "Abordai",
     operatingSystem: "Web",
     applicationCategory: "BusinessApplication",
     url: "https://botdisparo.cmpx.tec.br",

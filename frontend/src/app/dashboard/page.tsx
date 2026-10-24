@@ -1323,7 +1323,7 @@ export default function Dashboard() {
           <div className="w-8 h-8 rounded-xl overflow-hidden border border-white/[0.1] bg-[var(--studio-surface)] p-0.5">
             <Image src="/logo-v4.png" alt="Logo" width={32} height={32} priority className="w-full h-full object-cover rounded-lg" />
           </div>
-          <span className="font-semibold text-sm tracking-tight text-white">Disparador</span>
+          <span className="font-semibold text-sm tracking-tight text-white">Abordai</span>
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
@@ -1346,7 +1346,7 @@ export default function Dashboard() {
               <Image src="/logo-v4.png" alt="Logo" width={36} height={36} priority className="w-full h-full object-cover rounded-xl" />
             </div>
             <div>
-              <span className="font-semibold text-sm tracking-tight text-white block">Disparador</span>
+              <span className="font-semibold text-sm tracking-tight text-white block">Abordai</span>
               <span className="text-[10px] text-emerald-400 font-mono tracking-wider">PLATAFORMA SAAS</span>
             </div>
           </div>

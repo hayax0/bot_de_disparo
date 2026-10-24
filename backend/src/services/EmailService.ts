@@ -60,7 +60,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Disparador • Prospector SaaS</title>
+  <title>Abordai • Prospecção com IA</title>
   <style>
     body {
       margin: 0;
@@ -182,11 +182,11 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto;">
                 <tr>
                   <td style="vertical-align: middle; padding-right: 14px;">
-                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Disparador" width="44" height="44" style="display: block; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); background-color: #08090D;" />
+                    <img src="${ENV.PLATFORM_URL}/logo.png" alt="Abordai" width="44" height="44" style="display: block; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); background-color: #08090D;" />
                   </td>
                   <td style="vertical-align: middle; text-align: left;">
-                    <div style="font-size: 21px; font-weight: 800; color: #ffffff; line-height: 1.1; letter-spacing: -0.4px;">Disparador</div>
-                    <div style="font-size: 10px; font-weight: 700; color: #34d399; letter-spacing: 1.6px; font-family: monospace; margin-top: 3px;">PROSPECTOR SAAS</div>
+                    <div style="font-size: 21px; font-weight: 800; color: #ffffff; line-height: 1.1; letter-spacing: -0.4px;">Abordai</div>
+                    <div style="font-size: 10px; font-weight: 700; color: #34d399; letter-spacing: 1.6px; font-family: monospace; margin-top: 3px;">PROSPECÇÃO COM IA</div>
                   </td>
                 </tr>
               </table>
@@ -199,7 +199,7 @@ function getBaseEmailTemplate(contentHtml: string, previewText: string): string 
           </tr>
           <tr>
             <td class="footer">
-              <p style="margin: 0 0 6px 0;"><strong>Disparador</strong> • Prospector SaaS</p>
+              <p style="margin: 0 0 6px 0;"><strong>Abordai</strong> • Prospecção com IA</p>
               <p style="margin: 0 0 8px 0; font-size: 11px; color: #475569;">Desenvolvido por CMPX Tecnologia. Todos os direitos reservados.</p>
               <p style="margin: 0;">Precisa de suporte? Fale com nossa equipe: <a href="mailto:${ENV.RESEND_REPLY_TO}">${ENV.RESEND_REPLY_TO}</a></p>
             </td>
@@ -220,7 +220,7 @@ export class EmailService {
       const htmlContent = `
         <h2>Seu Código de Confirmação 🔐</h2>
         <p>Olá!</p>
-        <p>Use o código de segurança abaixo para confirmar seu e-mail e continuar seu cadastro no <strong>Disparador (Prospector SaaS)</strong>:</p>
+        <p>Use o código de segurança abaixo para confirmar seu e-mail e continuar seu cadastro no <strong>Abordai</strong>:</p>
 
         <div style="background-color: #0A0D14; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 24px 16px; margin: 24px 0; text-align: center;">
           <div style="font-size: 11px; font-weight: 600; color: #34d399; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Código de Verificação</div>
@@ -235,9 +235,9 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         to: email,
         replyTo: ENV.RESEND_REPLY_TO,
-        subject: 'Confirme seu e-mail — Disparador',
+        subject: 'Confirme seu e-mail — Abordai',
         text: `Seu código de confirmação é ${code}. Ele expira em 10 minutos. Não compartilhe este código. Se você não solicitou um cadastro, ignore esta mensagem.`,
-        html: getBaseEmailTemplate(htmlContent, `Seu código de confirmação do Disparador é: ${code}`),
+        html: getBaseEmailTemplate(htmlContent, `Seu código de confirmação do Abordai é: ${code}`),
       });
       return { success: !response.error, id: response.data?.id };
     } catch {
@@ -262,11 +262,11 @@ export class EmailService {
     const targetCheckout = checkoutUrl || ENV.CAKTO_CHECKOUT_URL;
 
     const htmlContent = `
-      <h2>Sua conta foi criada no Disparador! 🚀</h2>
+      <h2>Sua conta foi criada no Abordai! 🚀</h2>
       <p>Olá, <strong>${cleanName}</strong>!</p>
-      <p>Parabéns pelo seu cadastro. Sua conta na plataforma <strong>Disparador</strong> está pronta para ser ativada.</p>
+      <p>Parabéns pelo seu cadastro. Sua conta na plataforma <strong>Abordai</strong> está pronta para ser ativada.</p>
       
-      <p>O <strong>Disparador (Prospector SaaS)</strong> foi desenvolvido para transformar o seu WhatsApp em uma máquina de prospecção e vendas automatizada, gerando novos leads e oportunidades todos os dias no piloto automático.</p>
+      <p>O <strong>Abordai</strong> foi desenvolvido para transformar o seu WhatsApp em uma máquina de prospecção e vendas automatizada, gerando novos leads e oportunidades todos os dias no piloto automático.</p>
 
       <div style="margin: 24px 0 20px 0;">
         <div class="feature-card">
@@ -303,7 +303,7 @@ export class EmailService {
 
     const fullHtml = getBaseEmailTemplate(
       htmlContent,
-      'Sua conta foi criada! Ative sua assinatura no Disparador para liberar seus disparos automáticos no WhatsApp.'
+      'Sua conta foi criada! Ative sua assinatura no Abordai para liberar seus disparos automáticos no WhatsApp.'
     );
 
     try {
@@ -311,7 +311,7 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         replyTo: ENV.RESEND_REPLY_TO,
         to: [email],
-        subject: 'Conta criada no Disparador! Ative seu acesso para começar 🚀',
+        subject: 'Conta criada no Abordai! Ative seu acesso para começar 🚀',
         html: fullHtml,
       });
 
@@ -348,9 +348,9 @@ export class EmailService {
     const loginUrl = `${ENV.PLATFORM_URL}/login`;
 
     const htmlContent = `
-      <h2>Bem-vindo ao Disparador! Seu acesso está liberado 🚀</h2>
+      <h2>Bem-vindo ao Abordai! Seu acesso está liberado 🚀</h2>
       <p>Olá, <strong>${cleanName}</strong>!</p>
-      <p>Seu pagamento foi confirmado com sucesso e seu acesso à plataforma <strong>Disparador (Prospector SaaS)</strong> já está 100% disponível.</p>
+      <p>Seu pagamento foi confirmado com sucesso e seu acesso à plataforma <strong>Abordai</strong> já está 100% disponível.</p>
       
       ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
@@ -361,7 +361,7 @@ export class EmailService {
       <p>Agora você já pode se conectar e começar a criar suas campanhas automatizadas de prospecção e disparo pelo WhatsApp.</p>
 
       <div class="btn-container">
-        <a href="${loginUrl}" class="btn" target="_blank">ACESSAR O DISPARADOR</a>
+        <a href="${loginUrl}" class="btn" target="_blank">ACESSAR O ABORDAI</a>
       </div>
 
       <p style="font-size: 13px; color: #94a3b8; margin-top: 24px; border-top: 1px solid #1e293b; padding-top: 16px;">
@@ -371,7 +371,7 @@ export class EmailService {
 
     const fullHtml = getBaseEmailTemplate(
       htmlContent,
-      'Seu pagamento foi confirmado com sucesso e seu acesso ao Disparador está liberado!'
+      'Seu pagamento foi confirmado com sucesso e seu acesso ao Abordai está liberado!'
     );
 
     try {
@@ -379,7 +379,7 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         replyTo: ENV.RESEND_REPLY_TO,
         to: [email],
-        subject: 'Bem-vindo ao Disparador! Seu acesso está liberado 🚀',
+        subject: 'Bem-vindo ao Abordai! Seu acesso está liberado 🚀',
         html: fullHtml,
       });
 
@@ -458,12 +458,12 @@ export class EmailService {
 
     const isFiveDays = daysRemaining === 5;
     const subject = isFiveDays
-      ? 'Sua assinatura do Disparador vence em 5 dias'
-      : 'Sua assinatura do Disparador vence amanhã';
+      ? 'Sua assinatura do Abordai vence em 5 dias'
+      : 'Sua assinatura do Abordai vence amanhã';
 
     const messageIntro = isFiveDays
-      ? 'Passando para avisar que sua assinatura do <strong>Disparador</strong> está próxima da renovação (restam 5 dias).'
-      : `Sua assinatura do <strong>Disparador</strong> vence amanhã, <strong>${expiresFormatted}</strong>.`;
+      ? 'Passando para avisar que sua assinatura do <strong>Abordai</strong> está próxima da renovação (restam 5 dias).'
+      : `Sua assinatura do <strong>Abordai</strong> vence amanhã, <strong>${expiresFormatted}</strong>.`;
 
     const paymentAdvice = params.renewalCanceled
       ? 'A renovação está cancelada. Seu acesso termina na data informada; os créditos extras permanecem registrados para quando houver uma assinatura ativa.'
@@ -485,10 +485,10 @@ export class EmailService {
       <p>Mantenha sua assinatura ativa para continuar prospectando no WhatsApp com inteligência e previsibilidade.</p>
 
       <div class="btn-container">
-        <a href="${platformUrl}" class="btn" target="_blank">ACESSAR O DISPARADOR</a>
+        <a href="${platformUrl}" class="btn" target="_blank">ACESSAR O ABORDAI</a>
       </div>
 
-      <p style="margin-top: 24px;">Atenciosamente,<br><strong>Equipe Disparador</strong></p>
+      <p style="margin-top: 24px;">Atenciosamente,<br><strong>Equipe Abordai</strong></p>
     `;
 
     const fullHtml = getBaseEmailTemplate(htmlContent, subject);
@@ -534,7 +534,7 @@ export class EmailService {
     const htmlContent = `
       <h2>Sua assinatura foi renovada com sucesso! 🎉</h2>
       <p>Olá, <strong>${cleanName}</strong>!</p>
-      <p>Confirmamos a renovação da sua assinatura do <strong>Disparador</strong>.</p>
+      <p>Confirmamos a renovação da sua assinatura do <strong>Abordai</strong>.</p>
       ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;"><strong>Nova Validade do Acesso:</strong> ${expiresFormatted}</p>
@@ -549,7 +549,7 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         replyTo: ENV.RESEND_REPLY_TO,
         to: [email],
-        subject: 'Assinatura do Disparador renovada com sucesso! 🎉',
+        subject: 'Assinatura do Abordai renovada com sucesso! 🎉',
         html: getBaseEmailTemplate(htmlContent, 'Sua assinatura foi renovada com sucesso!'),
       });
       return { success: !response.error, id: response.data?.id, error: response.error?.message };
@@ -577,7 +577,7 @@ export class EmailService {
     const htmlContent = `
       <h2>Cancelamento de Renovação Confirmado</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
-      <p>Confirmamos o cancelamento da renovação automática da sua assinatura do <strong>Disparador</strong>.</p>
+      <p>Confirmamos o cancelamento da renovação automática da sua assinatura do <strong>Abordai</strong>.</p>
       ${renderPlanDetails(params.planId)}
       <div class="highlight-box">
         <p style="margin: 0;">Você continuará com acesso total à plataforma até <strong>${expiresFormatted}</strong>. Nenhuma nova cobrança será realizada.</p>
@@ -590,7 +590,7 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         replyTo: ENV.RESEND_REPLY_TO,
         to: [email],
-        subject: 'Confirmação de cancelamento da assinatura Disparador',
+        subject: 'Confirmação de cancelamento da assinatura Abordai',
         html: getBaseEmailTemplate(htmlContent, 'Sua renovação foi cancelada. Acesso disponível até o fim do período.'),
       });
       return { success: !response.error, id: response.data?.id, error: response.error?.message };
@@ -614,7 +614,7 @@ export class EmailService {
     const cleanName = name ? escapeHtml(String(name).trim()) : 'Cliente';
 
     const htmlContent = `
-      <h2>Atenção: Falha no pagamento da sua assinatura Disparador</h2>
+      <h2>Atenção: Falha no pagamento da sua assinatura Abordai</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
       <p>Houve uma falha ao processar o pagamento da renovação da sua assinatura.</p>
       ${renderPlanDetails(params.planId)}
@@ -631,7 +631,7 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         replyTo: ENV.RESEND_REPLY_TO,
         to: [email],
-        subject: 'Atenção: Falha no pagamento da sua assinatura Disparador',
+        subject: 'Atenção: Falha no pagamento da sua assinatura Abordai',
         html: getBaseEmailTemplate(htmlContent, 'Identificamos uma falha no pagamento da sua assinatura.'),
       });
       return { success: !response.error, id: response.data?.id, error: response.error?.message };
@@ -657,7 +657,7 @@ export class EmailService {
     const htmlContent = `
       <h2>Recuperação de Senha</h2>
       <p>Olá, <strong>${cleanName}</strong>,</p>
-      <p>Recebemos uma solicitação para redefinir a senha de acesso à sua conta no <strong>Disparador</strong>.</p>
+      <p>Recebemos uma solicitação para redefinir a senha de acesso à sua conta no <strong>Abordai</strong>.</p>
       <div class="highlight-box">
         <p style="margin: 0; color: #f59e0b;"><strong>Atenção:</strong> Este link é de uso único e expira em <strong>15 minutos</strong>.</p>
       </div>
@@ -673,8 +673,8 @@ export class EmailService {
         from: ENV.RESEND_FROM_EMAIL,
         replyTo: ENV.RESEND_REPLY_TO,
         to: [email],
-        subject: 'Recuperação de Senha • Disparador',
-        html: getBaseEmailTemplate(htmlContent, 'Link seguro para redefinição da sua senha no Disparador.'),
+        subject: 'Recuperação de Senha • Abordai',
+        html: getBaseEmailTemplate(htmlContent, 'Link seguro para redefinição da sua senha no Abordai.'),
       });
       return { success: !response.error, id: response.data?.id, error: response.error?.message };
     } catch (err: any) {

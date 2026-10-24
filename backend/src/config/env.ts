@@ -45,7 +45,8 @@ export const ENV = {
     .map(e => e.trim())
     .filter(Boolean),
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
-  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || 'Disparador <noreply@botdisparo.cmpx.tec.br>',
+  // Mantém o endereço verificado, mesmo quando a configuração ainda usa a marca anterior.
+  RESEND_FROM_EMAIL: `Abordai <${(process.env.RESEND_FROM_EMAIL || 'noreply@botdisparo.cmpx.tec.br').replace(/^.*<([^<>]+)>\s*$/, '$1').trim()}>`,
   RESEND_REPLY_TO: process.env.RESEND_REPLY_TO || 'cmpxsuporte@gmail.com',
   PLATFORM_URL: process.env.PLATFORM_URL || (isProduction ? '' : 'http://localhost:3000'),
   CRON_SECRET: process.env.CRON_SECRET || (isProduction ? '' : 'cmpx_cron_dev_secret'),
