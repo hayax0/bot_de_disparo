@@ -1,0 +1,18 @@
+# Marca Abordai
+
+Abordai é o nome público da plataforma: encontrar empresas, personalizar abordagens com IA e acompanhar campanhas no WhatsApp. O símbolo verde existente permanece como identidade visual.
+
+A mudança contempla landing page, painel, autenticação, páginas legais, metadados de busca/compartilhamento e todos os e-mails transacionais. O remetente exibe Abordai mantendo o endereço verificado no Resend.
+
+## Continuidade
+
+O endereço atual https://botdisparo.cmpx.tec.br continua válido. Não renomear banco, repositório, serviços Docker, filas, chaves de armazenamento ou identificadores de integração por causa da marca. Não alterar IDs/aliases de produtos antigos na Cakto: eles ainda reconhecem eventos de assinaturas existentes.
+
+## Configurações externas
+
+- Cakto: atualizar nome e imagem públicos dos produtos/ofertas atuais, preservando IDs, preços, recorrências e webhooks.
+- Redes sociais, materiais de divulgação e perfis de suporte: atualizar nome e apresentações.
+- Domínio próprio: opcional e separado. Antes da mudança, configurar DNS, TLS, redirecionamentos do endereço antigo, CORS, links de e-mail e integrações. Não remover o domínio atual antecipadamente.
+- Registrar marca e verificar disponibilidade jurídica/comercial antes de investir em divulgação: a troca no código não comprova exclusividade do nome.
+
+E-mails já recebidos, prévias de compartilhamento e resultados de buscadores podem manter o nome anterior até atualização de cache/indexação.

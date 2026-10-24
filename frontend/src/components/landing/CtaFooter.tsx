@@ -47,14 +47,14 @@ export function CtaFooter() {
             <div className="w-7 h-7 rounded-lg overflow-hidden border border-white/10">
               <Image
                 src="/logo-v4.png"
-                alt="Logo Disparador"
+                alt="Logo Abordai"
                 width={28}
                 height={28}
                 className="w-full h-full object-cover"
               />
             </div>
             <span className="font-medium text-[var(--studio-muted)]">
-              Disparador de Mensagens
+              Abordai
             </span>
             <span>—</span>
             <span>Plataforma SaaS de Prospecção</span>
@@ -82,7 +82,7 @@ export function CtaFooter() {
           </div>
 
           <div className="flex items-center gap-1 text-[11px] text-[var(--studio-muted)]">
-            <span>© {currentYear} Disparador. Todos os direitos reservados.</span>
+            <span>© {currentYear} Abordai. Todos os direitos reservados.</span>
           </div>
         </div>
       </div>

@@ -50,12 +50,12 @@ export function LandingNavbar() {
           <Link
             href="/"
             className="flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none rounded-xl"
-            aria-label="Página Inicial do Disparador de Mensagens"
+            aria-label="Página Inicial do Abordai"
           >
             <div className="studio-navbar-logo">
               <Image
                 src="/logo-v4.png"
-                alt="Logo Disparador de Mensagens"
+                alt="Logo Abordai"
                 width={32}
                 height={32}
                 priority
@@ -64,7 +64,7 @@ export function LandingNavbar() {
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-bold text-white tracking-tight leading-none group-hover:text-emerald-300 transition-colors">
-                Disparador
+                Abordai
               </span>
               <span className="text-[10px] text-[var(--studio-muted)] tracking-normal">
                 Prospecção WhatsApp

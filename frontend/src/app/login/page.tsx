@@ -75,7 +75,7 @@ export default function LoginPage() {
           </h1>
           <p className="text-xs text-[var(--studio-muted)] mt-1.5 text-center font-normal">
             {viewMode === 'login'
-              ? 'Acesse o painel do Disparador de Mensagens'
+              ? 'Acesse o painel do Abordai'
               : 'Informe seu e-mail para receber as instruções de recuperação'}
           </p>
         </div>
