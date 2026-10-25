@@ -54,6 +54,17 @@ export function AiGenerateModal({
   const [activeOp, setActiveOp] = useState<ActiveOperation | null>(null);
   const [batchIdempotencyKey, setBatchIdempotencyKey] = useState<string>(() => `ai_batch_${campaignId}_${Date.now()}`);
 
+  // Usa o perfil como ponto de partida, sem sobrescrever o que o usuário já digitou.
+  useEffect(() => {
+    let active = true;
+    api.get('/profile').then(({ data }) => {
+      if (active && !initialOffer && data.profile?.completedAt) {
+        setOfferDescription(current => current || data.profile.services);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [initialOffer]);
+
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const creditsNeeded = Math.min(pendingLeadsCount, 200);
@@ -251,7 +262,7 @@ export function AiGenerateModal({
             {/* O que sua empresa oferece */}
             <div>
               <label className="block text-xs font-semibold text-[var(--studio-ink)] mb-1.5">
-                O que sua empresa oferece? <span className="text-emerald-400">*</span>
+                O que deseja oferecer nesta campanha? <span className="text-emerald-400">*</span>
               </label>
               <textarea
                 rows={3}
@@ -262,7 +273,7 @@ export function AiGenerateModal({
                 disabled={submitting}
               />
               <p className="text-[11px] text-[var(--studio-muted)] mt-1">
-                A IA combinará essa oferta com os dados de cada lead (site, bairro e segmento) para criar abordagens exclusivas.
+                A IA combina essa orientação com seu perfil profissional e os dados do lead. A orientação desta campanha tem prioridade.
               </p>
             </div>
 
@@ -518,7 +529,7 @@ export function LeadMessageModal({
             <label htmlFor="lead-ai-goal" className="block text-xs text-[var(--studio-muted)]">Objetivo para a próxima versão (opcional)</label>
             <textarea id="lead-ai-goal" rows={2} maxLength={1000} value={regenerationGoal} disabled={regenerating || saving}
               onChange={e => { setRegenerationGoal(e.target.value); setRegenKey(crypto.randomUUID()); }}
-              placeholder="Ex.: oferecer fotografia e pedir permissão para enviar o portfólio. Vazio mantém a oferta da campanha."
+              placeholder="Ex.: oferecer fotografia e pedir permissão para enviar o portfólio. Vazio usa a oferta da campanha ou os serviços do seu perfil."
               className="dash-input w-full rounded-xl p-3 text-xs" />
             <label htmlFor="lead-ai-tone" className="block text-xs text-[var(--studio-muted)]">Estilo da próxima versão</label>
             <select id="lead-ai-tone" value={regenerationTone} disabled={regenerating || saving}
