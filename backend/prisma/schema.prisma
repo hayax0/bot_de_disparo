@@ -42,6 +42,7 @@ model User {
   aiConversations       AiConversation[]
   aiOperations          AiOperation[]
 
+  professionalProfile   ProfessionalProfile?
   workspaces            Workspace[]
   notifications         SubscriptionNotification[]
   passwordResetTokens   PasswordResetToken[]
@@ -469,6 +470,7 @@ model AiOperation {
   leadId           String?
   idempotencyKey   String?   @unique
   payloadHash      String?
+  profileSnapshot Json?
   offerDescription String?   @db.Text
   toneStyle        String    @default("CONSULTATIVE")
   status           String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, PARTIAL
@@ -512,3 +514,17 @@ model AiOperationLead {
   @@index([leadId])
 }
 
+
+model ProfessionalProfile {
+  userId String @id
+  professionalName String @default("")
+  workMode String @default("SELF_EMPLOYED")
+  companyName String @default("")
+  services String @default("") @db.Text
+  targetAudience String @default("") @db.Text
+  objective String @default("") @db.Text
+  completedAt DateTime?
+  dismissedAt DateTime?
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

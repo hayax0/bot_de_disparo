@@ -1,5 +1,6 @@
 // Sentry precisa ser o PRIMEIRO import para instrumentar tudo corretamente
 import { Sentry } from './lib/sentry';
+import profileRoutes from './routes/profile';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -92,6 +93,7 @@ app.use('/api/contacts', contactsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/integrations', integrationRoutes);
+app.use('/api/profile', profileRoutes);
 
 // Health check — Liveness probe (processo está vivo e respondendo)
 app.get('/api/health/live', (req, res) => {

@@ -1552,3 +1552,34 @@ test('IA: rejeita resposta excessiva em vez de entregar texto longo ou cortar a 
     await assert.rejects(AiCopyService.callGeminiApi({ leadTitle: 'Empresa', phone: '5521999998888', senderName: 'Ana', senderCompany: 'Agência', offerDescription: 'Oferecer um serviço e pedir permissão para enviar um exemplo', toneStyle: 'DIRECT' }), /longa demais/);
   } finally { global.fetch = originalFetch; ENV.GEMINI_API_KEY = originalKey; }
 });
+
+test('Perfil profissional: single e lote usam snapshot isolado sem reescrever operações anteriores', async () => {
+  const { user, workspace, campaign, unique } = await createTestFixtures('professional');
+  const profile = { professionalName: 'Ana', workMode: 'SELF_EMPLOYED', companyName: '', services: 'Criação de sites profissionais', targetAudience: 'Clínicas', objective: 'Agendar demonstração', completedAt: new Date() };
+  const captured: any[] = [];
+  setTestAiProvider(async input => { captured.push(input); return 'Olá! Posso compartilhar uma ideia para sua clínica?'; });
+  const leads = await Promise.all([1, 2].map(i => prisma.lead.create({ data: { campaignId: campaign.id, title: `Clínica ${i}`, phone: `551199999000${i}`, status: 'PENDING' } })));
+  try {
+    await prisma.professionalProfile.create({ data: { userId: user.id, ...profile } });
+    await AiCopyService.regenerateSingleLead({ userId: user.id, workspaceId: workspace.id, campaignId: campaign.id, leadId: leads[0]!.id, idempotencyKey: `profile-single-${unique}` });
+    assert.equal(captured[0].professionalProfile.services, profile.services);
+    assert.equal(captured[0].senderName, 'Ana'); assert.equal(captured[0].senderCompany, '');
+    await AiCopyService.initiateBatchGeneration({ userId: user.id, workspaceId: workspace.id, campaignId: campaign.id, offerDescription: 'Oferta específica da campanha', leadIds: [leads[1]!.id], idempotencyKey: `profile-batch-${unique}`, processSyncForTest: true });
+    assert.equal(captured[1].professionalProfile.services, profile.services);
+    assert.equal(captured[1].offerDescription, 'Oferta específica da campanha');
+    await prisma.professionalProfile.update({ where: { userId: user.id }, data: { services: 'Gestão de redes sociais' } });
+    const operations = await prisma.aiOperation.findMany({ where: { userId: user.id } });
+    assert.equal(operations.length, 2);
+    for (const operation of operations) assert.equal((operation.profileSnapshot as any).services, profile.services);
+    const previous = await prisma.lead.findUniqueOrThrow({ where: { id: leads[0]!.id } });
+    await AiCopyService.regenerateSingleLead({ userId: user.id, workspaceId: workspace.id, campaignId: campaign.id, leadId: leads[0]!.id, offerDescription: profile.services, idempotencyKey: `profile-single-${unique}` });
+    assert.equal(captured.length, 2, 'Replay não pode gerar novamente usando o perfil editado');
+    assert.equal((await prisma.lead.findUniqueOrThrow({ where: { id: leads[0]!.id } })).messageContent, previous.messageContent);
+    await AiCopyService.regenerateSingleLead({ userId: user.id, workspaceId: workspace.id, campaignId: campaign.id, leadId: leads[0]!.id, idempotencyKey: `profile-new-${unique}` });
+    assert.equal(captured[2].professionalProfile.services, 'Gestão de redes sociais');
+  } finally {
+    setTestAiProvider(null);
+    await prisma.workspace.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  }
+});

@@ -103,6 +103,9 @@ export default function PrivacidadePage() {
                 <strong className="text-white">Dados Cadastrais do Usuário:</strong> Nome, endereço de e-mail e credenciais de acesso protegidas por algoritmo irreversível de hash (<code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded text-emerald-300">bcrypt</code>).
               </li>
               <li>
+                <strong className="text-white">Perfil Profissional Opcional:</strong> Nome de apresentação, vínculo e nome da empresa, serviços, público-alvo e objetivo comercial, usados como contexto das gerações de IA solicitadas pelo usuário. O perfil pode ser editado em Meu negócio.
+              </li>
+              <li>
                 <strong className="text-white">Dados de Faturamento e Assinatura:</strong> Identificador de cliente no gateway oficial de pagamentos, status da assinatura (ACTIVE, PAST_DUE, CANCELED), ciclo de faturamento e datas de renovação/expiração. Os dados de cartão de crédito não são armazenados em nossos servidores, sendo processados diretamente pelo gateway certificado PCI-DSS.
               </li>
               <li>
@@ -171,6 +174,9 @@ export default function PrivacidadePage() {
               </li>
               <li>
                 <strong className="text-white">Disparo de E-mails Transacionais:</strong> Resend (exclusivamente para confirmações e notificações de conta);
+              </li>
+              <li>
+                <strong className="text-white">Geração de Mensagens com IA:</strong> Google Gemini recebe o contexto profissional informado, a orientação da campanha e os dados de referência do lead para gerar as abordagens solicitadas. Não inclua informações sensíveis nesses campos.
               </li>
               <li>
                 <strong className="text-white">Servidores em Nuvem:</strong> Servidores dedicados protegidos por firewall, com banco de dados PostgreSQL isolado.

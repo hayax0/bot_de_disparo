@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
+import { ProfessionalProfilePanel } from '@/components/dashboard/ProfessionalProfilePanel';
 import { CopyPresets } from '@/components/dashboard/CopyPresets';
 import { OperationOverview } from '@/components/dashboard/OperationOverview';
 import Image from 'next/image';
@@ -1555,6 +1556,8 @@ export default function Dashboard() {
       {/* Conteúdo Principal */}
       <main className="studio-dashboard-main min-w-0 flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
+        {user && <ProfessionalProfilePanel key={user.id} userId={user.id} name={user.name} />}
+
         {/* Banner de Regularização de Conta Necessária */}
         {verificationRequiredMessage && (
           <div className="glass-panel rounded-2xl p-4 border border-amber-500/40 bg-amber-500/10 flex flex sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in">
