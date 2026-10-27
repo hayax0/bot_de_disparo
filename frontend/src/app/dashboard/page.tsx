@@ -82,6 +82,7 @@ interface Lead {
   title: string;
   phone: string;
   website?: string | null;
+  hasWebsite?: boolean;
   neighborhood?: string | null;
   status: 'PENDING' | 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED' | 'ERROR' | 'IGNORED';
   errorMessage?: string | null;
@@ -105,6 +106,7 @@ interface DispatchHistoryItem {
   companyTitle: string;
   phone: string;
   website?: string | null;
+  hasWebsite?: boolean;
   neighborhood?: string | null;
   firstSentAt: string;
   lastSentAt: string;
@@ -296,6 +298,7 @@ export default function Dashboard() {
         title: string;
         phone: string;
         website: string | null;
+        hasWebsite: boolean;
         neighborhood: string | null;
         status: string;
         alreadyContacted: boolean;
@@ -2321,7 +2324,7 @@ export default function Dashboard() {
                         </td>
                         <td className="p-3 text-[var(--studio-muted)] whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
-                            {item.website ? (
+                            {item.hasWebsite && item.website ? (
                               <a
                                 href={item.website.startsWith('http') ? item.website : `https://${item.website}`}
                                 target="_blank"
@@ -2626,7 +2629,7 @@ export default function Dashboard() {
                                   <span className="text-[var(--studio-muted)] font-mono text-[10px] tabular-nums">{s.phone}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  {s.website ? (
+                                  {s.hasWebsite ? (
                                     <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20 font-medium">
                                       Com Site
                                     </span>
@@ -2977,7 +2980,7 @@ export default function Dashboard() {
                               <td className="p-3 text-[var(--studio-muted)] font-mono whitespace-nowrap tabular-nums">{lead.phone}</td>
                               <td className="p-3 text-[var(--studio-muted)] whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
-                                  {lead.website ? (
+                                  {lead.hasWebsite && lead.website ? (
                                     <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium border border-emerald-500/20">
                                       <Globe size={11} /> Site
                                     </span>

@@ -267,7 +267,7 @@ router.post('/preview-import', requireActiveSubscription, requireUploadPermissio
       invalidCount: diagnostic.invalidCount,
       recontactBlockedCount: diagnostic.recontactBlockedCount,
       alreadyContactedCount: diagnostic.alreadyContactedCount,
-      sampleLeads: diagnostic.sampleLeads,
+      sampleLeads: diagnostic.sampleLeads.map(lead => ({ ...lead, hasWebsite: temWebsiteValido(lead.website) })),
       issues: diagnostic.issues
     });
   } catch (error: any) {
@@ -363,7 +363,7 @@ router.post('/:id/leads/import', requireActiveSubscription, requireUploadPermiss
         invalidCount: result.diagnostic.invalidCount,
         recontactBlockedCount: result.diagnostic.recontactBlockedCount,
         alreadyContactedCount: result.diagnostic.alreadyContactedCount,
-        sampleLeads: result.diagnostic.sampleLeads,
+        sampleLeads: result.diagnostic.sampleLeads.map(lead => ({ ...lead, hasWebsite: temWebsiteValido(lead.website) })),
         issues: result.diagnostic.issues
       }
     });
@@ -462,6 +462,7 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
       const hist = historyMap.get(normalized);
       return {
         ...lead,
+        hasWebsite: temWebsiteValido(lead.website),
         historyInfo: hist ? {
           alreadySent: true,
           lastSentAt: hist.lastSentAt,

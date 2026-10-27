@@ -1,3 +1,4 @@
+import { temWebsiteValido } from '../services/ProposalEngine';
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middlewares/auth';
@@ -58,7 +59,7 @@ router.get('/', validateQuery(paginationQuerySchema), async (req: Request, res: 
     ]);
 
     res.json({
-      items,
+      items: items.map(item => ({ ...item, hasWebsite: temWebsiteValido(item.website) })),
       pagination: {
         page,
         limit,
