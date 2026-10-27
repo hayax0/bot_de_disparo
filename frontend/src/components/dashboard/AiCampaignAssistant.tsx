@@ -370,6 +370,7 @@ interface LeadMessageModalProps {
     status?: string;
     sendStartedAt?: string | null;
     website?: string | null;
+    hasWebsite?: boolean;
     neighborhood?: string | null;
     messageContent?: string | null;
     aiGenerated?: boolean;
@@ -496,7 +497,7 @@ export function LeadMessageModal({
           )}
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--studio-muted)]">
-            {lead.website ? (
+            {lead.hasWebsite && lead.website ? (
               <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium border border-emerald-500/20">
                 <Globe size={11} /> {lead.website}
               </span>
