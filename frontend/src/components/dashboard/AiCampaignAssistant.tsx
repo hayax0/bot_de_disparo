@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import axios from "axios";
 import {
@@ -35,6 +35,9 @@ interface ActiveOperation {
   completedLeads: number;
   failedLeads: number;
   creditsConsumed?: number;
+  processedLeads?: number;
+  generatedLeads?: number;
+  errorMessage?: string | null;
 }
 
 export function AiGenerateModal({
@@ -65,59 +68,58 @@ export function AiGenerateModal({
     return () => { active = false; };
   }, [initialOffer]);
 
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const callbacks = useRef({ onSuccess, addToast });
+  const notifiedOperation = useRef<string | null>(null);
+  const [progressError, setProgressError] = useState(false);
+  const [checkingActive, setCheckingActive] = useState(true);
+  const [resumeError, setResumeError] = useState(false);
+  const [resumeAttempt, setResumeAttempt] = useState(0);
+  useEffect(() => { callbacks.current = { onSuccess, addToast }; }, [onSuccess, addToast]);
 
   const creditsNeeded = Math.min(pendingLeadsCount, 200);
   const hasEnoughCredits = availableCredits >= creditsNeeded;
+  const operationId = activeOp?.id;
 
-  const pollOperationStatus = useCallback(async (opId: string) => {
-    try {
-      const res = await api.get(`/campaigns/${campaignId}/ai-operations/${opId}`);
-      const data: ActiveOperation = res.data;
-      setActiveOp(data);
-
-      if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "PARTIAL") {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
+  // Atualizações do painel não reiniciam o polling; consultas são sequenciais.
+  useEffect(() => {
+    if (!operationId) return;
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const { data } = await api.get<ActiveOperation>(`/campaigns/${campaignId}/ai-operations/${operationId}`);
+        if (!mounted) return;
+        setActiveOp(data); setProgressError(false);
+        if (['COMPLETED', 'PARTIAL', 'FAILED'].includes(data.status)) {
+          setSubmitting(false);
+          if (notifiedOperation.current !== data.id) {
+            notifiedOperation.current = data.id;
+            callbacks.current.addToast(data.status === 'COMPLETED' ? 'success' : data.status === 'PARTIAL' ? 'info' : 'error', data.status === 'COMPLETED' ? `${data.completedLeads} abordagens prontas para revisão.` : 'Lote encerrado. Confira o resultado da geração.');
+            callbacks.current.onSuccess();
+          }
+          return;
         }
-        setSubmitting(false);
+      } catch { if (!mounted) return; setProgressError(true); }
+      if (mounted) timer = setTimeout(poll, 2000);
+    };
+    void poll();
+    return () => { mounted = false; if (timer) clearTimeout(timer); };
+  }, [campaignId, operationId]);
 
-        if (data.status === "COMPLETED" || data.status === "PARTIAL") {
-          addToast("success", `Personalização concluída! ${data.completedLeads} abordagens geradas com sucesso.`);
-          onSuccess();
-        } else {
-          addToast("error", "Não foi possível gerar as mensagens para os leads.");
-        }
-      }
-    } catch {
-      // Ignora erro momentâneo de polling de rede
-    }
-  }, [campaignId, onSuccess, addToast]);
-
-  // Checa se já existe uma operação em andamento para esta campanha
   useEffect(() => {
     let mounted = true;
-    api.get(`/campaigns/${campaignId}/ai-operations/active`)
-      .then((res) => {
-        if (mounted && res.data?.activeOperation) {
-          setActiveOp(res.data.activeOperation);
-          setSubmitting(true);
-          pollingRef.current = setInterval(() => {
-            pollOperationStatus(res.data.activeOperation.id);
-          }, 2000);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      mounted = false;
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [campaignId, pollOperationStatus]);
+    api.get(`/campaigns/${campaignId}/ai-operations/active`).then(({ data }) => {
+      if (!mounted) return;
+      setResumeError(false);
+      if (data?.activeOperation) { setActiveOp(current => current || data.activeOperation); setSubmitting(true); }
+    }).catch(() => { if (mounted) setResumeError(true); })
+      .finally(() => { if (mounted) setCheckingActive(false); });
+    return () => { mounted = false; };
+  }, [campaignId, resumeAttempt]);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting || checkingActive || resumeError) return;
     if (!offerDescription.trim() || offerDescription.trim().length < 5) {
       addToast("error", "Descreva sua oferta com pelo menos 5 caracteres.");
       return;
@@ -146,22 +148,13 @@ export function AiGenerateModal({
         id: opId,
         status: res.data.status,
         totalLeads: res.data.totalLeads,
-        completedLeads: res.data.completedLeads || 0,
+        completedLeads: res.data.completedLeads ?? res.data.generatedCount ?? 0,
         failedLeads: res.data.failedLeads || 0,
+        creditsConsumed: res.data.creditsConsumed,
       });
 
-      // Inicia polling de progresso do BullMQ
-      if (res.data.status === "COMPLETED") {
-        addToast("success", `Operação concluída! ${res.data.completedLeads} abordagens geradas.`);
-        setSubmitting(false);
-        onSuccess();
-        onClose();
-        return;
-      }
-
-      pollingRef.current = setInterval(() => {
-        pollOperationStatus(opId);
-      }, 2000);
+      // Mostra o resultado antes de o usuário voltar às mensagens, inclusive em conclusão imediata.
+      if (['COMPLETED', 'PARTIAL', 'FAILED'].includes(res.data.status)) setSubmitting(false);
     } catch (err: unknown) {
       setSubmitting(false);
       let msg = "Erro ao iniciar geração assíncrona com IA.";
@@ -176,7 +169,10 @@ export function AiGenerateModal({
     }
   };
 
-  const isRunning = activeOp && (activeOp.status === "PENDING" || activeOp.status === "PROCESSING");
+  const isFinished = Boolean(activeOp && ['COMPLETED', 'PARTIAL', 'FAILED'].includes(activeOp.status));
+  const isSuccessful = activeOp?.status === 'COMPLETED';
+  const processed = activeOp ? Math.min(activeOp.totalLeads, Math.max(activeOp.processedLeads || 0, activeOp.completedLeads + activeOp.failedLeads)) : 0;
+  const progress = isFinished ? 100 : activeOp?.totalLeads ? Math.min(99, Math.round(processed / activeOp.totalLeads * 100)) : 0;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
@@ -199,43 +195,29 @@ export function AiGenerateModal({
           </button>
         </div>
 
-        {isRunning ? (
-          <div className="p-6 space-y-5 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto animate-pulse">
-              <RefreshCw size={24} className="animate-spin" />
+        {activeOp ? (
+          <div className="p-6 space-y-5 text-center overflow-y-auto" aria-live="polite">
+            <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center mx-auto ${isFinished && !isSuccessful ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}>
+              {isFinished ? isSuccessful ? <CheckCircle2 size={26} /> : <AlertCircle size={26} /> : <RefreshCw size={24} className="animate-spin" />}
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white">Processando lote em segundo plano</h3>
-              <p className="text-xs text-[var(--studio-muted)] mt-1">
-                A IA está personalizando suas mensagens individualmente. Você pode fechar esta janela se quiser; o progresso continuará rodando.
-              </p>
+              <h3 className="text-base font-semibold text-white">{isFinished ? isSuccessful ? 'Personalização concluída!' : activeOp.status === 'PARTIAL' ? 'Lote encerrado com resultado parcial' : 'Não foi possível concluir a geração' : activeOp.totalLeads > 0 && processed >= activeOp.totalLeads ? 'Finalizando e salvando as mensagens' : 'Personalizando suas abordagens'}</h3>
+              <p className="text-xs text-[var(--studio-muted)] mt-2 leading-relaxed">{isFinished ? 'Confira o resultado abaixo e revise as mensagens antes de enviar.' : 'O progresso é atualizado a cada mensagem processada. Você pode fechar esta janela; a execução continua em segundo plano.'}</p>
             </div>
-
-            <div className="w-full bg-white/[0.06] rounded-full h-2.5 overflow-hidden">
-              <div
-                className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-                style={{
-                  width: `${activeOp.totalLeads > 0 ? Math.round((activeOp.completedLeads / activeOp.totalLeads) * 100) : 5}%`,
-                }}
-              />
+            <div role="progressbar" aria-label="Progresso do processamento" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-valuetext={isFinished ? 'Processamento encerrado' : `${processed} de ${activeOp.totalLeads} processados`} className="w-full bg-white/[0.06] rounded-full h-2.5 overflow-hidden">
+              <div className={`h-2.5 rounded-full transition-all duration-500 ${isFinished && !isSuccessful ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: `${progress}%` }} />
             </div>
-
-            <div className="flex items-center justify-between text-xs text-[var(--studio-muted)] px-1">
-              <span>{activeOp.completedLeads} de {activeOp.totalLeads} concluídos</span>
-              {activeOp.failedLeads > 0 && <span className="text-amber-400">{activeOp.failedLeads} falhas</span>}
-              <span className="font-semibold text-white">
-                {activeOp.totalLeads > 0 ? Math.round((activeOp.completedLeads / activeOp.totalLeads) * 100) : 0}%
-              </span>
+            <div className="flex items-center justify-between gap-2 text-xs text-[var(--studio-muted)]">
+              <span>{isFinished ? 'Processamento encerrado' : `${processed} de ${activeOp.totalLeads} processados`}</span><span className="font-semibold text-white">{progress}%</span>
             </div>
-
+            {isFinished ? <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2 text-sm text-left">
+              <p><strong className="text-emerald-300">{activeOp.completedLeads}</strong> de {activeOp.totalLeads} mensagens geradas</p>
+              {activeOp.totalLeads > activeOp.completedLeads && <p className="text-amber-300">{activeOp.totalLeads - activeOp.completedLeads} mensagens não geradas.{activeOp.completedLeads > 0 ? ' As mensagens prontas foram preservadas.' : ' Revise a oferta antes de tentar novamente na campanha.'}</p>}
+              {typeof activeOp.creditsConsumed === 'number' && <p className="text-xs text-[var(--studio-muted)]">{activeOp.creditsConsumed} créditos consumidos nesta operação.</p>}
+            </div> : <p className="text-xs text-[var(--studio-muted)]">{activeOp.generatedLeads ?? activeOp.completedLeads} mensagens preparadas{activeOp.failedLeads > 0 ? ` · ${activeOp.failedLeads} falhas` : ''}</p>}
+            {progressError && !isFinished && <p role="status" className="text-xs text-amber-300">Não foi possível atualizar o progresso agora. A execução continua e tentaremos consultar novamente.</p>}
             <div className="pt-3 border-t border-white/[0.08] flex justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-[var(--studio-muted)] bg-white/[0.04] hover:bg-white/[0.08] transition-all cursor-pointer"
-              >
-                Acompanhar depois
-              </button>
+              <button type="button" onClick={onClose} className={isFinished ? 'dash-btn-primary px-5 py-2.5 text-sm' : 'dash-btn-secondary px-4 py-2 text-xs'}>{isFinished ? activeOp.completedLeads > 0 ? 'Ver mensagens' : 'Voltar à campanha' : 'Acompanhar depois'}</button>
             </div>
           </div>
         ) : (
@@ -326,6 +308,8 @@ export function AiGenerateModal({
             </div>
 
             <p className="text-xs text-[var(--studio-muted)]">Mensagens curtas por padrão: 2–3 frases, uma ideia e uma pergunta. Descreva o que vende, para quem e qual resposta deseja receber.</p>
+            {checkingActive && <p role="status" className="text-xs text-[var(--studio-muted)]">Verificando se há uma geração em andamento...</p>}
+            {resumeError && <div role="status" className="text-xs text-amber-300">Não conseguimos verificar as gerações existentes. <button type="button" className="underline" onClick={() => { setCheckingActive(true); setResumeAttempt(value => value + 1); }}>Tentar novamente</button></div>}
             {/* Botões de Ação */}
             <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-white/[0.08]">
               <button
@@ -338,7 +322,7 @@ export function AiGenerateModal({
               </button>
               <button
                 type="submit"
-                disabled={submitting || creditsNeeded <= 0 || !hasEnoughCredits || !offerDescription.trim()}
+                disabled={submitting || checkingActive || resumeError || creditsNeeded <= 0 || !hasEnoughCredits || !offerDescription.trim()}
                 className="dash-btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (

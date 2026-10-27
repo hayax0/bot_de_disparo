@@ -1583,3 +1583,25 @@ test('Perfil profissional: single e lote usam snapshot isolado sem reescrever op
     await prisma.user.delete({ where: { id: user.id } });
   }
 });
+
+test('Progresso de IA avança durante preparação, antes da liquidação e sem alterar créditos', async () => {
+  const { user, workspace, campaign } = await createTestFixtures('progress');
+  try {
+    const leads = await Promise.all([0, 1, 2].map(i => prisma.lead.create({ data: { campaignId: campaign.id, title: `Lead ${i}`, phone: `552199999001${i}` } })));
+    const operation = await prisma.aiOperation.create({ data: {
+      userId: user.id, workspaceId: workspace.id, campaignId: campaign.id, status: 'PROCESSING', totalLeads: 3,
+      leads: { create: leads.map((lead, i) => ({ leadId: lead.id, status: ['GENERATED','GENERATING','FAILED'][i]! })) },
+    } });
+    const walletBefore = await prisma.creditWallet.findUnique({ where: { userId: user.id } });
+    const progress = await AiCopyService.getOperationStatus({ userId: user.id, workspaceId: workspace.id, campaignId: campaign.id, operationId: operation.id });
+    assert.equal(progress.completedLeads, 0);
+    assert.equal(progress.generatedLeads, 1);
+    assert.equal(progress.processedLeads, 2);
+    assert.equal(progress.status, 'PROCESSING');
+    assert.deepEqual(await prisma.creditWallet.findUnique({ where: { userId: user.id } }), walletBefore);
+    await assert.rejects(AiCopyService.getOperationStatus({ userId: 'outro-usuario', workspaceId: workspace.id, campaignId: campaign.id, operationId: operation.id }), /não encontrada/);
+  } finally {
+    await prisma.workspace.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  }
+});

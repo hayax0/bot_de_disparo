@@ -979,7 +979,15 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
       throw new Error('Operação de IA não encontrada.');
     }
 
-    return op;
+    // Textos são preparados antes da liquidação atômica. Exponha esse avanço sem antecipar cobrança/sucesso.
+    const items = await prisma.aiOperationLead.groupBy({
+      by: ['status'], where: { operationId: op.id }, _count: { _all: true },
+    });
+    const count = (statuses: string[]) => items.filter(item => statuses.includes(item.status)).reduce((total, item) => total + item._count._all, 0);
+    return { ...op,
+      processedLeads: Math.min(op.totalLeads, count(['GENERATED', 'COMPLETED', 'FAILED', 'SKIPPED'])),
+      generatedLeads: count(['GENERATED', 'COMPLETED']),
+    };
   }
 
   /**
