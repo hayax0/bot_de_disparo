@@ -8,6 +8,7 @@ import { messageQueue } from '../services/queue';
 import { temWebsiteValido, gerarPreviaMensagem, validarTemplateMensagem } from '../services/ProposalEngine';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
+import { commercialInputSchema, commercialFilterSchema, commercialLeadFilter, commercialForPhones, commercialPhone, emptyCommercial, readCommercial, updateCommercial, commercialMetrics, CommercialError } from '../services/CommercialContacts';
 import { createSendReview, CampaignReviewError } from '../services/CampaignSendReview';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
@@ -156,6 +157,22 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
     console.error('Erro ao listar campanhas:', error);
     res.status(500).json({ error: 'Falha ao buscar campanhas.' });
   }
+});
+
+// Organização comercial é manual e independente do estado de envio/assinatura.
+router.get('/commercial-metrics', async (req, res) => {
+  try { res.json(await commercialMetrics(prisma, req.user!.workspaceId)); }
+  catch { res.status(500).json({ error: 'Não foi possível carregar os resultados comerciais.' }); }
+});
+router.get('/:id/leads/:leadId/commercial', async (req, res): Promise<any> => {
+  try { res.json(await readCommercial(prisma, req.user!.workspaceId, req.params.id as string, req.params.leadId as string)); }
+  catch (error) { if (error instanceof CommercialError) return res.status(error.status).json({ error: error.message }); res.status(500).json({ error: 'Não foi possível carregar o acompanhamento.' }); }
+});
+router.put('/:id/leads/:leadId/commercial', async (req, res): Promise<any> => {
+  const input = commercialInputSchema.safeParse(req.body);
+  if (!input.success) return res.status(400).json({ error: 'Confira a classificação, a reunião e as anotações (máximo 4.000 caracteres).' });
+  try { res.json({ commercial: await updateCommercial(prisma, req.user!.workspaceId, req.params.id as string, req.params.leadId as string, input.data) }); }
+  catch (error) { if (error instanceof CommercialError) return res.status(error.status).json({ error: error.message }); res.status(500).json({ error: 'Não foi possível salvar o acompanhamento.' }); }
 });
 
 // Obter a última copy utilizada no workspace para preencher novas campanhas
@@ -408,7 +425,10 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
     const status = req.query.status as string | undefined;
     const search = req.query.search as string | undefined;
 
-    const whereClause: any = { campaignId: id };
+    const filters = commercialFilterSchema.safeParse({ stage: req.query.commercialStage, meeting: req.query.meeting });
+    if (!filters.success) return res.status(400).json({ error: 'Filtro comercial inválido.' });
+    const commercialIds = await commercialLeadFilter(prisma, workspaceId, id, filters.data.stage, filters.data.meeting);
+    const whereClause: any = { campaignId: id, ...(commercialIds ? { id: { in: commercialIds } } : {}) };
     if (status && status !== 'ALL') {
       whereClause.status = status;
     }
@@ -458,12 +478,14 @@ router.get('/:id/leads', async (req: Request, res: Response): Promise<any> => {
       historyMap.set(h.phone, h);
     }
 
+    const commercialMap = await commercialForPhones(prisma, workspaceId, leads.map(lead => lead.phone));
     const leadsWithHistory = leads.map(lead => {
       const normalized = WhatsappManager.normalizeBrPhone(lead.phone);
       const hist = historyMap.get(normalized);
       return {
         ...lead,
         hasWebsite: temWebsiteValido(lead.website),
+        commercial: commercialMap.get(commercialPhone(lead.phone) || '') || emptyCommercial(),
         historyInfo: hist ? {
           alreadySent: true,
           lastSentAt: hist.lastSentAt,
