@@ -10,22 +10,15 @@ import { QuotaService } from './QuotaService';
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
   try {
-    const pendingCount = await prisma.lead.count({
-      where: {
-        campaignId,
-        status: { in: ['PENDING', 'QUEUED', 'SENDING'] }
-      }
-    });
-
-    if (pendingCount === 0) {
-      const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-      if (campaign && campaign.status === 'RUNNING') {
-        await prisma.campaign.updateMany({
-          where: { id: campaignId, status: 'RUNNING' },
-          data: { status: 'COMPLETED' }
-        });
-        console.log(`[CAMPAIGN COMPLETED] Campanha "${campaign.name}" (${campaignId}) finalizou todos os envios.`);
-      }
+    // Ao enviar uma seleção, os demais contatos continuam pendentes para outro lote.
+    // Só encerra/pausa quando não houver mais contatos desse lote na fila ou em transmissão.
+    const inFlight = await prisma.lead.count({ where: { campaignId, status: { in: ['QUEUED', 'SENDING'] } } });
+    if (inFlight === 0) {
+      const pending = await prisma.lead.count({ where: { campaignId, status: 'PENDING' } });
+      await prisma.campaign.updateMany({
+        where: { id: campaignId, status: 'RUNNING', leads: { none: { status: { in: ['QUEUED', 'SENDING'] } } } },
+        data: { status: pending > 0 ? 'PAUSED' : 'COMPLETED' },
+      });
     }
   } catch (err) {
     console.error(`Erro ao verificar conclusão da campanha ${campaignId}:`, err);
@@ -44,14 +37,14 @@ function isUnrecoverableError(errMsg: string): boolean {
   return UNRECOVERABLE_PATTERNS.some(p => errMsg.includes(p));
 }
 
-async function pauseDisconnectedCampaign(campaignId: string) {
-  await prisma.campaign.updateMany({ where: { id: campaignId, status: 'RUNNING' }, data: { status: 'PAUSED' } });
-  await prisma.lead.updateMany({ where: { campaignId, status: 'QUEUED', sendStartedAt: null }, data: { status: 'PENDING', errorMessage: 'WhatsApp desconectado. Reconecte e continue a campanha.' } });
+async function pauseDisconnectedCampaign(campaignId: string, batchId?: string) {
+  await prisma.campaign.updateMany({ where: { id: campaignId, status: 'RUNNING', activeSendBatchId: batchId || null }, data: { status: 'PAUSED' } });
+  await prisma.lead.updateMany({ where: { campaignId, sendBatchId: batchId || null, status: 'QUEUED', sendStartedAt: null }, data: { status: 'PENDING', errorMessage: 'WhatsApp desconectado. Reconecte e continue a campanha.' } });
 }
 
 // Job processor com isolamento, idempotência e auditoria
 export const campaignWorker = new Worker('message-queue', async (job: Job, token?: string) => {
-  const { leadId, campaignId, workspaceId } = job.data;
+  const { leadId, campaignId, workspaceId, batchId } = job.data;
 
   // 1. Recarregar campanha e lead
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
@@ -73,6 +66,12 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     throw new Error('Job com workspace ou campanha incompatível.');
   }
 
+  // Jobs legados só continuam em campanhas ainda não migradas para uma revisão explícita.
+  if ((campaign.activeSendBatchId || lead.sendBatchId || batchId) &&
+      (!batchId || campaign.activeSendBatchId !== batchId || lead.sendBatchId !== batchId)) return;
+  const batchGuard = batchId ? { sendBatchId: batchId } : { sendBatchId: null };
+  const campaignGuard = { status: 'RUNNING', activeSendBatchId: batchId || null };
+
   // 2. Confirmar que campanha continua RUNNING
   if (campaign.status === 'STARTING') {
     await job.moveToDelayed(Date.now() + 5000, token);
@@ -81,8 +80,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
 
   if (campaign.status !== 'RUNNING') {
     if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
-      await prisma.lead.update({
-        where: { id: leadId },
+      await prisma.lead.updateMany({
+        where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
         data: { status: 'PENDING' }
       }).catch(() => {});
     }
@@ -94,14 +93,14 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
   if (!user || !isSubscriptionActive(user)) {
     console.warn(`[WORKER] Job ${job.id} bloqueado: Usuário ${user?.email || 'desconhecido'} com assinatura inativa ou expirada. Pausando campanha ${campaignId}.`);
     
-    await prisma.campaign.update({
-      where: { id: campaignId },
+    await prisma.campaign.updateMany({
+      where: { id: campaignId, activeSendBatchId: batchId || null, status: 'RUNNING' },
       data: { status: 'PAUSED' }
     }).catch(() => {});
 
     if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
-      await prisma.lead.update({
-        where: { id: leadId },
+      await prisma.lead.updateMany({
+        where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
         data: { status: 'PENDING' }
       }).catch(() => {});
     }
@@ -112,8 +111,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
   // 4. Consultar blacklist global e do workspace (Opt-Out / Bloqueios)
   const isBlocked = await ContactPolicyService.isBlacklisted(lead.phone, workspaceId);
   if (isBlocked) {
-    await prisma.lead.update({
-      where: { id: leadId },
+    await prisma.lead.updateMany({
+      where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
       data: {
         status: 'OPTED_OUT',
         optedOutAt: new Date(),
@@ -132,7 +131,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
 
   if (lead.sendStartedAt || lead.status === 'SENDING') {
     await prisma.lead.updateMany({
-      where: { id: leadId, status: { in: ['SENDING', 'QUEUED', 'PENDING'] } },
+      where: { id: leadId, ...batchGuard, status: { in: ['SENDING', 'QUEUED', 'PENDING'] } },
       data: { status: 'ERROR', errorMessage: 'Envio anterior sem confirmação final. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
     });
     await checkCampaignCompletion(campaignId);
@@ -150,8 +149,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     ? lead.messageContent.trim()
     : gerarProposta(lead, campaign, senderInfo);
   if (!message) {
-    await prisma.lead.update({
-      where: { id: leadId },
+    await prisma.lead.updateMany({
+      where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
       data: {
         status: 'ERROR',
         errorMessage: 'Mensagem de proposta vazia ou template inválido'
@@ -172,14 +171,14 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
 
   if (!quota.allowed) {
     console.warn(`[WORKER] Job ${job.id} bloqueado: Franquia de disparos esgotada para ${user.email}. Pausando campanha ${campaignId}.`);
-    await prisma.campaign.update({
-      where: { id: campaignId },
+    await prisma.campaign.updateMany({
+      where: { id: campaignId, activeSendBatchId: batchId || null, status: 'RUNNING' },
       data: { status: 'PAUSED' }
     }).catch(() => {});
 
     if (lead.status === 'QUEUED' || lead.status === 'SENDING') {
-      await prisma.lead.update({
-        where: { id: leadId },
+      await prisma.lead.updateMany({
+        where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
         data: { status: 'PENDING' }
       }).catch(() => {});
     }
@@ -193,7 +192,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
     const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message, async messageId => {
       if ((await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
       const claimed = await prisma.lead.updateMany({
-        where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] }, campaign: { status: 'RUNNING' } },
+        where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: batchId ? ['QUEUED'] : ['PENDING', 'QUEUED'] }, campaign: campaignGuard },
         data: { status: 'SENDING', sendStartedAt: new Date(), wppMessageId: messageId, messageContent: message,
           attempts: job.attemptsMade + 1, errorMessage: null },
       });
@@ -265,7 +264,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       await QuotaService.releaseDispatchQuota({ userId: quotaUserId, dispatchKey }).catch(() => {});
 
       if (error?.message === 'WhatsApp não está conectado no momento.' || (await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') {
-        await pauseDisconnectedCampaign(campaignId);
+        await pauseDisconnectedCampaign(campaignId, batchId);
         return;
       }
       const maxAttempts = job.opts.attempts || 1;
@@ -276,7 +275,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       if (unrecoverable || isFinalAttempt) {
         // Marca erro definitivo e não bloqueia a fila com retries inúteis
         await prisma.lead.updateMany({
-          where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
+          where: { id: leadId, ...batchGuard, sendStartedAt: null, campaign: campaignGuard, status: { in: ['PENDING', 'QUEUED'] } },
           data: {
             status: 'ERROR',
             attempts: job.attemptsMade + 1,
@@ -291,7 +290,7 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       } else {
         // Falha temporária recuperável (ex: oscilação de rede): reagenda via BullMQ
         await prisma.lead.updateMany({
-          where: { id: leadId, sendStartedAt: null, status: { in: ['PENDING', 'QUEUED'] } },
+          where: { id: leadId, ...batchGuard, sendStartedAt: null, campaign: campaignGuard, status: { in: ['PENDING', 'QUEUED'] } },
           data: {
             attempts: job.attemptsMade + 1,
             status: 'QUEUED',
@@ -325,13 +324,13 @@ campaignWorker.on('failed', async (job, err) => {
   if (!isFinalAttempt) return;
 
   try {
-    const { leadId, campaignId } = job.data;
+    const { leadId, campaignId, batchId } = job.data;
     if (leadId) {
       // Não sobrescreve se o worker já gravou o estado final no processor
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-      if (lead && !(lead.status === 'PENDING' && !lead.sendStartedAt) && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
+      if (lead && (lead.sendBatchId || null) === (batchId || null) && !(lead.status === 'PENDING' && !lead.sendStartedAt) && !['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'].includes(lead.status)) {
         await prisma.lead.updateMany({
-          where: { id: leadId, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] }, OR: [{ campaign: { status: 'RUNNING' } }, { sendStartedAt: { not: null } }] },
+          where: { id: leadId, sendBatchId: batchId || null, status: { notIn: ['SENT', 'DELIVERED', 'READ', 'REPLIED', 'ERROR'] }, OR: [{ campaign: { status: 'RUNNING' } }, { sendStartedAt: { not: null } }] },
           data: {
             status: 'ERROR',
             errorMessage: err?.message || 'Falha definitiva após todas as tentativas'
@@ -353,10 +352,10 @@ campaignWorker.on('failed', async (job, err) => {
 export async function recoverOrphanedLeads() {
   try {
     // Preparações interrompidas não devem ficar bloqueadas após reinício.
-    await prisma.campaign.updateMany({ where: { status: 'STARTING' }, data: { status: 'PAUSED' } });
+    await prisma.campaign.updateMany({ where: { status: { in: ['STARTING', 'PAUSING'] } }, data: { status: 'PAUSED' } });
     const runningCampaigns = await prisma.campaign.findMany({
       where: { status: { in: ['RUNNING', 'PAUSED'] } },
-      select: { id: true, name: true }
+      select: { id: true, name: true, activeSendBatchId: true }
     });
 
     for (const campaign of runningCampaigns) {
@@ -369,7 +368,7 @@ export async function recoverOrphanedLeads() {
       });
 
       if (queuedLeads.length === 0) {
-        await prisma.campaign.updateMany({ where: { id: campaign.id, status: 'RUNNING', leads: { some: { status: 'PENDING' } } }, data: { status: 'PAUSED' } });
+        await prisma.campaign.updateMany({ where: { id: campaign.id, status: 'RUNNING', leads: { some: { status: 'PENDING', ...(campaign.activeSendBatchId ? { sendBatchId: campaign.activeSendBatchId } : {}) } } }, data: { status: 'PAUSED' } });
         await checkCampaignCompletion(campaign.id);
         continue;
       }
@@ -406,7 +405,7 @@ export async function recoverOrphanedLeads() {
           data: { status: 'ERROR', errorMessage: 'Envio interrompido sem confirmação. Confira a conversa antes de reenviar; reenvio automático bloqueado.' },
         });
       }
-      await prisma.campaign.updateMany({ where: { id: campaign.id, status: 'RUNNING', leads: { some: { status: 'PENDING' } } }, data: { status: 'PAUSED' } });
+      await prisma.campaign.updateMany({ where: { id: campaign.id, status: 'RUNNING', leads: { some: { status: 'PENDING', ...(campaign.activeSendBatchId ? { sendBatchId: campaign.activeSendBatchId } : {}) } } }, data: { status: 'PAUSED' } });
       await checkCampaignCompletion(campaign.id);
     }
   } catch (err) {
