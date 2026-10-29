@@ -1,16 +1,17 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import { QuotaService } from './QuotaService';
+import { claimReviewedBatch, type SendReviewConfirmation } from './CampaignSendReview';
 
 export class CampaignStartError extends Error {
   constructor(message: string, public status = 500) { super(message); }
 }
 
 // STARTING impede o worker de enviar enquanto o lote ainda está sendo preparado.
-export async function startCampaign(db: PrismaClient, queue: Queue, id: string, workspaceId: string, retryFailed = false) {
+export async function startCampaign(db: PrismaClient, queue: Queue, id: string, workspaceId: string, retryFailed = false, review?: SendReviewConfirmation) {
   const campaign = await db.campaign.findFirst({ where: { id, workspaceId } });
   if (!campaign) throw new CampaignStartError('Campanha não encontrada.', 404);
-  if (['RUNNING', 'STARTING'].includes(campaign.status)) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
+  if (['RUNNING', 'STARTING', 'PAUSING'].includes(campaign.status)) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
   const session = await db.whatsappSession.findUnique({ where: { workspaceId } });
   if (session?.status !== 'CONNECTED') throw new CampaignStartError('O WhatsApp não está conectado. Conecte seu aparelho antes de iniciar os envios.', 400);
 
@@ -24,22 +25,24 @@ export async function startCampaign(db: PrismaClient, queue: Queue, id: string, 
     }
   }
   const eligible = { sendStartedAt: null, sentAt: null, wppMessageId: null, status: { in: retryFailed ? ['PENDING', 'QUEUED', 'ERROR'] : ['PENDING', 'QUEUED'] } };
-  const leads = await db.lead.findMany({
-    where: { campaignId: id, ...eligible }, orderBy: { createdAt: 'asc' },
-  });
-  if (!leads.length) return { message: 'Nenhum lead pendente nesta campanha.', jobsQueued: 0 };
-  const claimed = await db.campaign.updateMany({
-    where: { id, workspaceId, status: { notIn: ['RUNNING', 'STARTING'] } }, data: { status: 'STARTING' },
-  });
-  if (!claimed.count) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
+  let leads;
+  let batchId: string | undefined;
+  if (review) {
+    ({ leads, batchId } = await claimReviewedBatch(db, id, workspaceId, retryFailed, review));
+  } else {
+    leads = await db.lead.findMany({ where: { campaignId: id, ...eligible }, orderBy: { createdAt: 'asc' } });
+    if (!leads.length) return { message: 'Nenhum lead pendente nesta campanha.', jobsQueued: 0 };
+    const claimed = await db.campaign.updateMany({ where: { id, workspaceId, status: { notIn: ['RUNNING', 'STARTING', 'PAUSING'] } }, data: { status: 'STARTING' } });
+    if (!claimed.count) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
+  }
   const ids = leads.map(lead => lead.id);
   try {
-    await db.lead.updateMany({ where: { id: { in: ids }, ...eligible }, data: { status: 'QUEUED', errorMessage: null, attempts: 0 } });
+    if (!review) await db.lead.updateMany({ where: { id: { in: ids }, ...eligible }, data: { status: 'QUEUED', errorMessage: null, attempts: 0 } });
     let delay = 1000;
     const jobs = leads.map((lead, index) => {
       if (index > 0) delay += (campaign.delayMin + Math.random() * (campaign.delayMax - campaign.delayMin)) * 1000;
       const job = {
-        name: 'send-message', data: { leadId: lead.id, campaignId: id, workspaceId },
+        name: 'send-message', data: { leadId: lead.id, campaignId: id, workspaceId, ...(batchId ? { batchId } : {}) },
         opts: { jobId: `${id}_${lead.id}`, delay: Math.round(delay), attempts: 3,
           backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: true, removeOnFail: false },
       };
@@ -58,13 +61,13 @@ export async function startCampaign(db: PrismaClient, queue: Queue, id: string, 
       }));
       if (results.some(result => result.status === 'rejected')) throw new Error('Falha ao preparar a fila.');
     }
-    const started = await db.campaign.updateMany({ where: { id, status: 'STARTING' }, data: { status: 'RUNNING' } });
+    const started = await db.campaign.updateMany({ where: { id, status: 'STARTING', ...(batchId ? { activeSendBatchId: batchId } : {}) }, data: { status: 'RUNNING' } });
     if (!started.count) throw new Error('Preparação interrompida.');
     return { message: 'Campanha iniciada com sucesso!', jobsQueued: jobs.length };
   } catch {
     // Enquanto STARTING/PAUSED, nenhum job deste lote pode enviar mensagens.
-    await db.campaign.updateMany({ where: { id, status: 'STARTING' }, data: { status: 'PAUSED' } });
-    await db.lead.updateMany({ where: { id: { in: ids }, status: 'QUEUED' }, data: { status: 'PENDING' } });
+    await db.campaign.updateMany({ where: { id, status: 'STARTING', ...(batchId ? { activeSendBatchId: batchId } : {}) }, data: { status: 'PAUSED' } });
+    await db.lead.updateMany({ where: { id: { in: ids }, status: 'QUEUED', ...(batchId ? { sendBatchId: batchId } : {}) }, data: { status: 'PENDING' } });
     throw new CampaignStartError('Não foi possível preparar todos os envios. A campanha foi pausada; tente iniciar novamente.', 503);
   }
 }

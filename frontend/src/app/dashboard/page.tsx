@@ -3,6 +3,8 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
+import { CampaignSendReview } from '@/components/dashboard/CampaignSendReview';
+import { FirstCampaignGuide } from '@/components/dashboard/FirstCampaignGuide';
 import { ProfessionalProfilePanel } from '@/components/dashboard/ProfessionalProfilePanel';
 import { CopyPresets } from '@/components/dashboard/CopyPresets';
 import { OperationOverview } from '@/components/dashboard/OperationOverview';
@@ -241,6 +243,8 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   // Ações com feedback de carregamento (evita duplo clique)
   const [connecting, setConnecting] = useState(false);
+  const [sendReview, setSendReview] = useState<{ id: string; retryFailed: boolean } | null>(null);
+  const [hasReviewedMessages, setHasReviewedMessages] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Inicializar hidratação segura do Zustand client-side
@@ -575,7 +579,7 @@ export default function Dashboard() {
     if (!isHydrated || !token) return;
 
     const hasActiveCampaign = campaigns.some(
-      c => c.status === 'RUNNING' || c.status === 'STARTING'
+      c => ['RUNNING', 'STARTING', 'PAUSING'].includes(c.status)
     );
     const intervalMs = hasActiveCampaign ? 5000 : 20000;
 
@@ -1184,26 +1188,9 @@ export default function Dashboard() {
     }
   };
 
-  const handleStart = async (id: string, retryFailed = false) => {
+  const handleStart = (id: string, retryFailed = false) => {
     if (actionLoading) return;
-    setActionLoading(id);
-    try {
-      const res = await api.post(`/campaigns/${id}/${retryFailed ? 'retry-failed' : 'start'}`);
-      addToast('success', res.data.message || 'Campanha iniciada com sucesso!');
-      fetchCampaigns();
-      if (selectedCampaignId === id) openCampaignDetails(id);
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.data?.code === 'SUBSCRIPTION_REQUIRED')) {
-        setIsSubscriptionModalOpen(true);
-      }
-      let msg = 'Erro ao iniciar campanha.';
-      if (axios.isAxiosError(err) && err.response?.data?.error) {
-        msg = err.response.data.error;
-      }
-      addToast('error', msg);
-    } finally {
-      setActionLoading(null);
-    }
+    setSendReview({ id, retryFailed });
   };
 
   const handlePause = async (id: string) => {
@@ -1559,6 +1546,9 @@ export default function Dashboard() {
       {/* Conteúdo Principal */}
       <main className="studio-dashboard-main min-w-0 flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
+        {sendReview && <CampaignSendReview key={`${sendReview.id}-${sendReview.retryFailed}`} campaignId={sendReview.id} retryFailed={sendReview.retryFailed} connected={waStatus?.status === 'CONNECTED'}
+          onReady={() => setHasReviewedMessages(true)} onClose={() => setSendReview(null)}
+          onStarted={message => { const id = sendReview.id; setSendReview(null); addToast('success', message); fetchCampaigns(); if (selectedCampaignId === id) openCampaignDetails(id); }} />}
         {user && <ProfessionalProfilePanel key={user.id} userId={user.id} name={user.name} />}
 
         {/* Banner de Regularização de Conta Necessária */}
@@ -1671,7 +1661,7 @@ export default function Dashboard() {
         </div>
 
         {/* Status do WhatsApp Minimalista com LED */}
-        <section className="dash-card rounded-2xl p-5 relative overflow-hidden">
+        <section id="whatsapp-connection" className="dash-card rounded-2xl p-5 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${
@@ -1971,6 +1961,12 @@ export default function Dashboard() {
 
         {activeTab === 'campaigns' && (
           <>
+            {user && <FirstCampaignGuide userId={user.id} loaded={!isLoading && !syncError}
+              connected={waStatus?.status === 'CONNECTED'} hasContacts={totalLeadsGlobal > 0}
+              reviewed={hasReviewedMessages} sent={Object.values(statsMap).some(s => s.sent + (s.delivered || 0) + (s.read || 0) + s.replied > 0)} canSearch={canUseSearch}
+              onConnect={() => { document.getElementById('whatsapp-connection')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
+              onSearch={() => setActiveTab('search')} onCreate={() => openNewCampaignModal()}
+              onReview={() => { const campaign = campaigns.find(c => !['RUNNING', 'STARTING', 'PAUSING'].includes(c.status) && (statsMap[c.id]?.pending || 0) + (statsMap[c.id]?.queued || 0) > 0); if (campaign) handleStart(campaign.id); else if (!campaigns.length) openNewCampaignModal(); else { setCampaignFilter('ALL'); setCampaignQuery(''); addToast('info', 'Use Ver Leads para acompanhar sua campanha. Não há lote pendente disponível para revisão.'); } }} />}
             <OperationOverview campaigns={campaigns.length} running={campaigns.filter(c => c.status === 'RUNNING').length}
               paused={campaigns.filter(c => c.status === 'PAUSED').length} leads={totalLeadsGlobal}
               sent={campaigns.map(c => statsMap[c.id]).filter(Boolean).reduce((sum, s) => sum + s.sent + (s.delivered || 0) + (s.read || 0) + s.replied, 0)}
@@ -2047,7 +2043,7 @@ export default function Dashboard() {
                               ? 'bg-white/[0.06] text-[var(--studio-ink)] border border-white/[0.12]'
                               : 'dash-badge-neutral'
                           }`}>
-                            {camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
+                            {camp.status === 'PAUSING' ? 'PAUSANDO' : camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
                           </span>
                         </div>
 
@@ -2104,8 +2100,8 @@ export default function Dashboard() {
                         <p className="text-xs text-amber-400">Reconecte o WhatsApp e clique em continuar. Os envios já feitos serão preservados.</p>
                       )}
                       <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        {camp.status !== 'RUNNING' && camp.status !== 'STARTING' && (statsMap[camp.id]?.error || 0) > 0 && (
-                          <button onClick={() => handleStart(camp.id, true)} disabled={waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
+                        {!['RUNNING', 'STARTING', 'PAUSING'].includes(camp.status) && (statsMap[camp.id]?.error || 0) > 0 && (
+                          <button onClick={() => handleStart(camp.id, true)} disabled={actionLoading === camp.id}
                             title="Repete erros sem envio iniciado. Envios sem confirmação precisam de conferência na conversa."
                             className="dash-btn-secondary px-3 py-2 rounded-xl text-xs disabled:opacity-40">Tentar falhas</button>
                         )}
@@ -2122,9 +2118,9 @@ export default function Dashboard() {
                         ) : (
                           <button
                             onClick={() => handleStart(camp.id)}
-                            disabled={camp.status === 'STARTING' || waStatus?.status !== 'CONNECTED' || actionLoading === camp.id}
+                            disabled={['STARTING', 'PAUSING'].includes(camp.status) || actionLoading === camp.id}
                             className="dash-btn-primary p-2.5 rounded-xl text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            title={waStatus?.status !== 'CONNECTED' ? 'Conecte o WhatsApp para iniciar' : 'Continuar campanha'}
+                            title="Revisar e iniciar campanha"
                           >
                             {actionLoading === camp.id ? <RefreshCw size={15} className="animate-spin" /> : <Play size={15} />}
                           </button>
@@ -2140,7 +2136,7 @@ export default function Dashboard() {
 
                         <button 
                           onClick={() => setCampaignToDelete(camp)}
-                          disabled={camp.status === 'STARTING'}
+                          disabled={['STARTING', 'PAUSING'].includes(camp.status)}
                           className="p-2.5 rounded-xl text-[var(--studio-muted)] hover:text-red-400 hover:bg-red-500/10 active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
                           title="Excluir Campanha"
                         >

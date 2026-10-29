@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/auth';
 import { prisma } from '../lib/prisma';
+import { prospectingSuggestions } from '../services/ProspectingSuggestions';
 import { professionalProfileSchema } from '../services/ProfessionalProfile';
 
 const router = Router();
 router.use(authenticate);
+router.get('/prospecting-suggestions', async (req, res) => {
+  try {
+    const profile = await prisma.professionalProfile.findUnique({ where: { userId: req.user!.userId } });
+    res.json({ suggestions: prospectingSuggestions(profile), profileCompleted: Boolean(profile?.completedAt), costCredits: 0 });
+  } catch { res.status(500).json({ error: 'Não foi possível carregar as sugestões. Você pode preencher a busca manualmente.' }); }
+});
 router.get('/', async (req, res) => {
   try {
     const profile = await prisma.professionalProfile.findUnique({ where: { userId: req.user!.userId } });
