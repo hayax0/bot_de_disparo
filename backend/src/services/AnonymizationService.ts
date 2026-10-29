@@ -1,5 +1,7 @@
 import { prisma } from '../lib/prisma';
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
+import { commercialPhoneSql, commercialPhone, lockCommercialContact } from './CommercialContacts';
 import { ENV } from '../config/env';
 
 const LGPD_PEPPER = process.env.LGPD_HMAC_SECRET || `${ENV.JWT_SECRET}_lgpd_pepper`;
@@ -33,22 +35,31 @@ export class AnonymizationService {
     let count = 0;
 
     await prisma.$transaction(async (tx) => {
+      const normalizedCommercialPhone = commercialPhone(phone);
+      if (normalizedCommercialPhone) {
+        await lockCommercialContact(tx, workspaceId, normalizedCommercialPhone);
+        await tx.commercialContact.deleteMany({ where: { workspaceId, phone: normalizedCommercialPhone } });
+      }
       // 1. Anonimiza os registros na tabela Lead
-      const leads = await tx.lead.findMany({
-        where: {
-          phone: { in: [cleanPhone, `+${cleanPhone}`] },
-          campaign: { workspaceId }
-        },
-        select: { id: true }
-      });
+      const leads = normalizedCommercialPhone
+        ? await tx.$queryRaw<Array<{ id: string; campaignId: string }>>(Prisma.sql`
+            SELECT l.id, l."campaignId" FROM "Lead" l JOIN "Campaign" c ON c.id = l."campaignId"
+            WHERE c."workspaceId" = ${workspaceId} AND ${commercialPhoneSql(Prisma.sql`l.phone`)} = ${normalizedCommercialPhone}
+            ORDER BY l.id`)
+        : await tx.lead.findMany({ where: { phone: { in: [cleanPhone, `+${cleanPhone}`] }, campaign: { workspaceId } }, select: { id: true, campaignId: true } });
 
       count = leads.length;
 
+      const campaignsAnonymized = new Set<string>();
       for (const l of leads) {
+        // Variações do mesmo telefone podem coexistir numa campanha legada; preserva a unicidade.
+        const targetPhone = campaignsAnonymized.has(l.campaignId)
+          ? `${anonymizedPhoneId}_${crypto.createHash('sha256').update(l.id).digest('hex').slice(0, 8)}` : anonymizedPhoneId;
+        campaignsAnonymized.add(l.campaignId);
         await tx.lead.update({
           where: { id: l.id },
           data: {
-            phone: anonymizedPhoneId,
+            phone: targetPhone,
             title: 'Contato Anonimizado (LGPD)',
             website: null,
             neighborhood: null,
@@ -61,25 +72,22 @@ export class AnonymizationService {
       }
 
       // 2. Anonimiza histórico de disparos se existir
-      await tx.dispatchHistory.updateMany({
-        where: {
-          workspaceId,
-          phone: cleanPhone
-        },
-        data: {
-          phone: anonymizedPhoneId,
-          companyTitle: 'Empresa Anonimizada (LGPD)',
-          website: null,
-          neighborhood: null,
-          lastMessage: null,
-          lastCampaignName: null
-        }
-      });
+      const history = normalizedCommercialPhone
+        ? await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+            SELECT h.id FROM "DispatchHistory" h WHERE h."workspaceId" = ${workspaceId}
+              AND ${commercialPhoneSql(Prisma.sql`h.phone`)} = ${normalizedCommercialPhone} ORDER BY h.id`)
+        : await tx.dispatchHistory.findMany({ where: { workspaceId, phone: cleanPhone }, select: { id: true } });
+      for (const [index, item] of history.entries()) {
+        await tx.dispatchHistory.update({ where: { id: item.id }, data: {
+          phone: index === 0 ? anonymizedPhoneId : `${anonymizedPhoneId}_${crypto.createHash('sha256').update(item.id).digest('hex').slice(0, 8)}`,
+          companyTitle: 'Empresa Anonimizada (LGPD)', website: null, neighborhood: null, lastMessage: null, lastCampaignName: null,
+        } });
+      }
 
       // 3. Garante que o telefone permaneça suprimido na Blacklist do workspace
       const blExists = await tx.blacklist.findFirst({
         where: {
-          phone: cleanPhone,
+          phone: normalizedCommercialPhone || cleanPhone,
           OR: [
             { scope: 'GLOBAL' },
             { scope: 'WORKSPACE', workspaceId }
@@ -92,7 +100,7 @@ export class AnonymizationService {
           data: {
             scope: 'WORKSPACE',
             workspaceId,
-            phone: cleanPhone,
+            phone: normalizedCommercialPhone || cleanPhone,
             reason: 'OPT_OUT',
             source: 'USER_ACTION',
             metadata: JSON.stringify({
