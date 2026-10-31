@@ -1,6 +1,8 @@
 // Sentry precisa ser o PRIMEIRO import para instrumentar tudo corretamente
 import { Sentry } from './lib/sentry';
 import profileRoutes from './routes/profile';
+import templatesRoutes from './routes/templates';
+import { AiFollowupService } from './services/AiFollowupService';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -94,6 +96,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/templates', templatesRoutes);
 
 // Health check — Liveness probe (processo está vivo e respondendo)
 app.get('/api/health/live', (req, res) => {
@@ -216,11 +219,23 @@ const server = app.listen(ENV.PORT, async () => {
   startAiGenerationWorker();
   // Recupera operações de IA que ficaram pendentes/interrompidas sem job ativo
   await AiCopyService.recoverOrphanedAiOperations();
+  await AiFollowupService.recoverInterrupted();
   // Consolida e sincroniza histórico permanente com leads SENT antigos
   backfillDispatchHistory();
   // Migração e ativação automática do Davi para o Plano PRO se renovado
   await autoMigrateDaviToProIfRenewed();
 });
+
+// Limpa reservas de sugestões interrompidas sem iniciar nova chamada ao provedor.
+let recoveringFollowups = false;
+const followupRecoveryTimer = setInterval(async () => {
+  if (recoveringFollowups) return;
+  recoveringFollowups = true;
+  try { await AiFollowupService.recoverInterrupted(); }
+  catch (error) { Sentry.captureException(error); }
+  finally { recoveringFollowups = false; }
+}, 60_000);
+followupRecoveryTimer.unref();
 
 // ── Graceful shutdown ─────────────────────────────────────────────
 // Fecha tudo na ordem correta para não corromper a sessão do WhatsApp
@@ -229,6 +244,7 @@ let shuttingDown = false;
 async function gracefulShutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(followupRecoveryTimer);
   console.log(`[SHUTDOWN] Recebido ${signal}. Encerrando com segurança...`);
 
   const forceExit = setTimeout(() => {

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import axios from "axios";
+import { MessageTemplatePicker } from "./MessageTemplatePicker";
 import {
   Sparkles,
   X,
@@ -524,6 +525,8 @@ export function LeadMessageModal({
               className="w-full text-xs dash-input rounded-xl p-3 bg-white/[0.03] border border-white/[0.08] text-white placeholder-slate-500 focus:border-emerald-500/50 leading-relaxed font-sans disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
+
+          {!isAlreadySentOrSending && <MessageTemplatePicker onSelect={setContent} />}
 
           {!isAlreadySentOrSending && <div className="space-y-2">
             <label htmlFor="lead-ai-goal" className="block text-xs text-[var(--studio-muted)]">Objetivo para a próxima versão (opcional)</label>
