@@ -4,6 +4,9 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import { CommercialContactEditor, COMMERCIAL_STAGES, type CommercialRecord } from '@/components/dashboard/CommercialContactEditor';
+import { CommercialOpportunities } from '@/components/dashboard/CommercialOpportunities';
+import { MessageTemplates } from '@/components/dashboard/MessageTemplates';
+import { MessageTemplatePicker } from '@/components/dashboard/MessageTemplatePicker';
 import { CommercialResults } from '@/components/dashboard/CommercialResults';
 import { CampaignSendReview } from '@/components/dashboard/CampaignSendReview';
 import { FirstCampaignGuide } from '@/components/dashboard/FirstCampaignGuide';
@@ -256,7 +259,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin' | 'results'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin' | 'results' | 'opportunities' | 'templates'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -1449,6 +1452,9 @@ export default function Dashboard() {
 
             <button type="button" onClick={() => { setActiveTab('results'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'results' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Activity size={15} />Resultados comerciais</button>
 
+            <button type="button" onClick={() => { setActiveTab('opportunities'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'opportunities' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Users size={15} />Oportunidades e retornos</button>
+            <button type="button" onClick={() => { setActiveTab('templates'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'templates' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><BookOpen size={15} />Meus modelos</button>
+
             {!isLegacyUser && (
               <button
                 type="button"
@@ -1975,6 +1981,8 @@ export default function Dashboard() {
           )}
         </div>
 
+        {activeTab === 'opportunities' && <CommercialOpportunities onOpenCampaign={id => { void openCampaignDetails(id); }} />}
+        {activeTab === 'templates' && <MessageTemplates />}
         {activeTab === 'results' && <CommercialResults onOpenCampaign={id => { void openCampaignDetails(id); }} />}
         {activeTab === 'campaigns' && (
           <>
@@ -2743,6 +2751,7 @@ export default function Dashboard() {
                 </div>
 
                 <CopyPresets onSelect={message => setNewCampaign(prev => ({ ...prev, message }))} />
+                <MessageTemplatePicker onSelect={message => setNewCampaign(prev => ({ ...prev, message }))} />
                 <div className="flex flex-wrap items-center gap-1 text-[11px] py-1">
                   <span className="text-[var(--studio-muted)] text-[10px] mr-1">Inserir:</span>
                   {[
@@ -3070,7 +3079,7 @@ export default function Dashboard() {
                                 </span>
                               </td>
                               <td className="p-3 min-w-40">
-                                <button type="button" onClick={() => setCommercialLead(lead)} disabled={lead.phone.startsWith('anon_')} aria-label={`Acompanhar ${lead.title}`} className="dash-btn-secondary px-3 py-2 text-xs text-left disabled:opacity-30"><span className={lead.commercial?.stage === 'INTERESTED' ? 'text-[var(--studio-accent)]' : ''}>{COMMERCIAL_STAGES[lead.commercial?.stage || 'UNCLASSIFIED']}</span><span className="block mt-1 text-[var(--studio-muted)]">Acompanhar{lead.commercial?.meetingBooked ? ' · Reunião marcada' : ''}{lead.commercial?.notes ? ' · Com anotações' : ''}</span></button>
+                                <button type="button" onClick={() => setCommercialLead(lead)} disabled={lead.phone.startsWith('anon_')} aria-label={`Acompanhar ${lead.title}`} className="dash-btn-secondary px-3 py-2 text-xs text-left disabled:opacity-30"><span className={lead.commercial?.stage === 'INTERESTED' ? 'text-[var(--studio-accent)]' : ''}>{COMMERCIAL_STAGES[lead.commercial?.stage || 'UNCLASSIFIED']}</span><span className="block mt-1 text-[var(--studio-muted)]">Acompanhar{lead.commercial?.meetingBooked ? ' · Reunião marcada' : ''}{lead.commercial?.notes ? ' · Com anotações' : ''}{lead.commercial?.nextContactAt ? ` · Retorno: ${lead.commercial.nextContactAt.slice(0, 10).split('-').reverse().join('/')}` : ''}</span></button>
                               </td>
                               <td className="p-3 whitespace-nowrap">
                                 {lead.messageContent ? (

@@ -72,6 +72,7 @@ model Workspace {
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns        Campaign[]
   commercialContacts CommercialContact[]
+  messageTemplates MessageTemplate[]
   dispatchHistory  DispatchHistory[]
   whatsapp         WhatsappSession?
   blacklist        Blacklist[]
@@ -548,10 +549,26 @@ model CommercialContact {
   stage         CommercialStage @default(UNCLASSIFIED)
   notes         String @default("") @db.Text
   meetingBooked Boolean @default(false)
+  nextContactAt DateTime? @db.Date
   version       Int @default(1)
   updatedAt     DateTime @updatedAt
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, phone])
   @@index([workspaceId, stage])
+  @@index([workspaceId, nextContactAt])
+}
+
+model MessageTemplate {
+  id          String @id @default(uuid())
+  workspaceId String
+  title       String
+  service     String
+  content     String @db.Text
+  version     Int @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, updatedAt])
 }
