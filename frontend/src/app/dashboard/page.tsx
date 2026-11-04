@@ -3,6 +3,8 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
+import { CommercialContactEditor, COMMERCIAL_STAGES, type CommercialRecord } from '@/components/dashboard/CommercialContactEditor';
+import { CommercialResults } from '@/components/dashboard/CommercialResults';
 import { CampaignSendReview } from '@/components/dashboard/CampaignSendReview';
 import { FirstCampaignGuide } from '@/components/dashboard/FirstCampaignGuide';
 import { ProfessionalProfilePanel } from '@/components/dashboard/ProfessionalProfilePanel';
@@ -80,6 +82,7 @@ interface Campaign {
 }
 
 interface Lead {
+  commercial?: CommercialRecord;
   id: string;
   title: string;
   phone: string;
@@ -253,7 +256,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin' | 'results'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -283,6 +286,10 @@ export default function Dashboard() {
   const [userAvailableCredits, setUserAvailableCredits] = useState<number>(0);
   const [campaignDetails, setCampaignDetails] = useState<CampaignDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [commercialStageFilter, setCommercialStageFilter] = useState('ALL');
+  const [meetingFilter, setMeetingFilter] = useState('ALL');
+  const [commercialLead, setCommercialLead] = useState<Lead | null>(null);
+  const commercialFilters = useRef({ stage: 'ALL', meeting: 'ALL' });
   const [leadFilterStatus, setLeadFilterStatus] = useState<string>('ALL');
   const [leadSearchTerm, setLeadSearchTerm] = useState('');
   const [debouncedLeadSearchTerm, setDebouncedLeadSearchTerm] = useState('');
@@ -655,6 +662,8 @@ export default function Dashboard() {
     params.set('limit', String(LEADS_PER_PAGE));
     if (status && status !== 'ALL') params.set('status', status);
     if (search && search.trim() !== '') params.set('search', search.trim());
+    params.set('commercialStage', commercialFilters.current.stage);
+    params.set('meeting', commercialFilters.current.meeting);
     return api.get(`/campaigns/${campaignId}/leads?${params.toString()}`);
   }, [LEADS_PER_PAGE]);
 
@@ -684,7 +693,7 @@ export default function Dashboard() {
     return () => {
       isCurrent = false;
     };
-  }, [selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm, fetchLeadsForCampaign]);
+  }, [selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm, commercialStageFilter, meetingFilter, fetchLeadsForCampaign]);
 
   // Polling de detalhes sincronizados (contadores + leads juntos) com proteção de sobreposição e race conditions
   useEffect(() => {
@@ -701,7 +710,7 @@ export default function Dashboard() {
       // Previne requisições simultâneas concorrentes caso a anterior ainda esteja em voo
       if (isPollingDetailsRef.current) return;
       isPollingDetailsRef.current = true;
-      ++detailsRequestIdRef.current;
+      const reqId = ++detailsRequestIdRef.current;
 
       try {
         const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
@@ -711,7 +720,7 @@ export default function Dashboard() {
         ]);
 
         // Descarta respostas se o usuário fechou o modal ou trocou de campanha
-        if (selectedCampaignIdRef.current !== currentId) return;
+        if (selectedCampaignIdRef.current !== currentId || detailsRequestIdRef.current !== reqId) return;
 
         let partialIssue = false;
 
@@ -755,7 +764,7 @@ export default function Dashboard() {
       clearInterval(interval);
       isPollingDetailsRef.current = false;
     };
-  }, [selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm, fetchLeadsForCampaign]);
+  }, [selectedCampaignId, leadPage, leadFilterStatus, debouncedLeadSearchTerm, commercialStageFilter, meetingFilter, fetchLeadsForCampaign]);
 
   // Tecla ESC para fechar modais
   useEffect(() => {
@@ -851,6 +860,8 @@ export default function Dashboard() {
     setDetailsSyncWarning(null);
     setLeadPage(1);
     setLeadFilterStatus('ALL');
+    commercialFilters.current = { stage: 'ALL', meeting: 'ALL' };
+    setCommercialStageFilter('ALL'); setMeetingFilter('ALL'); setCommercialLead(null);
     setLeadSearchTerm('');
     try {
       const [leadsRes, statsRes, healthRes] = await Promise.allSettled([
@@ -913,6 +924,7 @@ export default function Dashboard() {
   const closeCampaignDetails = useCallback(() => {
     selectedCampaignIdRef.current = null;
     setSelectedCampaignId(null);
+    setCommercialLead(null);
     setQueueHealth(null);
     setCampaignDetails(null);
     setIsLoadingDetails(false);
@@ -1435,6 +1447,8 @@ export default function Dashboard() {
               )}
             </button>
 
+            <button type="button" onClick={() => { setActiveTab('results'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'results' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Activity size={15} />Resultados comerciais</button>
+
             {!isLegacyUser && (
               <button
                 type="button"
@@ -1922,6 +1936,8 @@ export default function Dashboard() {
             )}
           </button>
 
+          <button type="button" onClick={() => setActiveTab('results')} className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium ${activeTab === 'results' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Activity size={14} />Resultados comerciais</button>
+
           {!isLegacyUser && (
             <button
               type="button"
@@ -1959,6 +1975,7 @@ export default function Dashboard() {
           )}
         </div>
 
+        {activeTab === 'results' && <CommercialResults onOpenCampaign={id => { void openCampaignDetails(id); }} />}
         {activeTab === 'campaigns' && (
           <>
             {user && <FirstCampaignGuide userId={user.id} loaded={!isLoading && !syncError}
@@ -2933,6 +2950,12 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--studio-line)] p-3">
+                  <label className="text-xs space-y-2"><span className="block text-[var(--studio-muted)]">Etapa comercial (manual)</span><select aria-label="Filtrar etapa comercial" value={commercialStageFilter} onChange={event => { commercialFilters.current.stage = event.target.value; setCommercialStageFilter(event.target.value); setLeadPage(1); }} className="dash-input rounded-lg p-2"><option value="ALL">Todas as etapas</option>{Object.entries(COMMERCIAL_STAGES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                  <label className="text-xs space-y-2"><span className="block text-[var(--studio-muted)]">Reunião registrada</span><select aria-label="Filtrar reunião registrada" value={meetingFilter} onChange={event => { commercialFilters.current.meeting = event.target.value; setMeetingFilter(event.target.value); setLeadPage(1); }} className="dash-input rounded-lg p-2"><option value="ALL">Todos os contatos</option><option value="YES">Com reunião marcada</option><option value="NO">Sem reunião marcada</option></select></label>
+                  <p className="text-xs text-[var(--studio-muted)] flex-1 min-w-40">Use “Acompanhar” para classificar e anotar. Os contadores de envio acima mostram a campanha inteira; a tabela segue os filtros.</p>
+                </div>
+
                 {/* Tabela de Leads Dark Minimalista */}
                 <div className="dash-card overflow-hidden">
                   <div className="overflow-x-auto">
@@ -2943,6 +2966,7 @@ export default function Dashboard() {
                           <th className="p-3">Telefone</th>
                           <th className="p-3">Site / Bairro</th>
                           <th className="p-3">Status</th>
+                          <th className="p-3">Comercial / Anotações</th>
                           <th className="p-3">Abordagem / IA</th>
                           <th className="p-3">Envio / Detalhes</th>
                         </tr>
@@ -2950,7 +2974,7 @@ export default function Dashboard() {
                       <tbody className="divide-y divide-white/[0.04]">
                         {pagedLeads.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="p-8 text-center text-[var(--studio-muted)]">
+                            <td colSpan={7} className="p-8 text-center text-[var(--studio-muted)]">
                               Nenhum lead encontrado com os filtros atuais.
                             </td>
                           </tr>
@@ -3044,6 +3068,9 @@ export default function Dashboard() {
                                     ? 'Erro'
                                     : lead.status}
                                 </span>
+                              </td>
+                              <td className="p-3 min-w-40">
+                                <button type="button" onClick={() => setCommercialLead(lead)} disabled={lead.phone.startsWith('anon_')} aria-label={`Acompanhar ${lead.title}`} className="dash-btn-secondary px-3 py-2 text-xs text-left disabled:opacity-30"><span className={lead.commercial?.stage === 'INTERESTED' ? 'text-[var(--studio-accent)]' : ''}>{COMMERCIAL_STAGES[lead.commercial?.stage || 'UNCLASSIFIED']}</span><span className="block mt-1 text-[var(--studio-muted)]">Acompanhar{lead.commercial?.meetingBooked ? ' · Reunião marcada' : ''}{lead.commercial?.notes ? ' · Com anotações' : ''}</span></button>
                               </td>
                               <td className="p-3 whitespace-nowrap">
                                 {lead.messageContent ? (
@@ -3160,6 +3187,8 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+
+          {commercialLead && campaignDetails && <CommercialContactEditor key={`${campaignDetails.campaign.id}-${commercialLead.id}`} campaignId={campaignDetails.campaign.id} lead={commercialLead} onClose={() => setCommercialLead(null)} onSaved={() => { const id = campaignDetails.campaign.id; const reqId = ++detailsRequestIdRef.current; fetchLeadsForCampaign(id, leadPage, leadFilterStatus, debouncedLeadSearchTerm).then(response => { if (selectedCampaignIdRef.current === id && detailsRequestIdRef.current === reqId) setCampaignDetails(response.data); }).catch(() => {}); }} />}
 
           {/* Modais do Assistente de IA */}
           {isAiBatchModalOpen && campaignDetails && (
