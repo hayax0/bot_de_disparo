@@ -29,6 +29,7 @@ export interface BatchGenerationParams {
   toneStyle?: AiToneStyle | undefined;
   leadIds?: string[] | undefined;
   idempotencyKey?: string | undefined;
+  maxCredits?: number | undefined;
   processSyncForTest?: boolean | undefined;
   customQueue?: any | undefined;
 }
@@ -349,6 +350,11 @@ Gere a mensagem de abordagem personalizada pronta para envio:`;
     }
 
     const totalLeads = eligibleLeads.length;
+    if (params.maxCredits !== undefined && totalLeads > params.maxCredits) {
+      const error = new Error('A quantidade de contatos aumentou. Confira a nova estimativa e confirme novamente; nenhum crédito foi reservado.');
+      (error as any).statusCode = 409; (error as any).code = 'AI_ESTIMATE_CHANGED';
+      throw error;
+    }
 
     // 5. Reserva prévia de créditos (1 crédito por lead)
     const reservation = await CreditWalletService.reserveCredits({

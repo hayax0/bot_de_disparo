@@ -81,6 +81,24 @@ export function CompanySearchTab({
   addToast
 }: CompanySearchTabProps) {
   const websiteFilterLabel = (filter?: string) => filter === 'WITH_WEBSITE' ? 'Com site próprio' : filter === 'WITHOUT_WEBSITE' ? 'Sem site próprio' : 'Todos os sites';
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; segment: string; websiteFilter: string; reason: string }>>([]);
+  const [suggestionsError, setSuggestionsError] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+  const [profileCompleted, setProfileCompleted] = useState(false);
+  const [appliedSuggestion, setAppliedSuggestion] = useState('');
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      setSuggestionsLoading(true);
+      api.get('/profile/prospecting-suggestions').then(({ data }) => {
+        if (!mounted) return;
+        setSuggestions(data.suggestions || []); setProfileCompleted(data.profileCompleted); setSuggestionsError(false);
+      }).catch(() => { if (mounted) setSuggestionsError(true); })
+        .finally(() => { if (mounted) setSuggestionsLoading(false); });
+    };
+    refresh(); window.addEventListener('professional-profile:updated', refresh);
+    return () => { mounted = false; window.removeEventListener('professional-profile:updated', refresh); };
+  }, []);
   const [apifyReady, setApifyReady] = useState(false);
   // Parâmetros de Busca
   const [segment, setSegment] = useState("");
@@ -342,6 +360,11 @@ export function CompanySearchTab({
       </div>
 
       <ApifyConnection onConnectionChange={setApifyReady} />
+      <section aria-label="Sugestões pelo seu perfil" className="dash-card p-5 space-y-4">
+        <div><span className="studio-eyebrow">UM PONTO DE PARTIDA PARA PROSPECTAR</span><h3 className="text-lg font-semibold mt-1">Seu serviço. Um público que faz sentido.</h3><p className="text-xs text-[var(--studio-muted)] mt-2">Sugestões gratuitas por regras do seu perfil, sem chamada à IA. Aplicar apenas preenche os campos; você escolhe a cidade e confirma a busca.</p></div>
+        {suggestionsLoading ? <p role="status" className="text-xs text-[var(--studio-muted)]">Carregando sugestões…</p> : suggestionsError ? <p role="status" className="text-xs text-amber-300">Sugestões indisponíveis agora. Você pode buscar normalmente preenchendo os campos abaixo.</p> : !profileCompleted ? <p className="text-xs text-[var(--studio-muted)]">Preencha “Meu negócio” no início do painel com seu serviço e público para receber sugestões.</p> : <div className="grid md:grid-cols-3 gap-3">{suggestions.map(suggestion => <article key={suggestion.id} className="p-4 rounded-2xl border border-[var(--studio-line)] bg-[var(--studio-bg)] flex flex-col gap-3"><h4 className="text-sm font-semibold break-words">{suggestion.segment}</h4><p className="text-xs text-[var(--studio-muted)] flex-1">{suggestion.reason}</p><p className="text-xs text-[var(--studio-accent)]">{websiteFilterLabel(suggestion.websiteFilter)}</p><button type="button" disabled={isSearching} className="dash-btn-secondary px-3 py-2 text-xs" onClick={() => { setSegment(suggestion.segment); setWebsiteFilter(suggestion.websiteFilter); setSearchIdempotencyKey(crypto.randomUUID()); setAppliedSuggestion(`Sugestão aplicada: ${suggestion.segment}. Confira os filtros, informe a localização e clique em Buscar Empresas quando quiser.`); }}>Aplicar à busca</button></article>)}</div>}
+        {appliedSuggestion && <p role="status" className="text-xs text-[var(--studio-accent)]">{appliedSuggestion}</p>}
+      </section>
       {/* Formulário de Busca */}
       <div className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-4">
         <form onSubmit={handleSearch} className="space-y-4">

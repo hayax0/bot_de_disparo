@@ -164,6 +164,7 @@ model Campaign {
   scheduleDays        String   @default("1,2,3,4,5,6") // Dias da semana: 0=Dom, 1=Seg..6=Sab
   scheduleTimezone    String   @default("America/Sao_Paulo")
   recontactAfterDays  Int      @default(30)
+  activeSendBatchId   String?
   aiOfferDescription  String?  @db.Text
   aiToneStyle         String?  @default("CONSULTATIVE")
   createdAt           DateTime @default(now())
@@ -182,6 +183,7 @@ model Lead {
   neighborhood   String?
   status         String    @default("PENDING") // PENDING, QUEUED, SENDING, SENT, DELIVERED, READ, REPLIED, ERROR, IGNORED
   errorMessage   String?
+  sendBatchId    String?
   messageContent String?
   aiGenerated    Boolean   @default(false)
   aiGeneratedAt  DateTime?

@@ -219,3 +219,63 @@ test('Worker: desconexão durante preparação não grava intenção nem confirm
   assert.equal(f.lead.wppMessageId, undefined);
   assert.equal(f.campaign.status, 'PAUSED');
 });
+
+test('Worker: job antigo ou sem aprovação não envia contatos de um lote revisado', async t => {
+  const f = fixture(t);
+  f.campaign.activeSendBatchId = 'lote-atual';
+  f.lead.sendBatchId = 'lote-atual';
+  f.lead.messageContent = 'Mensagem aprovada';
+  let sends = 0;
+  mockMethod(t, WhatsappManager, 'sendMessage', async () => { sends++; throw new Error('Não deve chamar provedor'); });
+  await processor({ ...f.job, data: { ...f.job.data, batchId: 'lote-antigo' } });
+  await processor(f.job);
+  assert.equal(sends, 0);
+  assert.equal(f.lead.status, 'QUEUED');
+  assert.equal(f.lead.messageContent, 'Mensagem aprovada');
+});
+
+test('Worker: lote aprovado envia a mensagem congelada, sem sortear o template novamente', async t => {
+  const f = fixture(t);
+  f.campaign.activeSendBatchId = 'lote-atual'; f.lead.sendBatchId = 'lote-atual';
+  f.campaign.messageSemSite = '{Outra|Nova} abordagem'; f.lead.messageContent = 'Texto exato revisado!';
+  let sends = 0;
+  mockMethod(t, WhatsappManager, 'sendMessage', async (_workspace, _phone, message, beforeSend) => {
+    assert.equal(message, 'Texto exato revisado!'); await beforeSend!('aprovado-id'); sends++;
+    return { messageId: 'aprovado-id', jid: 'test-jid' };
+  });
+  await processor({ ...f.job, data: { ...f.job.data, batchId: 'lote-atual' } });
+  assert.equal(sends, 1); assert.equal(f.lead.messageContent, 'Texto exato revisado!');
+});
+
+test('Worker: termina lote selecionado pausando a campanha com outros contatos pendentes', async t => {
+  const f = fixture(t);
+  f.campaign.activeSendBatchId = 'lote'; f.lead.sendBatchId = 'lote'; f.lead.messageContent = 'Olá!';
+  mockMethod(t, WhatsappManager, 'sendMessage', async (_workspace, _phone, _message, beforeSend) => { await beforeSend!('id'); return { messageId: 'id', jid: 'test-jid' }; });
+  mockMethod(t, prisma.lead, 'count', async ({ where }: any) => typeof where.status === 'string' ? 2 : ['QUEUED', 'SENDING'].includes(f.lead.status) ? 1 : 0);
+  let paused = false;
+  mockMethod(t, prisma.campaign, 'updateMany', async ({ where, data }: any) => {
+    if (where.leads?.none && data.status === 'PAUSED') paused = true;
+    return { count: 1 };
+  });
+  await processor({ ...f.job, data: { ...f.job.data, batchId: 'lote' } });
+  assert.equal(paused, true);
+});
+
+test('Recovery: pendentes não selecionados não pausam lote aprovado com jobs válidos', async t => {
+  const f = fixture(t);
+  f.campaign.activeSendBatchId = 'selecionado'; f.lead.sendBatchId = 'selecionado';
+  const { messageQueue } = require('./queue');
+  mockMethod(t, messageQueue, 'getJob', async () => ({ getState: async () => 'delayed', data: { batchId: 'selecionado' } }));
+  mockMethod(t, prisma.lead, 'count', async () => 1);
+  mockMethod(t, prisma.campaign, 'updateMany', async ({ where, data }: any) => {
+    if (where.leads?.some) {
+      assert.equal(where.leads.some.sendBatchId, 'selecionado', 'Não pode pausar por um PENDING não aprovado neste lote');
+      // Existe PENDING, mas ele não pertence ao lote selecionado.
+      return { count: 0 };
+    }
+    if (typeof where.status === 'string' && where.status === f.campaign.status) Object.assign(f.campaign, data);
+    return { count: 0 };
+  });
+  await recoverOrphanedLeads();
+  assert.equal(f.campaign.status, 'RUNNING'); assert.equal(f.lead.status, 'QUEUED');
+});

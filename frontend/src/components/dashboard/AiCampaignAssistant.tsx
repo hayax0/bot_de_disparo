@@ -76,7 +76,16 @@ export function AiGenerateModal({
   const [resumeAttempt, setResumeAttempt] = useState(0);
   useEffect(() => { callbacks.current = { onSuccess, addToast }; }, [onSuccess, addToast]);
 
-  const creditsNeeded = Math.min(pendingLeadsCount, 200);
+  const [estimate, setEstimate] = useState<{ eligibleCount: number; batchCount: number; maxCredits: number } | null>(null);
+  const [estimateError, setEstimateError] = useState(false);
+  const [estimateAttempt, setEstimateAttempt] = useState(0);
+  useEffect(() => {
+    let mounted = true;
+    api.get(`/campaigns/${campaignId}/ai-estimate`).then(({ data }) => { if (mounted) { setEstimate(data); setEstimateError(false); } })
+      .catch(() => { if (mounted) setEstimateError(true); });
+    return () => { mounted = false; };
+  }, [campaignId, estimateAttempt, pendingLeadsCount]);
+  const creditsNeeded = estimate?.maxCredits ?? Math.min(pendingLeadsCount, 200);
   const hasEnoughCredits = availableCredits >= creditsNeeded;
   const operationId = activeOp?.id;
 
@@ -119,7 +128,7 @@ export function AiGenerateModal({
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting || checkingActive || resumeError) return;
+    if (submitting || checkingActive || resumeError || !estimate || estimateError) return;
     if (!offerDescription.trim() || offerDescription.trim().length < 5) {
       addToast("error", "Descreva sua oferta com pelo menos 5 caracteres.");
       return;
@@ -141,6 +150,7 @@ export function AiGenerateModal({
         offerDescription: offerDescription.trim(),
         toneStyle,
         idempotencyKey: batchIdempotencyKey,
+        maxCredits: creditsNeeded,
       });
 
       const opId = res.data.operationId;
@@ -160,6 +170,7 @@ export function AiGenerateModal({
       let msg = "Erro ao iniciar geração assíncrona com IA.";
       if (axios.isAxiosError(err)) {
         msg = err.response?.data?.error || msg;
+        if (err.response?.data?.code === 'AI_ESTIMATE_CHANGED') { setEstimate(null); setEstimateError(false); setEstimateAttempt(value => value + 1); }
       } else if (err instanceof Error) {
         msg = err.message;
       }
@@ -228,12 +239,12 @@ export function AiGenerateModal({
                 <Coins size={16} className="text-amber-400" />
                 <div>
                   <p className="text-xs text-[var(--studio-muted)] font-medium">Consumo de Créditos de IA</p>
-                  <p className="text-[11px] text-[var(--studio-muted)]">1 crédito por mensagem gerada e entregue</p>
+                  <p className="text-[11px] text-[var(--studio-muted)]">1 crédito por mensagem gerada e salva; envio é separado</p>
                 </div>
               </div>
               <div className="text-right">
                 <span className="text-xs font-bold text-white tabular-nums">
-                  {creditsNeeded} de {availableCredits} créditos
+                  Até {creditsNeeded} créditos · Saldo: {availableCredits}
                 </span>
                 <p className={`text-[10px] ${hasEnoughCredits ? "text-emerald-400" : "text-red-400 font-medium"}`}>
                   {hasEnoughCredits ? "Saldo disponível" : "Saldo insuficiente"}
@@ -241,6 +252,10 @@ export function AiGenerateModal({
               </div>
             </div>
 
+            <div className="rounded-xl border border-[var(--studio-line)] p-3 text-xs text-[var(--studio-muted)] space-y-2" aria-live="polite">
+              {!estimate && !estimateError ? <p>Calculando o custo do lote…</p> : estimateError ? <p className="text-amber-300">Não foi possível atualizar a estimativa. <button type="button" onClick={() => { setEstimate(null); setEstimateError(false); setEstimateAttempt(value => value + 1); }} className="underline">Tentar novamente</button></p> : <p>Até {estimate?.batchCount} mensagens neste lote{(estimate?.eligibleCount || 0) > 200 ? `, de ${estimate?.eligibleCount} pendentes` : ''}. Reservamos até {creditsNeeded} créditos e debitamos apenas as mensagens salvas com sucesso. O restante é liberado ao encerrar.</p>}
+              <p>Uma nova geração ou regeneração consome créditos novamente. Revisar e editar manualmente é grátis. Buscar empresas usa a sua conta Apify e não gasta créditos de IA.</p>
+            </div>
             {/* O que sua empresa oferece */}
             <div>
               <label className="block text-xs font-semibold text-[var(--studio-ink)] mb-1.5">
@@ -322,7 +337,7 @@ export function AiGenerateModal({
               </button>
               <button
                 type="submit"
-                disabled={submitting || checkingActive || resumeError || creditsNeeded <= 0 || !hasEnoughCredits || !offerDescription.trim()}
+                disabled={!estimate || estimateError || submitting || checkingActive || resumeError || creditsNeeded <= 0 || !hasEnoughCredits || !offerDescription.trim()}
                 className="dash-btn-primary px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (
@@ -333,7 +348,7 @@ export function AiGenerateModal({
                 ) : (
                   <>
                     <Sparkles size={14} />
-                    Gerar para {creditsNeeded} Leads ({creditsNeeded} créditos)
+                    Gerar até {creditsNeeded} mensagens · até {creditsNeeded} créditos
                   </>
                 )}
               </button>

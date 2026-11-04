@@ -31,12 +31,12 @@ export function temWebsiteValido(website: string | null | undefined): boolean {
   return regexDominioProprio.test(hostname);
 }
 
-export function processarSpintax(texto: string): string {
+export function processarSpintax(texto: string, random: () => number = Math.random): string {
   let novoTexto = texto;
   while (novoTexto.includes('{') && novoTexto.includes('}')) {
     novoTexto = novoTexto.replace(/\{([^{}]+)\}/g, (_, opcoes) => {
       const lista = opcoes.split('|');
-      return lista[Math.floor(Math.random() * lista.length)];
+      return lista[Math.floor(random() * lista.length)];
     });
   }
   return novoTexto;
@@ -69,7 +69,7 @@ export function formatarNomeEmpresa(nomeRaw: string | null | undefined): string 
   return resultado || 'pessoal';
 }
 
-export function gerarProposta(lead: any, campaign: any, senderInfo?: { meuNome?: string; minhaEmpresa?: string }): string {
+export function gerarProposta(lead: any, campaign: any, senderInfo?: { meuNome?: string; minhaEmpresa?: string }, random: () => number = Math.random): string {
   const nomeEmpresa = formatarNomeEmpresa(lead.title);
   const possuiSite = temWebsiteValido(lead.website);
 
@@ -99,7 +99,7 @@ export function gerarProposta(lead: any, campaign: any, senderInfo?: { meuNome?:
     .replace(/{meuNome}/gi, meuNome)
     .replace(/{minhaEmpresa}/gi, minhaEmpresa);
 
-  return processarSpintax(mensagemPronta);
+  return processarSpintax(mensagemPronta, random);
 }
 
 export const VARIAVEIS_SUPORTADAS = ['nome', 'website', 'bairro', 'meuNome', 'minhaEmpresa'] as const;

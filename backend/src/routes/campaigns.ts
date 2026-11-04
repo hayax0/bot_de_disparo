@@ -8,6 +8,7 @@ import { messageQueue } from '../services/queue';
 import { temWebsiteValido, gerarPreviaMensagem, validarTemplateMensagem } from '../services/ProposalEngine';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
+import { createSendReview, CampaignReviewError } from '../services/CampaignSendReview';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
@@ -595,14 +596,29 @@ router.get('/:id/queue-health', async (req: Request, res: Response): Promise<any
 });
 
 
+const reviewConfirmationSchema = z.object({
+  token: z.string().min(20).max(2000),
+  leadIds: z.array(z.string().min(1).max(100)).min(1).max(500),
+}).strict();
+router.post('/:id/send-review', requireActiveSubscription, async (req, res): Promise<any> => {
+  if (req.body?.retryFailed !== undefined && typeof req.body.retryFailed !== 'boolean') return res.status(400).json({ error: 'Modo de revisão inválido.' });
+  try { res.json(await createSendReview(prisma, req.params.id as string, req.user!.workspaceId, req.body?.retryFailed === true)); }
+  catch (error) {
+    if (error instanceof CampaignReviewError) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: 'Não foi possível preparar a revisão. Tente novamente.' });
+  }
+});
+
 router.post(['/:id/start', '/:id/retry-failed'], requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const workspaceId = (req as any).user.workspaceId;
 
+  const review = reviewConfirmationSchema.safeParse(req.body);
+  if (!review.success) return res.status(400).json({ error: 'Revise os destinatários e confirme as mensagens antes de iniciar.' });
   try {
-    res.json(await startCampaign(prisma, messageQueue, id, workspaceId, req.path.endsWith('/retry-failed')));
+    res.json(await startCampaign(prisma, messageQueue, id, workspaceId, req.path.endsWith('/retry-failed'), review.data));
   } catch (error) {
-    if (error instanceof CampaignStartError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof CampaignStartError || error instanceof CampaignReviewError) return res.status(error.status).json({ error: error.message });
     console.error('Erro ao iniciar campanha:', error);
     res.status(500).json({ error: 'Erro ao iniciar campanha.' });
   }
@@ -617,7 +633,7 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
 
-    const paused = await prisma.campaign.updateMany({ where: { id, status: { not: 'STARTING' } }, data: { status: 'PAUSED' } });
+    const paused = await prisma.campaign.updateMany({ where: { id, status: { notIn: ['STARTING', 'PAUSING'] } }, data: { status: 'PAUSING' } });
     if (!paused.count) return res.status(409).json({ error: 'Aguarde a preparação da campanha antes de pausar.' });
 
     // Drena os jobs delayed/waiting desta campanha (pause real, instantâneo)
@@ -640,6 +656,7 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
       data: { status: 'PENDING' }
     });
 
+    await prisma.campaign.updateMany({ where: { id, status: 'PAUSING' }, data: { status: 'PAUSED' } });
     console.log(`[PAUSE] Campanha ${id}: ${removedJobs} jobs removidos da fila, ${reverted.count} leads voltaram a PENDING.`);
     res.json({ message: 'Campanha pausada.', removedJobs, leadsReverted: reverted.count });
   } catch (error) {
@@ -676,11 +693,22 @@ router.delete('/:id', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
+router.get('/:id/ai-estimate', async (req, res): Promise<any> => {
+  try {
+    const campaignId = req.params.id as string;
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId: req.user!.workspaceId } });
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
+    const eligibleCount = await prisma.lead.count({ where: { campaignId, status: 'PENDING', sendStartedAt: null } });
+    res.json({ eligibleCount, batchCount: Math.min(eligibleCount, 200), maxCredits: Math.min(eligibleCount, 200), unitCost: 1 });
+  } catch { res.status(500).json({ error: 'Não foi possível estimar o custo da geração.' }); }
+});
+
 // Geração em lote com IA para os leads da campanha
 const aiBatchSchema = z.object({
   offerDescription: z.string().min(5, 'Informe o que você oferece (mínimo 5 caracteres)').max(1000, 'Descrição da oferta muito longa (máximo 1000 caracteres)'),
   toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER', 'CURIOSITY', 'VALUE']).optional(),
   leadIds: z.array(z.string()).max(200, 'Máximo de 200 leads por lote').optional(),
+  maxCredits: z.number().int().min(0).max(200).optional(),
   idempotencyKey: z.string().max(128).optional(),
 });
 
@@ -694,7 +722,7 @@ router.post('/:id/ai-generate', requireActiveSubscription, async (req: Request, 
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Dados inválidos.' });
   }
 
-  const { offerDescription, toneStyle, leadIds, idempotencyKey } = parsed.data;
+  const { offerDescription, toneStyle, leadIds, idempotencyKey, maxCredits } = parsed.data;
 
   try {
     const result = await AiCopyService.initiateBatchGeneration({
@@ -704,12 +732,13 @@ router.post('/:id/ai-generate', requireActiveSubscription, async (req: Request, 
       offerDescription,
       toneStyle: toneStyle as AiToneStyle,
       leadIds,
+      maxCredits,
       idempotencyKey,
     });
     res.status(202).json({ success: true, ...result });
   } catch (error: any) {
     if (error.statusCode === 409) {
-      return res.status(409).json({ error: error.message, code: 'IDEMPOTENCY_CONFLICT' });
+      return res.status(409).json({ error: error.message, code: error.code === 'AI_ESTIMATE_CHANGED' ? error.code : 'IDEMPOTENCY_CONFLICT' });
     }
     if (error.code === 'AI_NOT_ALLOWED') {
       return res.status(403).json({ error: error.message, code: error.code });
@@ -787,7 +816,7 @@ router.post('/:id/leads/:leadId/ai-regenerate', requireActiveSubscription, async
     res.json({ success: true, ...result });
   } catch (error: any) {
     if (error.statusCode === 409) {
-      return res.status(409).json({ error: error.message, code: 'IDEMPOTENCY_CONFLICT' });
+      return res.status(409).json({ error: error.message, code: error.code === 'AI_ESTIMATE_CHANGED' ? error.code : 'IDEMPOTENCY_CONFLICT' });
     }
     if (error.code === 'AI_NOT_ALLOWED') {
       return res.status(403).json({ error: error.message, code: error.code });
