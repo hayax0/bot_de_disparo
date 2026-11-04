@@ -49,6 +49,11 @@ export class AnonymizationService {
         : await tx.lead.findMany({ where: { phone: { in: [cleanPhone, `+${cleanPhone}`] }, campaign: { workspaceId } }, select: { id: true, campaignId: true } });
 
       count = leads.length;
+      // Sugestões de retorno não fazem parte do histórico enviado e devem ser removidas junto do contato.
+      if (leads.length) await tx.aiOperation.updateMany({
+        where: { workspaceId, type: 'FOLLOW_UP', leadId: { in: leads.map(lead => lead.id) } },
+        data: { resultSummary: null, offerDescription: null },
+      });
 
       const campaignsAnonymized = new Set<string>();
       for (const l of leads) {

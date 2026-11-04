@@ -8,12 +8,13 @@ import { messageQueue } from '../services/queue';
 import { temWebsiteValido, gerarPreviaMensagem, validarTemplateMensagem } from '../services/ProposalEngine';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
-import { commercialInputSchema, commercialFilterSchema, commercialLeadFilter, commercialForPhones, commercialPhone, emptyCommercial, readCommercial, updateCommercial, commercialMetrics, CommercialError } from '../services/CommercialContacts';
+import { commercialInputSchema, commercialFilterSchema, commercialListSchema, listCommercialContacts, commercialLeadFilter, commercialForPhones, commercialPhone, emptyCommercial, readCommercial, updateCommercial, commercialMetrics, CommercialError } from '../services/CommercialContacts';
 import { createSendReview, CampaignReviewError } from '../services/CampaignSendReview';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
 import { isLegacyPlan, getUserCapabilities } from '../config/plans';
+import { AiFollowupService } from '../services/AiFollowupService';
 import { AiCopyService, AiToneStyle } from '../services/AiCopyService';
 import { InsufficientCreditsError, WalletSuspendedError } from '../services/CreditWalletService';
 import { z } from 'zod';
@@ -160,6 +161,12 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
 });
 
 // Organização comercial é manual e independente do estado de envio/assinatura.
+router.get('/commercial-contacts', async (req, res): Promise<any> => {
+  const query = commercialListSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Confira os filtros, a data e a paginação dos contatos.' });
+  try { res.json(await listCommercialContacts(prisma, req.user!.workspaceId, query.data)); }
+  catch { res.status(500).json({ error: 'Não foi possível carregar seus contatos e lembretes.' }); }
+});
 router.get('/commercial-metrics', async (req, res) => {
   try { res.json(await commercialMetrics(prisma, req.user!.workspaceId)); }
   catch { res.status(500).json({ error: 'Não foi possível carregar os resultados comerciais.' }); }
@@ -170,7 +177,7 @@ router.get('/:id/leads/:leadId/commercial', async (req, res): Promise<any> => {
 });
 router.put('/:id/leads/:leadId/commercial', async (req, res): Promise<any> => {
   const input = commercialInputSchema.safeParse(req.body);
-  if (!input.success) return res.status(400).json({ error: 'Confira a classificação, a reunião e as anotações (máximo 4.000 caracteres).' });
+  if (!input.success) return res.status(400).json({ error: 'Confira a classificação, a reunião, a data de retorno válida (AAAA-MM-DD) e as anotações (máximo 4.000 caracteres).' });
   try { res.json({ commercial: await updateCommercial(prisma, req.user!.workspaceId, req.params.id as string, req.params.leadId as string, input.data) }); }
   catch (error) { if (error instanceof CommercialError) return res.status(error.status).json({ error: error.message }); res.status(500).json({ error: 'Não foi possível salvar o acompanhamento.' }); }
 });
@@ -807,6 +814,7 @@ router.get('/:id/ai-operations/:operationId', async (req: Request, res: Response
 
 // Regeneração de mensagem para lead individual
 const singleLeadAiSchema = z.object({
+  purpose: z.literal('FOLLOW_UP').optional(),
   offerDescription: z.string().min(5, 'Informe a proposta com no mínimo 5 caracteres').max(1000, 'Proposta muito longa (máximo 1000 caracteres)').optional(),
   toneStyle: z.enum(['CONSULTATIVE', 'FRIENDLY', 'DIRECT', 'SPECIAL_OFFER', 'URGENT_OFFER', 'CURIOSITY', 'VALUE']).optional(),
   idempotencyKey: z.string().max(128).optional(),
@@ -823,10 +831,12 @@ router.post('/:id/leads/:leadId/ai-regenerate', requireActiveSubscription, async
     return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Dados inválidos.' });
   }
 
-  const { offerDescription, toneStyle, idempotencyKey } = parsed.data;
+  const { offerDescription, toneStyle, idempotencyKey, purpose } = parsed.data;
 
   try {
-    const result = await AiCopyService.regenerateSingleLead({
+    const result = purpose === 'FOLLOW_UP'
+      ? await AiFollowupService.suggest({ userId, workspaceId, campaignId, leadId, instruction: offerDescription || '', idempotencyKey: idempotencyKey || '' })
+      : await AiCopyService.regenerateSingleLead({
       userId,
       workspaceId,
       campaignId,
@@ -837,6 +847,7 @@ router.post('/:id/leads/:leadId/ai-regenerate', requireActiveSubscription, async
     });
     res.json({ success: true, ...result });
   } catch (error: any) {
+    if (purpose === 'FOLLOW_UP' && [400, 403, 404, 422, 503].includes(error.statusCode)) return res.status(error.statusCode).json({ error: error.message });
     if (error.statusCode === 409) {
       return res.status(409).json({ error: error.message, code: error.code === 'AI_ESTIMATE_CHANGED' ? error.code : 'IDEMPOTENCY_CONFLICT' });
     }

@@ -10,6 +10,7 @@ import { aiGenerationQueue } from './queue';
 export type AiToneStyle = 'CONSULTATIVE' | 'FRIENDLY' | 'DIRECT' | 'SPECIAL_OFFER' | 'URGENT_OFFER' | 'CURIOSITY' | 'VALUE';
 
 export interface GenerateCopyInput {
+  purpose?: 'FOLLOW_UP' | undefined;
   professionalProfile?: ProfessionalContext | undefined;
   leadTitle: string;
   phone: string;
@@ -103,7 +104,7 @@ export class AiCopyService {
     };
 
     const systemPrompt = `Você é um copywriter de elite especializado em prospecção B2B humanizada e de alta conversão via WhatsApp no Brasil.
-Seu objetivo é redigir UMA mensagem de primeiro contato altamente personalizada para o WhatsApp do responsável pela empresa.
+${input.purpose === 'FOLLOW_UP' ? 'Seu objetivo é sugerir UMA mensagem curta de retorno para uma conversa comercial. Não finja que houve resposta, reunião ou acordo; use apenas a orientação fornecida, sem insistência nem pressão.' : 'Seu objetivo é redigir UMA mensagem de primeiro contato altamente personalizada para o WhatsApp do responsável pela empresa.'}
 
 DIRETRIZES OBRIGATÓRIAS:
 1. Escreva em português do Brasil coloquial e natural. NUNCA use clichês robóticos ("Espero que este e-mail o encontre bem", "Venho por meio desta", "Prezado senhor").
