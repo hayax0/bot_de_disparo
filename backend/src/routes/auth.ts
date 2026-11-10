@@ -25,14 +25,20 @@ import {
 } from '../lib/validation';
 import { PasswordResetService, PasswordResetError } from '../services/PasswordResetService';
 import { getUserCapabilities, getPlanById } from '../config/plans';
+import { verifyRegistrationTurnstile } from '../middlewares/registrationTurnstile';
 
 const router = Router();
+
+router.get('/register/config', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({ turnstileSiteKey: ENV.TURNSTILE_SITE_KEY || null });
+});
 
 // 1. Solicitação de código de confirmação de cadastro
 router.post(
   '/register/code',
   confirmCodeLimiter,
   validateBody(confirmCodeSchema),
+  verifyRegistrationTurnstile,
   async (req: Request, res: Response): Promise<any> => {
     const { email } = req.body;
     try {
@@ -50,6 +56,7 @@ router.post(
   '/register',
   registerLimiter,
   validateBody(registerSchema),
+  verifyRegistrationTurnstile,
   async (req: Request, res: Response): Promise<any> => {
     const { email, password, name, verificationCode, planId } = req.body;
     const cleanEmail = email;

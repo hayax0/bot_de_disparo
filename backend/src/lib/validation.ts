@@ -52,6 +52,7 @@ export const loginSchema = z.object({
 });
 
 export const confirmCodeSchema = z.object({
+  turnstileToken: z.string().max(2048, 'Verificação de segurança inválida.').optional(),
   email: z.string({ message: 'E-mail é obrigatório.' })
     .email('Informe um e-mail válido.')
     .max(254, 'E-mail não pode exceder 254 caracteres.')
@@ -59,6 +60,7 @@ export const confirmCodeSchema = z.object({
 });
 
 export const registerSchema = z.object({
+  turnstileToken: z.string().max(2048, 'Verificação de segurança inválida.').optional(),
   email: z.string({ message: 'E-mail é obrigatório.' })
     .email('Formato de e-mail inválido.')
     .max(254, 'E-mail não pode exceder 254 caracteres.')

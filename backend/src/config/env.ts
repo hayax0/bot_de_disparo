@@ -29,7 +29,19 @@ if (isProduction) {
   }
 }
 
+const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY?.trim() || '';
+const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY?.trim() || '';
+if (Boolean(turnstileSiteKey) !== Boolean(turnstileSecretKey)) {
+  throw new Error('[CONFIG ERROR] Configure TURNSTILE_SITE_KEY e TURNSTILE_SECRET_KEY juntos.');
+}
+const isTurnstileTestKey = /^[123]x0{20,}[A-Z]{2}$/;
+if (isProduction && [turnstileSiteKey, turnstileSecretKey].some(key => isTurnstileTestKey.test(key))) {
+  throw new Error('[CONFIG ERROR] Chaves de teste do Turnstile não são permitidas em produção.');
+}
+
 export const ENV = {
+  TURNSTILE_SITE_KEY: turnstileSiteKey,
+  TURNSTILE_SECRET_KEY: turnstileSecretKey,
   PORT: parseInt(process.env.PORT || '3001', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
   DATABASE_URL: getEnvVar('DATABASE_URL', undefined, true),
