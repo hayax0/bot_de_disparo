@@ -6,6 +6,7 @@ import { ArrowLeft, CalendarClock, Check, Clock3, MessageSquare, Mic, Paperclip,
 import { api } from '@/lib/api';
 import { CommercialContactEditor } from './CommercialContactEditor';
 import { attachmentLabel, InboxDraftMedia, InboxMediaBubble, InboxRecording, MAX_ATTACHMENT_SIZE, useInboxVoice, type InboxAttachment, type InboxDraftAttachment } from './WhatsappInboxMedia';
+import type { AudioSpeed } from './WhatsappAudioPlayer';
 
 const inbox = '/whatsapp/inbox/conversations';
 const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -60,6 +61,35 @@ function mergeMessages(previous: Message[], next: Message[]) {
   return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
+function useChatAvatars(conversationId: string, connected: boolean) {
+  const [avatars, setAvatars] = useState<{ contact?: string; self?: string }>({});
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    const urls: string[] = [];
+    for (const participant of ['contact', 'self'] as const) {
+      void api.get<Blob>(`${inbox}/${conversationId}/avatar/${participant}`, {
+        signal: controller.signal, responseType: 'blob',
+      }).then(({ data }) => {
+        if (controller.signal.aborted || !data.size || !data.type.startsWith('image/')) return;
+        const url = URL.createObjectURL(data);
+        urls.push(url);
+        setAvatars(previous => ({ ...previous, [participant]: url }));
+      }).catch(() => {});
+    }
+    return () => { controller.abort(); urls.forEach(url => URL.revokeObjectURL(url)); };
+  }, [conversationId, connected]);
+  return connected ? avatars : {};
+}
+
+function ChatAvatar({ photo, initials, label, own = false }: { photo: string | undefined; initials: string; label: string; own?: boolean }) {
+  const [invalidPhoto, setInvalidPhoto] = useState<string>();
+  return <span role="img" aria-label={label} className={`grid size-8 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--studio-line)] text-[10px] font-semibold sm:size-9 ${own ? 'bg-emerald-400/15 text-[var(--studio-accent)]' : 'bg-white/[0.07] text-[var(--studio-ink)]'}`}>
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    {photo && photo !== invalidPhoto ? <img src={photo} alt="" onError={() => setInvalidPhoto(photo)} className="size-full object-cover" /> : initials}
+  </span>;
+}
+
 function ConversationThread({ id, connected, onBack, onCampaign }: {
   id: string; connected: boolean; onBack: () => void; onCampaign: (id: string) => void;
 }) {
@@ -74,6 +104,9 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [speed, setSpeed] = useState<AudioSpeed>(1);
+  const avatars = useChatAvatars(id, connected);
+  const playback = { speed, onSpeed: setSpeed };
   const pending = useRef<{ text: string; requestId: string; attachment: InboxDraftAttachment | null } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const voice = useInboxVoice(setAttachment, setActionError);
@@ -173,9 +206,13 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
     <p role={issue ? 'alert' : 'status'} className={muted}>{issue || 'Carregando conversa…'}</p>
   </div>;
 
+  const contactName = chat.conversation.name || 'Contato';
+  const initials = contactName.split(/\s+/).slice(0, 2).map(part => part.charAt(0).toUpperCase()).join('');
+
   return <div className="flex min-h-0 min-w-0 flex-col">
     <header className="flex flex-wrap items-center gap-3 border-b border-[var(--studio-line)] px-4 py-3">
       <button type="button" onClick={onBack} aria-label="Voltar para conversas" className="dash-btn-secondary p-2 md:hidden"><ArrowLeft size={16} /></button>
+      <ChatAvatar photo={avatars.contact} initials={initials} label={contactName} />
       <div className="min-w-0 flex-1">
         <h3 className="truncate font-semibold">{chat.conversation.name || chat.conversation.phone}</h3>
         <p className={`truncate text-xs ${muted}`}>+{chat.conversation.phone}</p>
@@ -194,8 +231,10 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
     }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-black/10 p-4 sm:p-5">
       {(history?.hasOlder ?? chat.hasOlder) && <button type="button" disabled={loadingOlder} onClick={() => void loadOlder()} className="dash-btn-secondary mx-auto block px-3 py-2 text-xs">{loadingOlder ? 'Carregando…' : 'Ver mensagens anteriores'}</button>}
       {messages.length === 0 && <p className={`my-10 text-center text-sm ${muted}`}>As novas mensagens aparecerão aqui.</p>}
-      {messages.map(message => <article key={message.id} className={`w-fit max-w-[90%] rounded-2xl border px-3.5 py-2.5 sm:max-w-[75%] ${message.direction === 'OUT' ? 'ml-auto rounded-br-sm border-emerald-400/20 bg-emerald-400/10' : 'rounded-bl-sm border-[var(--studio-line)] bg-white/[0.04]'}`}>
-        {message.attachment && <InboxMediaBubble attachment={message.attachment} url={`${inbox}/${id}/messages/${message.id}/attachment`} />}
+      {messages.map(message => <div key={message.id} className={`flex items-end gap-2 ${message.direction === 'OUT' ? 'flex-row-reverse' : ''}`}>
+        <ChatAvatar photo={message.direction === 'OUT' ? avatars.self : avatars.contact} initials={message.direction === 'OUT' ? 'Eu' : initials} label={message.direction === 'OUT' ? 'Você' : contactName} own={message.direction === 'OUT'} />
+        <article className={`w-fit min-w-0 max-w-[calc(100%_-_2.5rem)] rounded-2xl border px-3 py-2.5 sm:max-w-[75%] ${message.direction === 'OUT' ? 'rounded-br-sm border-emerald-400/20 bg-emerald-400/10' : 'rounded-bl-sm border-[var(--studio-line)] bg-white/[0.04]'}`}>
+        {message.attachment && <InboxMediaBubble attachment={message.attachment} url={`${inbox}/${id}/messages/${message.id}/attachment`} playback={playback} />}
         {message.text && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p>}
         <p className={`mt-1.5 flex flex-wrap items-center justify-end gap-1.5 text-[11px] ${muted}`}>
           <time dateTime={message.createdAt} title={dateAndTime.format(new Date(message.createdAt))}>{dateAndTime.format(new Date(message.createdAt))}</time>
@@ -203,13 +242,13 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
           {(message.status === 'QUEUED' || message.status === 'SENDING') && <span className="inline-flex items-center gap-1"><Clock3 size={12} />{message.status === 'QUEUED' ? 'Na fila' : 'Enviando'}</span>}
         </p>
         {message.error && <p className="mt-1 text-xs text-amber-300">{message.error}</p>}
-      </article>)}
+      </article></div>)}
     </div>
 
     <form onSubmit={send} className="space-y-2 border-t border-[var(--studio-line)] p-3 sm:p-4">
       {(issue || actionError || chat.blocked || !connected) && <p role="status" className="text-xs text-amber-300">{actionError || issue || (chat.blocked ? 'Contato na lista de bloqueio.' : 'Reconecte o WhatsApp para responder.')}</p>}
       {voice.seconds !== null ? <InboxRecording seconds={voice.seconds} onStop={() => voice.stop()} onCancel={() => voice.stop(true)} /> : <>
-        {attachment && <InboxDraftMedia draft={attachment} disabled={sending} onRemove={() => { setAttachment(null); setActionError(''); }} />}
+        {attachment && <InboxDraftMedia draft={attachment} playback={playback} disabled={sending} onRemove={() => { setAttachment(null); setActionError(''); }} />}
         <input type="file" ref={fileInput} hidden onChange={event => {
           const file = event.target.files?.[0];
           event.target.value = '';

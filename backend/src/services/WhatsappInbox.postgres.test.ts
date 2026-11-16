@@ -78,6 +78,21 @@ test('WhatsApp Inbox: PostgreSQL, escopo da conta, histórico e resposta idempot
   assert.equal(chat.lead.campaign.name, campaign.name);
   assert.deepEqual(chat.messages.map((message: { text: string }) => message.text).sort(), ['Olá! Posso explicar a proposta?', observed.text].sort());
   assert.equal((await request(path, 'GET', undefined, 1)).status, 404);
+  const photo = Buffer.from([255, 216, 255, 217]);
+  const avatar = t.mock.method(WhatsappManager, 'getInboxProfilePhoto', async (
+    workspace: string, account: string, target: { phone: string; contactJid: string | null } | 'self',
+  ) => {
+    assert.equal(workspace, workspaceId);
+    assert.equal(account, accountId);
+    return target === 'self' ? null : { data: photo, mimeType: 'image/jpeg' as const };
+  });
+  const contactPhoto = await request(path + '/avatar/contact');
+  assert.equal(contactPhoto.status, 200);
+  assert.equal(contactPhoto.headers.get('content-type'), 'image/jpeg');
+  assert.deepEqual(Buffer.from(await contactPhoto.arrayBuffer()), photo);
+  assert.equal((await request(path + '/avatar/self')).status, 204);
+  assert.equal((await request(path + '/avatar/contact', 'GET', undefined, 1)).status, 404);
+  assert.equal(avatar.mock.callCount(), 2);
 
   const queueName = `inbox-test-${randomUUID()}`;
   const redisUrl = process.env.REDIS_URL || `redis://${ENV.REDIS_HOST || '127.0.0.1'}:${ENV.REDIS_PORT || 6379}`;

@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { ContactPolicyService, extractMessageText } from './ContactPolicyService';
 import { directWhatsappPhone, getInboxMessages, recordInboxMessage } from './WhatsappInbox';
+import { getInboxAvatar } from './WhatsappInboxAvatar';
 
 // Armazenamento em memória compatível com a interface CacheStore do Baileys 6.7.24
 export class MemoryCacheStore implements CacheStore {
@@ -727,6 +728,15 @@ export class WhatsappManager {
     const jid = await this.resolveNumberId(client, phone);
     if (sessions.get(workspaceId) !== client) throw new Error('O número conectado mudou.');
     return jid && /@(?:s\.whatsapp\.net|lid)$/.test(jid) ? jid : null;
+  }
+
+  static async getInboxProfilePhoto(workspaceId: string, accountId: string, target: { phone: string; contactJid: string | null } | 'self') {
+    const client = sessions.get(workspaceId);
+    if (!client || directWhatsappPhone(client.user?.id) !== accountId) return null;
+    const jid = target === 'self' ? `${accountId}@s.whatsapp.net` : target.contactJid || `${target.phone}@s.whatsapp.net`;
+    if (!/^\d+(?::\d+)?@(?:s\.whatsapp\.net|lid)$/.test(jid)) return null;
+    const photo = await getInboxAvatar(workspaceId, accountId, jid, () => client.profilePictureUrl(jid, 'preview', 3500));
+    return sessions.get(workspaceId) === client ? photo : null;
   }
 
   // Envia mensagem e retorna os identificadores reais do Baileys.

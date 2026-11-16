@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileText, Mic, Play, Square, X } from 'lucide-react';
+import { Download, FileText, Play, Square, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { WhatsappAudioPlayer, type AudioSpeed } from './WhatsappAudioPlayer';
 
 export const MAX_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 const MAX_RECORDING_SECONDS = 120;
@@ -40,7 +41,16 @@ function fileDownload(blob: Blob, name: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-export function InboxMediaBubble({ attachment, url }: { attachment: InboxAttachment; url: string }) {
+type Playback = { speed: AudioSpeed; onSpeed: (speed: AudioSpeed) => void };
+
+export function InboxMediaBubble({ attachment, url, playback }: { attachment: InboxAttachment; url: string; playback: Playback }) {
+  if (attachment.kind === 'VOICE' || attachment.kind === 'AUDIO') {
+    return <WhatsappAudioPlayer source={url} label={attachmentLabel(attachment)} {...playback} />;
+  }
+  return <InboxFileBubble attachment={attachment} url={url} />;
+}
+
+function InboxFileBubble({ attachment, url }: { attachment: InboxAttachment; url: string }) {
   const [preview, setPreview] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -67,8 +77,6 @@ export function InboxMediaBubble({ attachment, url }: { attachment: InboxAttachm
   }
 
   return <div className="space-y-2">
-    {preview && (attachment.kind === 'VOICE' || attachment.kind === 'AUDIO')
-      && <audio aria-label={attachmentLabel(attachment)} controls src={preview} className="h-10 w-full min-w-[150px] max-w-[260px]" />}
     {/* URLs de mídia são blobs autenticados e limitados a tipos binários reconhecidos. */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
     {preview && attachment.kind === 'IMAGE' && <img src={preview} alt={attachment.name} className="max-h-64 max-w-full rounded-lg object-contain" />}
@@ -83,21 +91,18 @@ export function InboxMediaBubble({ attachment, url }: { attachment: InboxAttachm
   </div>;
 }
 
-export function InboxDraftMedia({ draft, disabled, onRemove }: { draft: InboxDraftAttachment; disabled: boolean; onRemove: () => void }) {
-  const player = useRef<HTMLAudioElement>(null);
-  useEffect(() => {
-    if (!draft.voice || !player.current) return;
-    const url = URL.createObjectURL(draft.file);
-    const audio = player.current;
-    audio.src = url;
-    return () => { audio.removeAttribute('src'); URL.revokeObjectURL(url); };
-  }, [draft]);
+export function InboxDraftMedia({ draft, disabled, onRemove, playback }: { draft: InboxDraftAttachment; disabled: boolean; onRemove: () => void; playback: Playback }) {
+  if (draft.voice || draft.file.type.startsWith('audio/')) {
+    return <div className="flex items-center justify-between gap-2 rounded-xl border border-[var(--studio-line)] bg-white/[0.04] p-2.5">
+      <WhatsappAudioPlayer source={draft.file} label="Prévia da mensagem de voz" {...playback} />
+      <button type="button" aria-label="Remover áudio da mensagem" disabled={disabled} onClick={onRemove} className="dash-btn-secondary shrink-0 p-2"><X size={15} /></button>
+    </div>;
+  }
   return <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-[var(--studio-line)] bg-white/[0.04] p-2.5 text-sm">
-    {draft.voice ? <Mic size={17} className="shrink-0 text-[var(--studio-accent)]" /> : <FileText size={17} className="shrink-0 text-[var(--studio-accent)]" />}
-    <span className="min-w-0 flex-1 truncate">{draft.voice ? 'Gravação pronta para enviar' : draft.file.name}
+    <FileText size={17} className="shrink-0 text-[var(--studio-accent)]" />
+    <span className="min-w-0 flex-1 truncate">{draft.file.name}
       <small className="block text-[var(--studio-muted)]">{sizeLabel(draft.file.size)}</small>
     </span>
-    {draft.voice && <audio aria-label="Ouvir gravação" ref={player} controls className="h-9 w-full max-w-[225px]" />}
     <button type="button" aria-label="Remover anexo" disabled={disabled} onClick={onRemove} className="dash-btn-secondary p-2"><X size={15} /></button>
   </div>;
 }

@@ -105,6 +105,18 @@ whatsappInboxRouter.get('/conversations/:id', async (req, res) => {
   });
 });
 
+whatsappInboxRouter.get('/conversations/:id/avatar/:participant', async (req, res) => {
+  const { id, participant } = req.params;
+  if (participant !== 'contact' && participant !== 'self') { res.sendStatus(404); return; }
+  const conversation = await conversationFor(req.user!.workspaceId, id);
+  if (!conversation) { res.sendStatus(404); return; }
+  const { workspaceId, accountId, phone, contactJid } = conversation;
+  const photo = await WhatsappManager.getInboxProfilePhoto(workspaceId, accountId,
+    participant === 'self' ? 'self' : { phone, contactJid });
+  if (!photo) { res.status(204).end(); return; }
+  res.set('Content-Type', photo.mimeType).set('X-Content-Type-Options', 'nosniff').send(photo.data);
+});
+
 whatsappInboxRouter.get('/conversations/:id/messages/:messageId/attachment', async (req, res) => {
   const conversation = await conversationFor(req.user!.workspaceId, req.params.id);
   const media = conversation && await prisma.whatsappInboxAttachment.findFirst({
