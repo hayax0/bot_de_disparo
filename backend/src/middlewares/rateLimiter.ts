@@ -79,3 +79,9 @@ export const cronLimiter = createStandardLimiter({
   max: 10,
   keyGenerator: (req: Request) => req.ip || req.socket.remoteAddress || 'unknown-ip',
 });
+
+export const whatsappInboxWriteLimiter = createStandardLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyGenerator: (req: Request) => req.user!.workspaceId,
+});

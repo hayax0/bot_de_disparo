@@ -39,6 +39,7 @@ export class AnonymizationService {
       if (normalizedCommercialPhone) {
         await lockCommercialContact(tx, workspaceId, normalizedCommercialPhone);
         await tx.commercialContact.deleteMany({ where: { workspaceId, phone: normalizedCommercialPhone } });
+        await tx.whatsappConversation.deleteMany({ where: { workspaceId, phone: normalizedCommercialPhone } });
       }
       // 1. Anonimiza os registros na tabela Lead
       const leads = normalizedCommercialPhone

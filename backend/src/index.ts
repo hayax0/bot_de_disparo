@@ -41,6 +41,7 @@ import adminRoutes from './routes/admin';
 import searchRoutes from './routes/search';
 import integrationRoutes from './routes/integrations';
 import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
+import { recoverInboxReplies } from './services/WhatsappInboxWorker';
 import { messageQueue, queueEvents, aiGenerationQueue, aiGenerationQueueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
 import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
@@ -209,6 +210,7 @@ const server = app.listen(ENV.PORT, async () => {
   WhatsappManager.startWatchdog(60000);
   // Recupera leads QUEUED sem job na fila (após reinício do servidor/Redis)
   await recoverOrphanedLeads();
+  await recoverInboxReplies().catch(() => console.error('[WHATSAPP INBOX] Falha ao recuperar respostas pendentes.'));
   campaignWorker.run().catch(err => {
     console.error('[WORKER] Consumo da fila interrompido:', err);
     Sentry.captureException(err);
