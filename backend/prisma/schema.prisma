@@ -81,6 +81,7 @@ model Workspace {
   aiConversations  AiConversation[]
   aiOperations     AiOperation[]
   deliveredContacts DeliveredWorkspaceContact[]
+  whatsappConversations WhatsappConversation[]
 }
 
 model Blacklist {
@@ -145,10 +146,61 @@ model WhatsappSession {
   workspaceId String   @unique
   status      String   @default("DISCONNECTED") // DISCONNECTED, QRCODE, CONNECTED
   sessionData String?  // Stores authentication data
+  accountId   String?  // Último número pareado, usado para isolar a caixa de entrada
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model WhatsappConversation {
+  id          String   @id @default(uuid())
+  workspaceId String
+  accountId   String
+  phone       String
+  contactJid  String?
+  name        String?
+  campaignId  String?
+  leadId      String?
+  createdAt   DateTime @default(now())
+  lastMessageAt DateTime @default(now())
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages WhatsappInboxMessage[]
+
+  @@unique([workspaceId, accountId, phone])
+  @@index([workspaceId, accountId, lastMessageAt, id])
+  @@index([workspaceId, accountId, contactJid])
+  @@index([workspaceId, phone])
+}
+
+model WhatsappInboxMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  providerId     String?
+  requestId      String?
+  direction      String
+  status         String
+  text           String   @db.Text
+  error          String?
+  createdAt      DateTime @default(now())
+  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachment WhatsappInboxAttachment?
+
+  @@unique([conversationId, providerId])
+  @@unique([conversationId, requestId])
+  @@index([conversationId, createdAt, id])
+  @@index([status])
+}
+
+model WhatsappInboxAttachment {
+  messageId String @id
+  kind      String
+  name      String
+  mimeType  String
+  size      Int
+  digest    String
+  data      Bytes
+  message   WhatsappInboxMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 model Campaign {

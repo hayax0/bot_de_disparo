@@ -13,6 +13,7 @@ import { FirstCampaignGuide } from '@/components/dashboard/FirstCampaignGuide';
 import { ProfessionalProfilePanel } from '@/components/dashboard/ProfessionalProfilePanel';
 import { CopyPresets } from '@/components/dashboard/CopyPresets';
 import { OperationOverview } from '@/components/dashboard/OperationOverview';
+import { WhatsappInbox } from '@/components/dashboard/WhatsappInbox';
 import Image from 'next/image';
 import { api } from '@/lib/api';
 import axios from 'axios';
@@ -259,7 +260,7 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin' | 'results' | 'opportunities' | 'templates'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin' | 'results' | 'opportunities' | 'templates' | 'whatsapp'>('campaigns');
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -1450,6 +1451,7 @@ export default function Dashboard() {
               )}
             </button>
 
+            <button type="button" aria-current={activeTab === 'whatsapp' ? 'page' : undefined} onClick={() => { setActiveTab('whatsapp'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'whatsapp' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><MessageSquare size={15} />WhatsApp</button>
             <button type="button" onClick={() => { setActiveTab('results'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'results' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Activity size={15} />Resultados comerciais</button>
 
             <button type="button" onClick={() => { setActiveTab('opportunities'); setIsMobileMenuOpen(false); }} className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium ${activeTab === 'opportunities' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Users size={15} />Oportunidades e retornos</button>
@@ -1695,7 +1697,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-semibold text-sm sm:text-base text-white">WhatsApp de Disparo</h2>
+                  <h2 className="font-semibold text-sm sm:text-base text-white">{activeTab === 'whatsapp' ? 'Seu WhatsApp' : 'WhatsApp de Disparo'}</h2>
                   <span className="relative flex h-2 w-2">
                     {waStatus?.status === 'CONNECTED' && (
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1708,7 +1710,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-xs text-[var(--studio-muted)] mt-0.5 font-normal">
                   {waStatus?.status === 'CONNECTED' 
-                    ? 'Conexão ativa e estável na nuvem com simulação de ritmo humano' 
+                    ? activeTab === 'whatsapp' ? 'Seu número está pronto para receber e responder mensagens' : 'Conexão ativa e estável na nuvem com simulação de ritmo humano'
                     : waStatus?.status === 'QRCODE' 
                     ? 'Aguardando leitura do QR Code no aplicativo' 
                     : 'Nenhum número pareado no momento'}
@@ -1981,6 +1983,7 @@ export default function Dashboard() {
           )}
         </div>
 
+        {activeTab === 'whatsapp' && <WhatsappInbox connected={waStatus?.status === 'CONNECTED'} onCampaign={id => { void openCampaignDetails(id); }} />}
         {activeTab === 'opportunities' && <CommercialOpportunities onOpenCampaign={id => { void openCampaignDetails(id); }} />}
         {activeTab === 'templates' && <MessageTemplates />}
         {activeTab === 'results' && <CommercialResults onOpenCampaign={id => { void openCampaignDetails(id); }} />}

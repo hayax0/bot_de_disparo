@@ -9,6 +9,7 @@ import makeWASocket, {
   CacheStore,
   generateMessageIDV2
 } from '@whiskeysockets/baileys';
+import type { AnyMessageContent } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode';
 import fs from 'fs';
@@ -16,6 +17,8 @@ import path from 'path';
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { ContactPolicyService, extractMessageText } from './ContactPolicyService';
+import { directWhatsappPhone, getInboxMessages, recordInboxMessage } from './WhatsappInbox';
+import { getInboxAvatar } from './WhatsappInboxAvatar';
 
 // Armazenamento em memória compatível com a interface CacheStore do Baileys 6.7.24
 export class MemoryCacheStore implements CacheStore {
@@ -168,19 +171,32 @@ export class WhatsappManager {
   }
 
   // Recupera mensagem para retries criptográficos do Baileys/Signal (Cache em memória -> Fallback no banco de dados)
-  static async recoverMessageContent(key: proto.IMessageKey): Promise<proto.IMessage | undefined> {
+  static async recoverMessageContent(key: proto.IMessageKey, workspaceId?: string, accountId?: string | null): Promise<proto.IMessage | undefined> {
     if (!key?.id) return undefined;
 
     // 1. Tenta recuperar do cache rápido em memória
-    const cached = WhatsappManager.getCachedMessage(key.id);
+    const cacheId = workspaceId ? `${workspaceId}/${accountId}/${key.remoteJid}/${key.id}` : key.id;
+    const cached = WhatsappManager.getCachedMessage(cacheId);
     if (cached) {
       return cached;
     }
 
     // 2. Fallback resiliente: busca no banco de dados para retries pós-restart
     try {
+      if (workspaceId && accountId && key.remoteJid && key.fromMe !== false) {
+        const phone = directWhatsappPhone(key.remoteJid);
+        const reply = await prisma.whatsappInboxMessage.findFirst({
+          where: {
+            providerId: key.id, requestId: { not: null }, direction: 'OUT',
+            attachment: null,
+            conversation: { workspaceId, accountId, OR: [{ contactJid: key.remoteJid }, ...(phone ? [{ phone }] : [])] },
+          },
+          select: { text: true },
+        });
+        if (reply) return { extendedTextMessage: { text: reply.text } };
+      }
       const lead = await prisma.lead.findFirst({
-        where: { wppMessageId: key.id },
+        where: { wppMessageId: key.id, ...(workspaceId ? { campaign: { workspaceId } } : {}) },
         select: { messageContent: true }
       });
       if (lead?.messageContent) {
@@ -283,14 +299,14 @@ export class WhatsappManager {
         keys: makeCacheableSignalKeyStore(state.keys, logger),
       },
       msgRetryCounterCache,
-      getMessage: WhatsappManager.recoverMessageContent,
+      getMessage: key => WhatsappManager.recoverMessageContent(key, workspaceId, directWhatsappPhone(state.creds.me?.id)),
       printQRInTerminal: false,
       browser: Browsers.windows('Chrome'),
       // DESATIVAÇÃO TOTAL DE SINCRONIZAÇÃO DE HISTÓRICO (mandatório p/ bot de disparos)
       shouldSyncHistoryMessage: () => false,
       syncFullHistory: false,
       // Ignora grupos e status no nível de protocolo (evita descriptografia desnecessária e loops de retry que acionam sync no celular)
-      shouldIgnoreJid: (jid: string) => jid?.includes('@g.us') || jid?.includes('status@broadcast'),
+      shouldIgnoreJid: (jid: string) => jid?.endsWith('@g.us') || jid?.endsWith('@broadcast') || jid?.endsWith('@newsletter'),
       maxMsgRetryCount: 2,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
@@ -327,14 +343,15 @@ export class WhatsappManager {
       }
 
       if (connection === 'open') {
+        const accountId = directWhatsappPhone(sock.user?.id);
         console.log(`[WHATSAPP READY] Sessão conectada e pronta para o workspace ${workspaceId}`);
         WhatsappManager.clearPairingState(workspaceId);
         reconnectAttempts.delete(workspaceId);
         clearReconnectTimer(workspaceId);
         await prisma.whatsappSession.upsert({
           where: { workspaceId },
-          update: { status: 'CONNECTED', sessionData: null },
-          create: { workspaceId, status: 'CONNECTED', sessionData: null }
+          update: { status: 'CONNECTED', sessionData: null, accountId },
+          create: { workspaceId, status: 'CONNECTED', sessionData: null, accountId }
         }).catch(err => console.error('Erro ao persistir conexão no banco:', err));
       }
 
@@ -394,6 +411,18 @@ export class WhatsappManager {
         }
       } catch (err) {
         console.error('[WHATSAPP ACK ERROR] Erro ao processar messages.update:', err);
+      }
+    });
+
+    sock.ev.on('messages.upsert', async event => {
+      const accountId = directWhatsappPhone(sock.user?.id);
+      if (!accountId || sessions.get(workspaceId) !== sock) return;
+      for (const message of getInboxMessages(event)) {
+        try {
+          await recordInboxMessage({ workspaceId, accountId, ...message });
+        } catch {
+          console.error('[WHATSAPP INBOX] Falha ao registrar mensagem.');
+        }
       }
     });
 
@@ -693,12 +722,31 @@ export class WhatsappManager {
     return null;
   }
 
-  // Envia mensagem e retorna os dados reais de envio do Baileys { messageId, jid }
-  static async sendMessage(workspaceId: string, phone: string, message: string, beforeSend?: (messageId: string) => Promise<void>): Promise<{ messageId: string; jid: string }> {
+  static async resolveInboxContact(workspaceId: string, accountId: string, phone: string) {
+    const client = sessions.get(workspaceId);
+    if (!client || directWhatsappPhone(client.user?.id) !== accountId) throw new Error('O número conectado mudou.');
+    const jid = await this.resolveNumberId(client, phone);
+    if (sessions.get(workspaceId) !== client) throw new Error('O número conectado mudou.');
+    return jid && /@(?:s\.whatsapp\.net|lid)$/.test(jid) ? jid : null;
+  }
+
+  static async getInboxProfilePhoto(workspaceId: string, accountId: string, target: { phone: string; contactJid: string | null } | 'self') {
+    const client = sessions.get(workspaceId);
+    if (!client || directWhatsappPhone(client.user?.id) !== accountId) return null;
+    const jid = target === 'self' ? `${accountId}@s.whatsapp.net` : target.contactJid || `${target.phone}@s.whatsapp.net`;
+    if (!/^\d+(?::\d+)?@(?:s\.whatsapp\.net|lid)$/.test(jid)) return null;
+    const photo = await getInboxAvatar(workspaceId, accountId, jid, () => client.profilePictureUrl(jid, 'preview', 3500));
+    return sessions.get(workspaceId) === client ? photo : null;
+  }
+
+  // Envia mensagem e retorna os identificadores reais do Baileys.
+  static async sendMessage(workspaceId: string, phone: string, message: string | AnyMessageContent, beforeSend?: (messageId: string, targetChatId: string, accountId: string | null) => Promise<void>, expectedAccountId?: string): Promise<{ messageId: string; jid: string; accountId: string | null }> {
     const client = sessions.get(workspaceId);
     if (!client) {
       throw new Error('WhatsApp não está conectado no momento.');
     }
+    const accountId = directWhatsappPhone(client.user?.id);
+    if (expectedAccountId && accountId !== expectedAccountId) throw new Error('O número conectado mudou.');
 
     const targetChatId = await this.resolveNumberId(client, phone);
     if (!targetChatId) {
@@ -709,28 +757,31 @@ export class WhatsappManager {
     console.log(`[WhatsApp] Preparando envio | workspace=${workspaceId} phone=${maskedPhone} jid=${targetChatId}`);
 
     // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 3.5s)
-    const delay = Math.max(1500, Math.min(3500, message.length * 15));
-    await new Promise(r => setTimeout(r, delay));
+    if (typeof message === 'string' && !expectedAccountId) {
+      const delay = Math.max(1500, Math.min(3500, message.length * 15));
+      await new Promise(r => setTimeout(r, delay));
+    }
 
     if (sessions.get(workspaceId) !== client || (await this.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
     const outgoingId = generateMessageIDV2(client.user?.id);
     // Persiste a intenção e o ID antes de qualquer efeito externo. ACKs precoces já encontram o lead.
-    if (beforeSend) await beforeSend(outgoingId);
+    if (beforeSend) await beforeSend(outgoingId, targetChatId, accountId);
+    if (expectedAccountId && sessions.get(workspaceId) !== client) throw new Error('O número conectado mudou.');
 
     try {
       if (typeof client.sendMessage === 'function') {
-        const sent = await client.sendMessage(targetChatId, { text: message }, { messageId: outgoingId });
+        const sent = await client.sendMessage(targetChatId, typeof message === 'string' ? { text: message } : message, { messageId: outgoingId });
         const messageId = sent?.key?.id;
         if (!messageId) {
           throw new Error('Baileys não retornou o identificador da mensagem enviada.');
         }
 
-        if (sent?.message) {
-          WhatsappManager.cacheSentMessage(messageId, sent.message);
+        if (sent?.message && (!expectedAccountId || typeof message !== 'string')) {
+          WhatsappManager.cacheSentMessage(`${workspaceId}/${accountId}/${targetChatId}/${messageId}`, sent.message);
         }
 
         console.log(`[WhatsApp] Mensagem despachada no socket | workspace=${workspaceId} messageId=${messageId} jid=${targetChatId}`);
-        return { messageId, jid: targetChatId };
+        return { messageId, jid: targetChatId, accountId };
       } else {
         throw new Error('Cliente WhatsApp inválido.');
       }

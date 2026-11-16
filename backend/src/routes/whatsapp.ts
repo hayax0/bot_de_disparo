@@ -2,10 +2,12 @@ import { Router, Request, Response } from 'express';
 import { WhatsappManager } from '../services/WhatsappManager';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { validateBody, whatsappPairSchema } from '../lib/validation';
+import { whatsappInboxRouter } from './whatsappInbox';
 
 const router = Router();
 
 router.use(authenticate);
+router.use('/inbox', whatsappInboxRouter);
 
 router.post('/connect', requireActiveSubscription, async (req: Request, res: Response): Promise<any> => {
   const workspaceId = req.user!.workspaceId;

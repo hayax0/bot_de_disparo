@@ -6,6 +6,9 @@ import { gerarProposta } from './ProposalEngine';
 import { isSubscriptionActive } from './SubscriptionManager';
 import { ContactPolicyService } from './ContactPolicyService';
 import { QuotaService } from './QuotaService';
+import { inboxReplyJob, recordInboxMessage, trackInboxCampaign } from './WhatsappInbox';
+import { commercialPhone } from './CommercialContacts';
+import { failInboxReply, processInboxReply } from './WhatsappInboxWorker';
 
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
@@ -44,6 +47,7 @@ async function pauseDisconnectedCampaign(campaignId: string, batchId?: string) {
 
 // Job processor com isolamento, idempotência e auditoria
 export const campaignWorker = new Worker('message-queue', async (job: Job, token?: string) => {
+  if (job.name === inboxReplyJob) return processInboxReply(job.data.inboxMessageId);
   const { leadId, campaignId, workspaceId, batchId } = job.data;
 
   // 1. Recarregar campanha e lead
@@ -189,7 +193,8 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
   let sentSuccessfully = false;
   try {
     if ((await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
-    const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message, async messageId => {
+    const contactPhone = commercialPhone(lead.phone);
+    const sentResult = await WhatsappManager.sendMessage(workspaceId, lead.phone, message, async (messageId, contactJid, accountId) => {
       if ((await WhatsappManager.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
       const claimed = await prisma.lead.updateMany({
         where: { id: leadId, ...batchGuard, sendStartedAt: null, status: { in: batchId ? ['QUEUED'] : ['PENDING', 'QUEUED'] }, campaign: campaignGuard },
@@ -199,6 +204,10 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
       if (claimed.count !== 1) throw new Error('Envio interrompido ou já iniciado.');
       sendStarted = true;
       await QuotaService.confirmDispatchQuota({ userId: user.id, dispatchKey, reservationId: dispatchReservationId });
+      if (accountId && contactPhone) {
+        await trackInboxCampaign({ workspaceId, accountId, phone: contactPhone, name: lead.title, leadId, campaignId, contactJid })
+          .catch(() => console.error('[WHATSAPP INBOX] Falha ao vincular conversa da campanha.'));
+      }
     });
     sentSuccessfully = true;
 
@@ -249,6 +258,12 @@ export const campaignWorker = new Worker('message-queue', async (job: Job, token
         }
       })
     ]);
+    if (sentResult.accountId && contactPhone) {
+      await recordInboxMessage({
+        workspaceId, accountId: sentResult.accountId, phone: contactPhone,
+        providerId: sentResult.messageId, contactJid: sentResult.jid, direction: 'OUT', text: message, createdAt: now,
+      }).catch(() => console.error('[WHATSAPP INBOX] Falha ao registrar envio da campanha.'));
+    }
   } catch (error: any) {
     console.error(`[WORKER ERROR] Falha ao enviar para o lead ${leadId} (${lead.phone}):`, error?.message || error);
 
@@ -324,6 +339,10 @@ campaignWorker.on('failed', async (job, err) => {
   if (!isFinalAttempt) return;
 
   try {
+    if (job.name === inboxReplyJob) {
+      await failInboxReply(job.data.inboxMessageId);
+      return;
+    }
     const { leadId, campaignId, batchId } = job.data;
     if (leadId) {
       // Não sobrescreve se o worker já gravou o estado final no processor
