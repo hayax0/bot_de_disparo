@@ -4,6 +4,7 @@ import { isSubscriptionActive } from './SubscriptionManager';
 import { WhatsappManager } from './WhatsappManager';
 import { enqueueInboxReply, inboxJobId, isInboxContactBlocked } from './WhatsappInbox';
 import { messageQueue } from './queue';
+import { outgoingInboxMedia } from './WhatsappInboxMedia';
 
 export async function failInboxReply(id: string, reason?: string) {
   await prisma.whatsappInboxMessage.updateMany({
@@ -26,7 +27,9 @@ export async function processInboxReply(id: string) {
   const { workspaceId, accountId, phone } = message.conversation;
   try {
     if (!isSubscriptionActive(message.conversation.workspace.user)) throw new Error('A assinatura precisa estar ativa para responder.');
-    await WhatsappManager.sendMessage(workspaceId, phone, message.text, async (providerId, contactJid) => {
+    const attachment = await prisma.whatsappInboxAttachment.findUnique({ where: { messageId: id } });
+    const content = attachment ? outgoingInboxMedia(attachment, message.text) : message.text;
+    await WhatsappManager.sendMessage(workspaceId, phone, content, async (providerId, contactJid) => {
       await prisma.$transaction(async tx => {
         await lockCommercialContact(tx, workspaceId, phone);
         if (await isInboxContactBlocked(tx, workspaceId, phone)) throw new Error('Este contato está na lista de bloqueio.');

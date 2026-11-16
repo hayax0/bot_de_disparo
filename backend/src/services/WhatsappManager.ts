@@ -9,6 +9,7 @@ import makeWASocket, {
   CacheStore,
   generateMessageIDV2
 } from '@whiskeysockets/baileys';
+import type { AnyMessageContent } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode';
 import fs from 'fs';
@@ -186,6 +187,7 @@ export class WhatsappManager {
         const reply = await prisma.whatsappInboxMessage.findFirst({
           where: {
             providerId: key.id, requestId: { not: null }, direction: 'OUT',
+            attachment: null,
             conversation: { workspaceId, accountId, OR: [{ contactJid: key.remoteJid }, ...(phone ? [{ phone }] : [])] },
           },
           select: { text: true },
@@ -728,7 +730,7 @@ export class WhatsappManager {
   }
 
   // Envia mensagem e retorna os identificadores reais do Baileys.
-  static async sendMessage(workspaceId: string, phone: string, message: string, beforeSend?: (messageId: string, targetChatId: string, accountId: string | null) => Promise<void>, expectedAccountId?: string): Promise<{ messageId: string; jid: string; accountId: string | null }> {
+  static async sendMessage(workspaceId: string, phone: string, message: string | AnyMessageContent, beforeSend?: (messageId: string, targetChatId: string, accountId: string | null) => Promise<void>, expectedAccountId?: string): Promise<{ messageId: string; jid: string; accountId: string | null }> {
     const client = sessions.get(workspaceId);
     if (!client) {
       throw new Error('WhatsApp não está conectado no momento.');
@@ -745,8 +747,10 @@ export class WhatsappManager {
     console.log(`[WhatsApp] Preparando envio | workspace=${workspaceId} phone=${maskedPhone} jid=${targetChatId}`);
 
     // Simula tempo de digitação natural antes de disparar (mínimo 1.5s, máximo 3.5s)
-    const delay = Math.max(1500, Math.min(3500, message.length * 15));
-    await new Promise(r => setTimeout(r, delay));
+    if (typeof message === 'string' && !expectedAccountId) {
+      const delay = Math.max(1500, Math.min(3500, message.length * 15));
+      await new Promise(r => setTimeout(r, delay));
+    }
 
     if (sessions.get(workspaceId) !== client || (await this.getStatus(workspaceId)).status !== 'CONNECTED') throw new Error('WhatsApp não está conectado no momento.');
     const outgoingId = generateMessageIDV2(client.user?.id);
@@ -756,13 +760,13 @@ export class WhatsappManager {
 
     try {
       if (typeof client.sendMessage === 'function') {
-        const sent = await client.sendMessage(targetChatId, { text: message }, { messageId: outgoingId });
+        const sent = await client.sendMessage(targetChatId, typeof message === 'string' ? { text: message } : message, { messageId: outgoingId });
         const messageId = sent?.key?.id;
         if (!messageId) {
           throw new Error('Baileys não retornou o identificador da mensagem enviada.');
         }
 
-        if (sent?.message && !expectedAccountId) {
+        if (sent?.message && (!expectedAccountId || typeof message !== 'string')) {
           WhatsappManager.cacheSentMessage(`${workspaceId}/${accountId}/${targetChatId}/${messageId}`, sent.message);
         }
 

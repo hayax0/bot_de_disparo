@@ -184,11 +184,23 @@ model WhatsappInboxMessage {
   error          String?
   createdAt      DateTime @default(now())
   conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachment WhatsappInboxAttachment?
 
   @@unique([conversationId, providerId])
   @@unique([conversationId, requestId])
   @@index([conversationId, createdAt, id])
   @@index([status])
+}
+
+model WhatsappInboxAttachment {
+  messageId String @id
+  kind      String
+  name      String
+  mimeType  String
+  size      Int
+  digest    String
+  data      Bytes
+  message   WhatsappInboxMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
 model Campaign {

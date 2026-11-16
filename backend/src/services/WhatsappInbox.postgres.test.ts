@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import jwt from 'jsonwebtoken';
@@ -14,6 +15,7 @@ import { directWhatsappPhone, getInboxMessages, inboxJobId, recordInboxMessage, 
 import { processInboxReply } from './WhatsappInboxWorker';
 import { WhatsappManager } from './WhatsappManager';
 import { messageQueue } from './queue';
+import { outgoingInboxMedia } from './WhatsappInboxMedia';
 
 test('WhatsApp Inbox: PostgreSQL, escopo da conta, histórico e resposta idempotente', async t => {
   const [database] = await prisma.$queryRaw<Array<{ name: string }>>`SELECT current_database() AS name`;
@@ -126,6 +128,46 @@ test('WhatsApp Inbox: PostgreSQL, escopo da conta, histórico e resposta idempot
     { extendedTextMessage: { text: reply.text } });
   assert.equal(await WhatsappManager.recoverMessageContent({ id: 'manual', remoteJid: contactJid, fromMe: true }, workspaceId, '5521999110010'), undefined);
 
+  const fileBytes = Buffer.from('Documento de teste');
+  const fileRequestId = randomUUID();
+  const sendAttachment = (data: Buffer) => {
+    const form = new FormData();
+    form.append('requestId', fileRequestId);
+    form.append('attachment', new Blob([new Uint8Array(data)], { type: 'text/html' }), 'proposta.txt');
+    return fetch(base + path + '/messages', { method: 'POST', body: form,
+      headers: { Authorization: `Bearer ${jwt.sign({ userId: users[0]!.id, authVersion: 0 }, ENV.JWT_SECRET, { algorithm: 'HS256' })}` },
+    });
+  };
+  t.mock.method(WhatsappManager, 'sendMessage', async (
+    workspace: string, destination: string, content: unknown, before: (id: string, jid: string) => Promise<void>, expectedAccount: string,
+  ) => {
+    assert.deepEqual([workspace, destination, expectedAccount], [workspaceId, phone, accountId]);
+    assert.deepEqual(content, { document: fileBytes, mimetype: 'application/octet-stream', fileName: 'proposta.txt' });
+    await before('document-provider', contactJid);
+    return { messageId: 'document-provider', jid: contactJid, accountId };
+  });
+  const fileSent = once(worker, 'completed', { signal: AbortSignal.timeout(8000) });
+  const fileResponse = await sendAttachment(fileBytes);
+  assert.equal(fileResponse.status, 202);
+  const fileMessage = await fileResponse.json();
+  const [fileJob] = await fileSent;
+  assert.equal(fileJob.id, inboxJobId(fileMessage.id));
+  assert.equal((await prisma.whatsappInboxMessage.findUniqueOrThrow({ where: { id: fileMessage.id } })).status, 'SENT');
+  assert.deepEqual(fileMessage.attachment, {
+    name: 'proposta.txt', kind: 'DOCUMENT', mimeType: 'application/octet-stream', size: fileBytes.length,
+  });
+  const filePath = path + '/messages/' + fileMessage.id + '/attachment';
+  const retrieved = await request(filePath);
+  assert.equal(retrieved.status, 200);
+  assert.equal(retrieved.headers.get('content-type'), 'application/octet-stream');
+  assert.match(retrieved.headers.get('content-disposition') || '', /^attachment/);
+  assert.deepEqual(Buffer.from(await retrieved.arrayBuffer()), fileBytes);
+  assert.equal((await request(filePath, 'GET', undefined, 1)).status, 404);
+  assert.equal((await sendAttachment(Buffer.from('outro documento'))).status, 409);
+  assert.deepEqual(outgoingInboxMedia({ kind: 'VOICE', name: 'gravacao.ogg', mimeType: 'audio/ogg', data: fileBytes }, ''), {
+    audio: fileBytes, ptt: true, mimetype: 'audio/ogg; codecs=opus',
+  });
+
   await prisma.whatsappSession.update({ where: { workspaceId }, data: { accountId: '5521999110003' } });
   assert.equal((await request(path)).status, 404);
   assert.equal((await request('', 'POST', { phone, accountId })).status, 409);
@@ -136,6 +178,7 @@ test('WhatsApp Inbox: PostgreSQL, escopo da conta, histórico e resposta idempot
 
   await AnonymizationService.anonymizeContact({ workspaceId, phone });
   assert.equal(await prisma.whatsappInboxMessage.count({ where: { conversationId: thread.id } }), 0);
+  assert.equal(await prisma.whatsappInboxAttachment.count({ where: { messageId: fileMessage.id } }), 0);
   await recordInboxMessage({ ...fresh, providerId: 'after-anonymization' });
   assert.equal(await prisma.whatsappConversation.count({ where: { workspaceId, phone } }), 0);
 });

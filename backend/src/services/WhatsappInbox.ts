@@ -3,6 +3,7 @@ import type { Prisma, WhatsappConversation } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { commercialPhone, lockCommercialContact } from './CommercialContacts';
 import { messageQueue } from './queue';
+import { downloadInboxMedia, observedInboxMedia } from './WhatsappInboxMedia';
 
 export const inboxReplyJob = 'whatsapp-inbox-reply';
 export const inboxJobId = (id: string) => `inbox_${id}`;
@@ -29,10 +30,11 @@ export function getInboxMessages(event: BaileysEventMap['messages.upsert'], now 
     const { id, remoteJid, fromMe, senderPn } = msg.key;
     if (!id || !remoteJid || !/@(?:s\.whatsapp\.net|lid)$/.test(remoteJid)) return [];
     const phone = directWhatsappPhone(remoteJid) || (!fromMe ? directWhatsappPhone(senderPn) : null);
-    const text = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
+    const media = observedInboxMedia(msg.message);
+    const text = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? media?.text ?? '';
     const timestamp = Number(msg.messageTimestamp) * 1000;
-    if (!text?.trim() || !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + 60000) return [];
-    return [{ phone, contactJid: remoteJid, providerId: id, direction: fromMe ? 'OUT' as const : 'IN' as const, text, createdAt: new Date(timestamp) }];
+    if ((!media && !text.trim()) || !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + 60000) return [];
+    return [{ phone, contactJid: remoteJid, providerId: id, direction: fromMe ? 'OUT' as const : 'IN' as const, text, media, createdAt: new Date(timestamp) }];
   });
 }
 
@@ -50,10 +52,11 @@ export async function addInboxConversation(workspaceId: string, accountId: strin
 
 async function saveObservedMessage(tx: Prisma.TransactionClient, conversation: WhatsappConversation, input: {
   providerId: string; direction: 'IN' | 'OUT'; text: string; createdAt: Date;
-}) {
+}, attachment?: NonNullable<Awaited<ReturnType<typeof downloadInboxMedia>>>) {
   await tx.whatsappInboxMessage.upsert({
     where: { conversationId_providerId: { conversationId: conversation.id, providerId: input.providerId } },
-    create: { ...input, conversationId: conversation.id, status: input.direction === 'IN' ? 'RECEIVED' : 'SENT' },
+    create: { ...input, conversationId: conversation.id, status: input.direction === 'IN' ? 'RECEIVED' : 'SENT',
+      ...(attachment ? { attachment: { create: attachment } } : {}) },
     update: { status: input.direction === 'IN' ? 'RECEIVED' : 'SENT', error: null },
   });
   await tx.whatsappConversation.updateMany({
@@ -65,20 +68,28 @@ async function saveObservedMessage(tx: Prisma.TransactionClient, conversation: W
 export async function recordInboxMessage(input: {
   workspaceId: string; accountId: string; phone: string | null; contactJid: string;
   providerId: string; direction: 'IN' | 'OUT'; text: string; createdAt: Date;
+  media?: ReturnType<typeof observedInboxMedia>;
 }) {
   const { workspaceId, accountId, phone } = input;
+  const found = await prisma.whatsappConversation.findFirst({
+    where: { workspaceId, accountId, OR: [...(phone ? [{ phone }] : []), { contactJid: input.contactJid }] },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, phone: true, createdAt: true },
+  });
+  if (!found || input.createdAt.getTime() < Math.floor(found.createdAt.getTime() / 1000) * 1000) return;
+  const existing = input.media && await prisma.whatsappInboxMessage.findUnique({
+    where: { conversationId_providerId: { conversationId: found.id, providerId: input.providerId } }, select: { id: true },
+  });
+  const attachment = input.media && !existing ? await downloadInboxMedia(input.media).catch(() => null) : null;
+  const text = input.media && !attachment && !existing
+    ? [input.text, `${input.media.name} indisponível no Abordai.`].filter(Boolean).join('\n')
+    : input.text;
   await prisma.$transaction(async tx => {
-    const found = await tx.whatsappConversation.findFirst({
-      where: { workspaceId, accountId, OR: [...(phone ? [{ phone }] : []), { contactJid: input.contactJid }] },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, phone: true },
-    });
-    if (!found) return;
     await lockCommercialContact(tx, workspaceId, found.phone);
     const conversation = await tx.whatsappConversation.findUnique({ where: { id: found.id } });
-    if (conversation && input.createdAt.getTime() >= Math.floor(conversation.createdAt.getTime() / 1000) * 1000) await saveObservedMessage(tx, conversation, {
-      providerId: input.providerId, direction: input.direction, text: input.text, createdAt: input.createdAt,
-    });
+    if (conversation) await saveObservedMessage(tx, conversation, {
+      providerId: input.providerId, direction: input.direction, text, createdAt: input.createdAt,
+    }, attachment || undefined);
   });
 }
 

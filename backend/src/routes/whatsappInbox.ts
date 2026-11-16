@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { requireActiveSubscription } from '../middlewares/auth';
@@ -6,15 +7,18 @@ import { whatsappInboxWriteLimiter } from '../middlewares/rateLimiter';
 import { commercialPhone, lockCommercialContact } from '../services/CommercialContacts';
 import { addInboxConversation, enqueueInboxReply, isInboxContactBlocked } from '../services/WhatsappInbox';
 import { WhatsappManager } from '../services/WhatsappManager';
+import { InboxMediaError, inboxMediaFields, inboxMediaLimit, prepareInboxUpload } from '../services/WhatsappInboxMedia';
 
 export const whatsappInboxRouter = Router();
 whatsappInboxRouter.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 const listQuery = z.object({ search: z.string().trim().max(100).default(''), page: z.coerce.number().int().min(1).max(10000).default(1) });
 const addContact = z.object({ phone: z.string().trim().regex(/^\+?[\d(). -]{10,30}$/), name: z.string().trim().max(100).optional(), accountId: z.string().regex(/^\d{10,15}$/) });
-const newReply = z.object({ text: z.string().trim().min(1).max(4000), requestId: z.uuid() });
+const newReply = z.object({ text: z.string().trim().max(4000).default(''), requestId: z.uuid(), voice: z.literal('true').optional() });
 const messageQuery = z.object({ before: z.uuid().optional() });
-const publicMessage = { id: true, direction: true, status: true, text: true, error: true, createdAt: true } as const;
+const publicMessage = { id: true, direction: true, status: true, text: true, error: true, createdAt: true, attachment: { select: inboxMediaFields } } as const;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: inboxMediaLimit, files: 1, fields: 3, fieldSize: 20000, parts: 5 } }).single('attachment');
+let activeUploads = 0;
 
 async function accountFor(workspaceId: string) {
   const session = await prisma.whatsappSession.findUnique({ where: { workspaceId }, select: { accountId: true } });
@@ -40,7 +44,7 @@ whatsappInboxRouter.get('/conversations', async (req, res) => {
     } : {}) },
     select: {
       id: true, name: true, phone: true, lastMessageAt: true,
-      messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1, select: { text: true, direction: true } },
+      messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1, select: { text: true, direction: true, attachment: { select: inboxMediaFields } } },
     },
     orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
     take: 31,
@@ -101,9 +105,34 @@ whatsappInboxRouter.get('/conversations/:id', async (req, res) => {
   });
 });
 
-whatsappInboxRouter.post('/conversations/:id/messages', requireActiveSubscription, whatsappInboxWriteLimiter, async (req, res) => {
+whatsappInboxRouter.get('/conversations/:id/messages/:messageId/attachment', async (req, res) => {
+  const conversation = await conversationFor(req.user!.workspaceId, req.params.id);
+  const media = conversation && await prisma.whatsappInboxAttachment.findFirst({
+    where: { messageId: req.params.messageId, message: { conversationId: conversation.id } },
+    select: { data: true, name: true, mimeType: true },
+  });
+  if (!media) { res.status(404).json({ error: 'Arquivo não encontrado.' }); return; }
+  res.attachment(media.name).set('Content-Type', media.mimeType).set('X-Content-Type-Options', 'nosniff').send(media.data);
+});
+
+whatsappInboxRouter.post('/conversations/:id/messages', requireActiveSubscription, whatsappInboxWriteLimiter, (req, res, next) => {
+  if (!req.is('multipart/form-data')) { next(); return; }
+  if (activeUploads >= 4) { res.status(503).json({ error: 'Há vários anexos em processamento. Tente novamente em instantes.' }); return; }
+  activeUploads++;
+  res.once('close', () => { activeUploads--; });
+  upload(req, res, error => {
+    if (error) {
+      const tooLarge = error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE';
+      res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'O arquivo pode ter até 8 MB.' : 'Não foi possível ler o anexo.' });
+      return;
+    }
+    next();
+  });
+}, async (req, res) => {
   const input = newReply.safeParse(req.body);
-  if (!input.success) { res.status(400).json({ error: 'Escreva uma mensagem de até 4.000 caracteres.' }); return; }
+  if (!input.success || (!input.data.text && !req.file) || (input.data.voice && !req.file)) {
+    res.status(400).json({ error: 'Escreva uma mensagem de até 4.000 caracteres ou selecione um arquivo.' }); return;
+  }
   const workspaceId = req.user!.workspaceId;
   const conversation = typeof req.params.id === 'string' ? await conversationFor(workspaceId, req.params.id) : null;
   if (!conversation) { res.status(404).json({ error: 'Conversa não encontrada.' }); return; }
@@ -112,16 +141,30 @@ whatsappInboxRouter.post('/conversations/:id/messages', requireActiveSubscriptio
   }
 
   const { text, requestId } = input.data;
+  let attachment: Awaited<ReturnType<typeof prepareInboxUpload>> | undefined;
+  if (req.file) {
+    try { attachment = await prepareInboxUpload(req.file, Boolean(input.data.voice)); }
+    catch (error) {
+      if (!(error instanceof InboxMediaError)) throw error;
+      res.status(error.status).json({ error: error.message }); return;
+    }
+    if (text && (attachment.kind === 'VOICE' || attachment.kind === 'AUDIO')) {
+      res.status(400).json({ error: 'Envie o texto em uma mensagem separada do áudio.' }); return;
+    }
+  }
   const reply = await prisma.$transaction(async tx => {
     await lockCommercialContact(tx, workspaceId, conversation.phone);
     const existing = await tx.whatsappInboxMessage.findUnique({
-      where: { conversationId_requestId: { conversationId: conversation.id, requestId } }, select: publicMessage,
+      where: { conversationId_requestId: { conversationId: conversation.id, requestId } },
+      select: { ...publicMessage, attachment: { select: { ...inboxMediaFields, digest: true } } },
     });
     if (existing) return existing;
     if (!await tx.whatsappConversation.findUnique({ where: { id: conversation.id }, select: { id: true } })) return null;
     if (await isInboxContactBlocked(tx, workspaceId, conversation.phone)) return null;
     const message = await tx.whatsappInboxMessage.create({
-      data: { conversationId: conversation.id, direction: 'OUT', status: 'QUEUED', text, requestId }, select: publicMessage,
+      data: { conversationId: conversation.id, direction: 'OUT', status: 'QUEUED', text, requestId,
+        ...(attachment ? { attachment: { create: attachment } } : {}) },
+      select: { ...publicMessage, attachment: { select: { ...inboxMediaFields, digest: true } } },
     });
     await tx.whatsappConversation.updateMany({
       where: { id: conversation.id, lastMessageAt: { lt: message.createdAt } }, data: { lastMessageAt: message.createdAt },
@@ -129,10 +172,13 @@ whatsappInboxRouter.post('/conversations/:id/messages', requireActiveSubscriptio
     return message;
   });
   if (!reply) { res.status(403).json({ error: 'Este contato não está disponível para envio.' }); return; }
-  if (reply.text !== text) { res.status(409).json({ error: 'A tentativa já está vinculada a outra mensagem.' }); return; }
+  if (reply.text !== text || reply.attachment?.digest !== attachment?.digest) {
+    res.status(409).json({ error: 'A tentativa já está vinculada a outra mensagem.' }); return;
+  }
   if (reply.status === 'QUEUED') {
     try { await enqueueInboxReply(reply.id); }
     catch { res.status(503).json({ error: 'A fila não confirmou a mensagem. Tente novamente com o mesmo texto.' }); return; }
   }
-  res.status(202).json(reply);
+  const media = reply.attachment;
+  res.status(202).json({ ...reply, attachment: media ? { kind: media.kind, name: media.name, mimeType: media.mimeType, size: media.size } : null });
 });

@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import axios from 'axios';
-import { ArrowLeft, CalendarClock, Check, Clock3, MessageSquare, Plus, Search, Send } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Check, Clock3, MessageSquare, Mic, Paperclip, Plus, Search, Send } from 'lucide-react';
 import { api } from '@/lib/api';
 import { CommercialContactEditor } from './CommercialContactEditor';
+import { attachmentLabel, InboxDraftMedia, InboxMediaBubble, InboxRecording, MAX_ATTACHMENT_SIZE, useInboxVoice, type InboxAttachment, type InboxDraftAttachment } from './WhatsappInboxMedia';
 
 const inbox = '/whatsapp/inbox/conversations';
 const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -19,6 +20,7 @@ interface Message {
   text: string;
   error: string | null;
   createdAt: string;
+  attachment: InboxAttachment | null;
 }
 
 interface Conversation {
@@ -29,7 +31,7 @@ interface Conversation {
 
 interface ListedConversation extends Conversation {
   lastMessageAt: string;
-  messages: Pick<Message, 'text' | 'direction'>[];
+  messages: Pick<Message, 'text' | 'direction' | 'attachment'>[];
 }
 
 interface InboxPage {
@@ -68,10 +70,13 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
   const [issue, setIssue] = useState('');
   const [actionError, setActionError] = useState('');
   const [draft, setDraft] = useState('');
+  const [attachment, setAttachment] = useState<InboxDraftAttachment | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [editing, setEditing] = useState(false);
-  const pending = useRef<{ text: string; requestId: string } | null>(null);
+  const pending = useRef<{ text: string; requestId: string; attachment: InboxDraftAttachment | null } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const voice = useInboxVoice(setAttachment, setActionError);
   const scrollArea = useRef<HTMLDivElement>(null);
   const firstMessage = useRef(true);
   const followLatest = useRef(true);
@@ -128,17 +133,32 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    const text = draft.trim();
-    if (!text || sending || !connected || chat?.blocked) return;
-    const attempt = pending.current?.text === text ? pending.current : { text, requestId: window.crypto.randomUUID() };
+    const audioOnly = attachment?.voice || attachment?.file.type.startsWith('audio/');
+    const text = audioOnly ? '' : draft.trim();
+    if ((!text && !attachment) || sending || !connected || chat?.blocked || voice.seconds !== null || voice.starting) return;
+    const attempt = pending.current?.text === text && pending.current.attachment === attachment
+      ? pending.current : { text, requestId: window.crypto.randomUUID(), attachment };
     pending.current = attempt;
     setSending(true);
     setActionError('');
     try {
-      const { data } = await api.post<Message>(`${inbox}/${id}/messages`, attempt);
+      const endpoint = `${inbox}/${id}/messages`;
+      const payload = { text, requestId: attempt.requestId };
+      let data: Message;
+      if (attachment) {
+        const form = new FormData();
+        form.append('text', payload.text);
+        form.append('requestId', payload.requestId);
+        if (attachment.voice) form.append('voice', 'true');
+        form.append('attachment', attachment.file);
+        ({ data } = await api.post<Message>(endpoint, form, { headers: { 'Content-Type': undefined } }));
+      } else {
+        ({ data } = await api.post<Message>(endpoint, payload));
+      }
       followLatest.current = true;
       setMessages(previous => mergeMessages(previous, [data]));
-      setDraft('');
+      if (!audioOnly) setDraft('');
+      setAttachment(null);
       pending.current = null;
       setRefresh(value => value + 1);
     } catch (error) {
@@ -175,7 +195,8 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
       {(history?.hasOlder ?? chat.hasOlder) && <button type="button" disabled={loadingOlder} onClick={() => void loadOlder()} className="dash-btn-secondary mx-auto block px-3 py-2 text-xs">{loadingOlder ? 'Carregando…' : 'Ver mensagens anteriores'}</button>}
       {messages.length === 0 && <p className={`my-10 text-center text-sm ${muted}`}>As novas mensagens aparecerão aqui.</p>}
       {messages.map(message => <article key={message.id} className={`w-fit max-w-[90%] rounded-2xl border px-3.5 py-2.5 sm:max-w-[75%] ${message.direction === 'OUT' ? 'ml-auto rounded-br-sm border-emerald-400/20 bg-emerald-400/10' : 'rounded-bl-sm border-[var(--studio-line)] bg-white/[0.04]'}`}>
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p>
+        {message.attachment && <InboxMediaBubble attachment={message.attachment} url={`${inbox}/${id}/messages/${message.id}/attachment`} />}
+        {message.text && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p>}
         <p className={`mt-1.5 flex flex-wrap items-center justify-end gap-1.5 text-[11px] ${muted}`}>
           <time dateTime={message.createdAt} title={dateAndTime.format(new Date(message.createdAt))}>{dateAndTime.format(new Date(message.createdAt))}</time>
           {message.status === 'SENT' && <span className="inline-flex items-center gap-1"><Check size={12} />Enviado</span>}
@@ -187,10 +208,23 @@ function ConversationThread({ id, connected, onBack, onCampaign }: {
 
     <form onSubmit={send} className="space-y-2 border-t border-[var(--studio-line)] p-3 sm:p-4">
       {(issue || actionError || chat.blocked || !connected) && <p role="status" className="text-xs text-amber-300">{actionError || issue || (chat.blocked ? 'Contato na lista de bloqueio.' : 'Reconecte o WhatsApp para responder.')}</p>}
-      <div className="flex items-end gap-2">
-        <textarea className={`${inputClass} max-h-32 resize-y`} aria-label="Mensagem ao cliente" rows={2} maxLength={4000} placeholder="Escreva para o cliente…" value={draft} onChange={event => setDraft(event.target.value)} disabled={sending || chat.blocked} />
-        <button type="submit" disabled={!connected || !draft.trim() || sending || chat.blocked} className="dash-btn-primary flex items-center gap-2 px-4 py-3 text-sm disabled:opacity-45"><Send size={16} />Enviar</button>
-      </div>
+      {voice.seconds !== null ? <InboxRecording seconds={voice.seconds} onStop={() => voice.stop()} onCancel={() => voice.stop(true)} /> : <>
+        {attachment && <InboxDraftMedia draft={attachment} disabled={sending} onRemove={() => { setAttachment(null); setActionError(''); }} />}
+        <input type="file" ref={fileInput} hidden onChange={event => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (!file) return;
+          if (!file.size || file.size > MAX_ATTACHMENT_SIZE) { setActionError('Selecione um arquivo de até 8 MB.'); return; }
+          setAttachment({ file, voice: false });
+          setActionError('');
+        }} />
+        <div className="flex items-end gap-1.5 sm:gap-2">
+          <button type="button" aria-label="Anexar arquivo" title="Anexar arquivo · até 8 MB" disabled={!connected || sending || chat.blocked || voice.starting || !!attachment} onClick={() => fileInput.current?.click()} className="dash-btn-secondary shrink-0 p-2.5 disabled:opacity-45"><Paperclip size={16} /></button>
+          <textarea className={`${inputClass} max-h-32 resize-y`} aria-label="Mensagem ao cliente" rows={2} maxLength={4000} placeholder={attachment?.voice ? 'Envie o áudio ou remova a gravação' : 'Escreva para o cliente…'} value={draft} onChange={event => setDraft(event.target.value)} disabled={sending || chat.blocked || attachment?.voice || attachment?.file.type.startsWith('audio/')} />
+          <button type="button" aria-label="Gravar mensagem de voz" title="Gravar mensagem de voz" disabled={!connected || sending || chat.blocked || voice.starting || !!attachment} onClick={() => void voice.start()} className="dash-btn-secondary shrink-0 p-2.5 disabled:opacity-45"><Mic size={17} /></button>
+          <button type="submit" aria-label="Enviar" disabled={!connected || (!draft.trim() && !attachment) || sending || chat.blocked || voice.starting} className="dash-btn-primary flex shrink-0 items-center gap-2 px-3 py-3 text-sm disabled:opacity-45"><Send size={16} /><span className="hidden sm:inline">Enviar</span></button>
+        </div>
+      </>}
     </form>
 
     {editing && chat.lead && <CommercialContactEditor campaignId={chat.lead.campaign.id} lead={chat.lead} onClose={() => setEditing(false)} onSaved={() => setRefresh(value => value + 1)} />}
@@ -286,7 +320,7 @@ export function WhatsappInbox({ connected, onCampaign }: { connected: boolean; o
           {inboxPage?.conversations.length === 0 && <p className={`p-4 text-sm ${muted}`}>{!accountId ? 'Conecte seu WhatsApp para acompanhar conversas.' : search ? 'Nenhuma conversa encontrada.' : 'As conversas das campanhas aparecerão aqui. Use + para acompanhar outro cliente.'}</p>}
           {inboxPage?.conversations.map(item => <button key={item.id} type="button" aria-current={selected === item.id ? 'true' : undefined} onClick={() => setSelected(item.id)} className={`flex w-full min-w-0 items-center gap-3 border-b border-[var(--studio-line)] px-4 py-3 text-left hover:bg-white/[0.05] ${selected === item.id ? 'bg-emerald-400/10' : ''}`}>
             <span className="grid size-9 shrink-0 place-items-center rounded-full bg-emerald-400/10 text-sm font-semibold text-[var(--studio-accent)]">{item.name?.trim().charAt(0).toUpperCase() || <MessageSquare size={15} />}</span>
-            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name || `+${item.phone}`}</span><span className={`block truncate text-xs ${muted}`}>{item.messages[0] ? `${item.messages[0].direction === 'OUT' ? 'Você: ' : ''}${item.messages[0].text}` : 'Conversa adicionada'}</span></span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name || `+${item.phone}`}</span><span className={`block truncate text-xs ${muted}`}>{item.messages[0] ? `${item.messages[0].direction === 'OUT' ? 'Você: ' : ''}${item.messages[0].text || (item.messages[0].attachment ? attachmentLabel(item.messages[0].attachment) : '')}` : 'Conversa adicionada'}</span></span>
             <span className={`text-[11px] ${muted}`}>{item.messages.length ? time.format(new Date(item.lastMessageAt)) : ''}</span>
           </button>)}
         </div>
