@@ -1,96 +1,52 @@
-# Plataforma Disparador de Mensagens — Guia Oficial & Contexto do Sistema
+# Abordai — documentação da plataforma
 
-> Documento interno confidencial para a equipe técnica e agentes de IA do projeto.  
-> Última atualização: **02 de outubro de 2026**.  
-> Idioma: **Português do Brasil (pt-BR)**.  
-> Repositório: `bot_de_disparo` (`hayax0/bot_de_disparo`).
+> Revisado em 23 de novembro de 2026. Valores comerciais e recursos descritos abaixo refletem a configuração versionada; confirme as ofertas externas antes de divulgá-las.
 
----
+## O produto
 
-## 1. Visão Geral do Produto
+O Abordai reúne prospecção de empresas, campanhas de WhatsApp, geração de mensagens com IA e acompanhamento comercial. O painel é feito em Next.js; a API usa Express, Prisma/PostgreSQL e Redis com BullMQ. As sessões de WhatsApp são gerenciadas pelo Baileys.
 
-O **Disparador de Mensagens** é uma plataforma SaaS completa de prospecção comercial consultiva e disparo automatizado pelo WhatsApp, com execução 100% em nuvem e painel web responsivo (Next.js + Express).
+A navegação entre áreas do painel fica no menu lateral. O domínio público configurado é `https://abordai.cmpx.tec.br`; a API usa a mesma origem em `/api`.
 
-O sistema resolve o gargalo operacional de empresas e profissionais de vendas através de 3 pilares integrados:
-1. **Busca e Enriquecimento de Leads**: Encontra estabelecimentos e empresas no Google Maps por nicho e cidade diretamente no painel (usando a conta pessoal do usuário na Apify via API Key).
-2. **Motor de IA Integrado**: Gera abordagens altamente persuasivas e personalizadas para cada contato/empresa, analisando nicho, presença de site e localização sem textos genéricos.
-3. **Disparos com Cadência Humana**: Executa os envios em segundo plano nos servidores da nuvem com simulação de ritmo humano (delays aleatórios de 45 a 120s, Spintax e pausas de lote), dispensando abas abertas ou computador ligado.
+## Buscar empresas
 
----
+1. O usuário conecta uma credencial pessoal da Apify na área de busca.
+2. A API inicia o Actor `compass~crawler-google-places`, com nicho e cidade informados e país Brasil.
+3. Os resultados são filtrados e persistidos; quando o dataset da Apify publica dados parciais, o mapa pode atualizar os pontos durante a execução.
 
-## 2. Catálogo Comercial e Modelo de Cobrança
+A busca usa a conta Apify do usuário e pode ser cobrada por esse provedor, inclusive quando há resultados descartados. Ela não consome créditos de IA da plataforma. Novas buscas não usam a chave global `APIFY_API_TOKEN`; essa variável existe para compatibilidade com execuções históricas.
 
-A plataforma opera no modelo híbrido de **Assinatura Mensal (SaaS)** combinada com **Recargas Avulsas de IA (Pay-As-You-Go)**. Os pagamentos são processados pela **Cakto** com aprovação instantânea via PIX ou Cartão de Crédito.
+O mapa é Leaflet com tiles do OpenStreetMap e pinos derivados das coordenadas dos resultados Apify. Não é Google Maps e não precisa de chave Google Maps. Um resultado sem coordenadas não pode aparecer como pino.
 
-### 2.1. Planos Mensais de Assinatura
+## Campanhas e IA
 
-| Plano | Preço Mensal | Franquia de Disparos | Franquia Mensal de IA | Conexões WhatsApp | Destaque | Checkout Cakto |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Essencial** (`START`) | R$ 27,99/mês | 1.000 disparos/mês | 50 créditos/mês | 1 conexão | Para autônomos e pequenos negócios | [Link Cakto](https://pay.cakto.com.br/3ejxmar_1165260) |
-| **Profissional** (`PRO`) | R$ 55,99/mês | 3.000 disparos/mês | 150 créditos/mês | 1 conexão | **Mais Popular / Recomendado** | [Link Cakto](https://pay.cakto.com.br/9gwgit3_1165278) |
-| **Premium** (`SCALE`) | R$ 95,99/mês | 6.000 disparos/mês | 300 créditos/mês | 1 conexão | Alto volume de prospecção | [Link Cakto](https://pay.cakto.com.br/33zk2g2_1165304) |
+A geração de mensagens é uma operação em segundo plano. O usuário pode acompanhar o progresso, deixar a operação continuar e voltar depois. Antes do envio, a campanha passa por uma revisão de contatos selecionados e textos finais. A revisão aceita até 500 contatos por lote; a confirmação é explícita e o fechamento da janela não envia mensagens.
 
-#### Regras de Assinatura e Franquias:
-- **Disparos de WhatsApp**: Contabilizados mensalmente por ciclo. Caso a franquia se esgote, o usuário aguarda a renovação do ciclo ou faz upgrade de plano.
-- **Créditos Mensais de IA**: Renovados automaticamente a cada pagamento de ciclo. **Não acumulam** de um mês para o outro (são consumidos com prioridade antes dos créditos avulsos).
-- **Contas Legadas (`LEGACY_DAVI`)**: Condições contratuais originais preservadas; não possuem carteira de créditos de IA nem novas franquias comerciais de disparos.
-- **Administradores (`ADMIN`)**: Acesso vitalício incondicional, sem franquia de disparos e IA irrestrita sem consumo de saldo.
+A geração ou regeneração bem-sucedida consome créditos de IA conforme as regras da carteira. Edição manual não consome créditos. Uma nova geração pode consumir novamente; confirme o saldo e a estimativa exibidos no painel.
 
----
+Mensagens são enfileiradas no BullMQ e processadas pelo worker. O espaçamento entre envios vem da configuração da campanha e há pausas adicionais entre lotes. Esses mecanismos não garantem entrega nem evitam restrições impostas pelo WhatsApp.
 
-### 2.2. Pacotes de Recarga Avulsa de Créditos de IA
+## CRM e vendas
 
-Disponíveis para compra no Dashboard (`/dashboard`) quando o usuário esgota seus créditos mensais:
+O CRM fica nas áreas comerciais do menu lateral. Contatos são deduplicados pelo telefone dentro do workspace. O quadro permite mover contatos entre etapas; a etapa «Venda realizada» requer registrar valor e data.
 
-| Pacote | Créditos | Valor | Custo / Cópia | Destaque | Checkout Cakto |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Pequeno** (`PACKAGE_SMALL`) | 100 créditos | R$ 9,99 | ~R$ 0,10 | Testes e campanhas pontuais | [Link Cakto](https://pay.cakto.com.br/zmvfpjf_1165355) |
-| **Médio** (`PACKAGE_MEDIUM`) | 300 créditos | R$ 24,99 | ~R$ 0,08 | **Mais Vendido / Melhor Equilíbrio** | [Link Cakto](https://pay.cakto.com.br/dqywaqn_1165367) |
-| **Grande** (`PACKAGE_LARGE`) | 700 créditos | R$ 49,99 | ~R$ 0,07 | Máximo desconto por abordagem | [Link Cakto](https://pay.cakto.com.br/cbd2uec_1165374) |
+O gráfico comercial soma vendas registradas manualmente no CRM. Ele permite períodos de 7 dias, 30 dias, mês, ano e intervalo personalizado; agrupa por dia, semana ou mês, compara com o período anterior e exibe faturamento, quantidade e ticket médio. Atualiza a cada 30 segundos enquanto a página está visível e após alterações comerciais. Não é uma atribuição automática de receita a campanhas.
 
-#### Regras das Recargas:
-- **Validade**: Créditos comprados em recarga avulsa **nunca expiram**.
-- **Consumo**: Apenas entram em ação quando os créditos mensais inclusos no plano estiverem zerados.
-- **Uso**: Exigem que a assinatura da plataforma esteja ativa.
+## Planos e cobranças
 
----
+O catálogo no código (`backend/src/config/plans.ts`) define START Essencial por R$ 27,99/mês, PRO Profissional por R$ 55,99/mês e SCALE Premium por R$ 95,99/mês. Os limites configurados são 1.000/3.000/6.000 disparos por ciclo e 50/150/300 créditos mensais de IA; cada plano prevê uma conexão WhatsApp.
 
-## 3. Funcionamento Operacional e Regras de Negócio
+Pacotes de recarga configurados: 100 créditos por R$ 9,99; 300 por R$ 24,99; 700 por R$ 49,99. Créditos mensais são renovados no ciclo e consumidos antes dos créditos comprados; créditos comprados não expiram.
 
-### 3.1. Inteligência Artificial
-- **Custo**: Cada abordagem gerada ou regenerada com sucesso consome **1 crédito de IA**.
-- **Edição**: Alterações manuais feitas pelo usuário nos textos são **100% gratuitas** (zero créditos).
-- **Privacidade de Fornecedor**: Nas interfaces públicas e de usuário, o motor é tratado como **Motor de IA Integrado / Agente de IA da Plataforma**, sem menção direta a nomes de modelos de terceiros.
+A API autenticada retorna o catálogo e as URLs de checkout Cakto configuradas. A existência de uma URL no código não confirma que a oferta esteja ativa no painel externo, nem que o pagamento tenha sido aprovado. A ativação depende do webhook Cakto validado.
 
-### 3.2. Busca de Leads no Google Maps
-- Realizada no painel informando nicho e localização (ex: "Academias em Curitiba").
-- A execução conecta-se diretamente à **conta Apify pessoal do usuário** através da API Token configurada por ele.
-- **Consumo de IA**: A busca em si **NÃO** consome créditos de IA da carteira da plataforma (o custo de extração é debitado dos créditos gratuitos/pagos da própria conta Apify do cliente).
-- Os contatos extraídos vêm higienizados com telefone internacional (`+55`), nome e endereço.
+Os privilégios de administrador dependem do papel `ADMIN` atual; contas legadas têm regras próprias. Não interprete isso como acesso vitalício geral para qualquer conta.
 
-### 3.3. Disparos e Proteção Anti-Bloqueio
-- **Fila Assíncrona na Nuvem**: Processada via **BullMQ + Redis**. O usuário pode fechar o navegador ou desligar a máquina.
-- **Cadência Humana**:
-  - Delays aleatórios entre envios (ex: 45s a 120s).
-  - Pausas automáticas de lote programadas pelo sistema.
-  - Spintax dinâmico para variação contextual (`{Olá|Oi|Bom dia}`).
-  - Variáveis dinâmicas: `{nome}`, `{website}`, `{bairro}`, `{meuNome}`, `{minhaEmpresa}`.
-- **Histórico Permanente por Workspace**: Impede o retrabalho e o constrangimento de reenviar mensagens para o mesmo número em campanhas futuras.
-- **Conexão WhatsApp Web**: Escaneamento via QR Code pelo aplicativo oficial do WhatsApp (Menu > Aparelhos Conectados). Possui rotina de auto-reconexão e watchdog no backend.
+## Fontes de referência
 
----
-
-## 4. Arquitetura Técnica e Regras Invioláveis
-
-Conforme estabelecido no [`AGENTS.md`](file:///Users/caiocampos021/Developer/bot_de_disparo/AGENTS.md):
-
-1. **Envios Exclusivamente via Fila**: Nenhuma mensagem de WhatsApp pode ser disparada diretamente em requisição HTTP. Sempre enfileirar em `message-queue` (BullMQ).
-2. **JobId Determinístico**: Sempre `${campaignId}_${leadId}` para garantir idempotência matemática contra envios duplicados.
-3. **Sessão WhatsApp**: Sempre chamar `.destroy()` ao descartar instâncias de clientes para evitar acúmulo de processos Chromium zumbis em memória. Remover locks `Singleton*` antes de re-inicializar.
-4. **Tratamento de Falhas Transitórias**: Jobs em retry transitório não marcam leads como `ERROR`; apenas a falha definitiva na tentativa final atualiza o status.
-5. **Automação de Webhooks Cakto**: O endpoint `/api/webhooks/cakto` processa compras de planos, concessão de cotas de disparos e créditos extras com locks distribuídos por cliente (`cakto:lock:${email}`) para prevenir race conditions.
-6. **Fluxo Git Obrigatório**: Mudanças devem ser feitas em branches com padrão `feat/...`, `fix/...` ou `chore/...`, passando em `npx tsc --noEmit` e `npm test` antes de qualquer PR.
-
----
-
-*Fim do Guia Oficial da Plataforma.*
+- Planos: [backend/src/config/plans.ts](backend/src/config/plans.ts).
+- Busca e persistência Apify: [backend/src/services/CompanySearchService.ts](backend/src/services/CompanySearchService.ts).
+- Mapa: [frontend/src/components/dashboard/SearchLiveMap.tsx](frontend/src/components/dashboard/SearchLiveMap.tsx).
+- Gráfico: [frontend/src/components/dashboard/SalesChart.tsx](frontend/src/components/dashboard/SalesChart.tsx).
+- Fluxo de deploy: [DEPLOY.md](DEPLOY.md).
+- Regras de contribuição: [AGENTS.md](AGENTS.md).

@@ -1,47 +1,26 @@
-# Etapa 3 — acompanhamento comercial
+# Acompanhamento comercial e resultados
 
-## Uso
+## Acompanhar contatos
 
-Em **Minhas Campanhas → Ver Leads**, a coluna **Comercial / Anotações → Acompanhar** abre uma ficha independente do envio. É possível registrar:
+Em **Minhas Campanhas → Ver Leads**, a ação de acompanhamento abre uma ficha comercial separada dos estados técnicos de envio. O usuário pode registrar etapa, notas, reunião marcada e data do próximo contato.
 
-- Não classificado, Não respondeu, Em conversa, Interessado ou Não tem interesse.
-- Anotações em texto simples, até 4.000 caracteres.
-- Reunião marcada, apenas após combinação com o contato. O campo não envia convite nem agenda um evento.
+As etapas manuais incluem Não classificado, Não respondeu, Em conversa, Interessado e Não tem interesse. Reunião marcada é um sinalizador comercial. «Não tem interesse» não substitui a blacklist ou um pedido de descadastro.
 
-Os dados são compartilhados pelo telefone normalizado dentro do workspace. Um contato reencontrado em outra campanha conserva a classificação e as notas; outro workspace com o mesmo telefone tem acompanhamento independente. Números brasileiros com/sem DDI e formatação são equivalentes, sem inserir o nono dígito. Contatos anonimizados não podem receber acompanhamento.
-
-A ficha não consome créditos e não altera plano, franquia, mensagem, estado técnico ou jobs. “Não tem interesse” é classificação comercial e não substitui a blacklist/opt-out. Salvar manualmente interesse ou reunião também não cria uma resposta técnica de WhatsApp.
-
-Os filtros comerciais e de reunião combinam com busca, paginação e status técnico no servidor. Contadores de envio do monitoramento continuam representando toda a campanha, conforme aviso junto aos filtros.
+Os dados são compartilhados pelo telefone normalizado dentro do workspace. Um contato reencontrado em outra campanha conserva o acompanhamento; outro workspace permanece independente. A ficha não altera mensagens, jobs ou status técnico do WhatsApp.
 
 ## Resultados comerciais
 
-Nova aba disponível na navegação do painel, com atualização manual e a cada 30 segundos enquanto visível:
+Abra **Resultados comerciais** pelo menu lateral. A página permite atualização manual e recarrega a cada 30 segundos quando está visível; alterações salvas no CRM também disparam atualização.
 
-- Resumo de contatos únicos, respondidos no WhatsApp, interessados atuais e reuniões registradas.
-- Comparação por campanha: contatos, envios confirmados, respondidos, taxa de resposta, em conversa, interessados e reuniões.
-- Busca por nome, ordenação e paginação da comparação; atalho para acompanhar cada campanha.
+O resumo inclui contatos e resultados comerciais persistidos. A comparação por campanha mostra atividade e resposta observadas. Resposta é baseada no status técnico `REPLIED`; leituras e entregas não são consideradas respostas nem sinal de interesse.
 
-O resumo deduplica o telefone também entre campanhas. A tabela deduplica dentro de cada campanha; portanto, linhas não são aditivas. Interesse/reunião correspondem à classificação atual compartilhada dos contatos presentes na lista e **não atribuem uma venda à campanha**.
+Vendas entram no gráfico quando o usuário registra manualmente valor e data em um contato. Os filtros incluem 7 dias, 30 dias, mês atual, ano e período personalizado. A série pode agrupar por dia, semana ou mês, com faturamento, número de vendas, ticket médio e comparação ao período anterior. O gráfico representa os registros do workspace, não uma atribuição automática de vendas a campanhas.
 
-“Respondidos” utiliza somente o status técnico REPLIED registrado pela integração. Envios confirmados consideram sentAt preenchido ou status SENT/DELIVERED/READ/REPLIED. Taxa = respondidos ÷ confirmados, com uma casa decimal; sem envios, exibe travessão. Leituras/entregas não viram interesse automaticamente. Respostas externas/não capturadas e reuniões não registradas não entram. Os indicadores refletem o estado atual persistido, não um histórico de eventos ou faturamento.
+Os indicadores contam dados persistidos e podem usar regras de deduplicação específicas. A lista e seus totais não devem ser somados entre campanhas como se fossem eventos financeiros independentes.
 
-## Persistência e segurança das alterações
+## Notas técnicas
 
-Migração aditiva `20261029173000_commercial_contacts` cria `CommercialContact` com chave única `(workspaceId, phone)` e versão de edição. As rotas derivam workspace da autenticação e validam a propriedade de campanha **e** lead, sem exceção administrativa entre contas:
-
-- GET/PUT `/campaigns/:id/leads/:leadId/commercial`.
-- GET `/campaigns/commercial-metrics`.
-- Filtros `commercialStage` e `meeting` em GET `/campaigns/:id/leads`.
-
-PUT exige versão atual e payload estrito. Transações serializam alterações pelo contato; versões antigas retornam 409, preservando o rascunho na tela. Carregar a versão atual ou descartar o rascunho exige ação explícita. Escape passa pela proteção de rascunho da ficha e não fecha o monitoramento pai.
-
-Anonimização usa a mesma normalização e o mesmo lock do acompanhamento. Apaga notas e trata variantes de telefone em todos os leads/histórico daquele workspace, evitando recriação por uma variante sobrevivente. Duplicatas legadas formatadas recebem identificadores anônimos distintos para preservar unicidade. Dados de outros workspaces permanecem intactos.
-
-Consultas de métricas rodam no PostgreSQL em snapshot RepeatableRead. Respostas antigas das consultas de monitoramento/pós-save não substituem resultados de filtros ou páginas mais recentes.
-
-## Validação e publicação
-
-Backend: TypeScript e 293 testes aprovados, incluindo PostgreSQL real de isolamento, payload, compartilhamento, versão concorrente, filtros/paginação, agregações e anonimização com variantes. Frontend: TypeScript/lint, validação local de cadastro comercial, preservação de rascunho/Escape, filtros, comparação e layout em celular/desktop. Não houve busca paga nem envio real.
-
-Esta branch inclui a base das etapas 1/2 (`feat/jornada-revisao-campanhas`, PR #65). O PR da etapa 3 é empilhado sobre essa base para revisão separada. Manter local, sem merge/deploy; ao publicar posteriormente, aplicar as migrações após backup e atualizar frontend/backend em conjunto.
+- A API valida a sessão e deriva o workspace do usuário autenticado.
+- A ficha usa controle de versão; conflito de edição informa que os dados precisam ser atualizados.
+- O acompanhamento não envia convite de calendário, e-mail ou mensagem de WhatsApp.
+- Para ver as demais ferramentas do CRM, use os itens correspondentes do menu lateral; a navegação principal não é duplicada dentro da página.

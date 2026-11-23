@@ -1,62 +1,44 @@
-# AGENTS.md — bot_de_disparo (bot-prospeccao-web)
+# AGENTS.md — Abordai (bot_de_disparo)
 
-Sistema SaaS de prospecção/disparo de mensagens via WhatsApp (whatsapp-web.js), com painel web.
+Plataforma SaaS de prospecção comercial, campanhas de WhatsApp e CRM.
 
 ## Estrutura
 
-```
-backend/    → API Express + TypeScript + Prisma (PostgreSQL) + BullMQ (Redis) + whatsapp-web.js
-frontend/   → Next.js + Tailwind + Zustand
-docker-compose.production.yml → deploy na VPS (postgres, redis, backend, frontend)
-```
+- `backend/`: API Express + TypeScript, Prisma/PostgreSQL, BullMQ/Redis e integração WhatsApp com Baileys.
+- `frontend/`: Next.js, React, Tailwind e Zustand.
+- `docker-compose.production.yml`: serviços de produção para PostgreSQL, Redis, backend e frontend.
 
-## Fluxo de trabalho OBRIGATÓRIO (qualquer agente/modelo)
+## Fluxo obrigatório de trabalho
 
-Toda tarefa — correção, melhoria ou nova função — **DEVE** seguir este padrão:
+1. Abrir uma Issue no GitHub com o problema ou objetivo e critérios de aceite.
+2. Criar branch a partir de `main`: `fix/<descricao-curta>`, `feat/<descricao-curta>` ou `chore/<descricao-curta>`.
+3. Implementar com mudanças limitadas ao escopo da Issue.
+4. Abrir PR com `Closes #N`. Nunca enviar diretamente para `main`.
+5. Publicar na VPS somente depois do merge. Seguir o procedimento e os cuidados de [DEPLOY.md](DEPLOY.md).
 
-1. **Abrir uma Issue no GitHub** descrevendo a tarefa (bug → logs/passo a passo; feature → objetivo e critério de aceite).
-2. **Criar uma branch** a partir de `main` no padrão:
-   - `fix/<descricao-curta>` para correções
-   - `feat/<descricao-curta>` para novas funções
-   - `chore/<descricao-curta>` para manutenção/infra
-3. **Implementar** seguindo as regras deste arquivo.
-4. **Abrir um PR mencionando a Issue** na descrição (`Closes #N`). Nunca fazer push direto na `main`.
-5. **Deploy** em produção (VPS) só acontece após merge do PR:
-   ```bash
-   git pull
-   docker compose -f docker-compose.production.yml up -d --build
-   ```
-
-## Comandos de verificação (rodar antes de todo PR)
+## Verificações antes do PR
 
 ```bash
-# Backend
 cd backend && npx tsc --noEmit && npm test
-
-# Frontend
 cd frontend && npx tsc --noEmit && npm run lint
 ```
 
 ## Convenções
 
-- **Commits**: Conventional Commits (commitlint): `feat: ...`, `fix: ...`, `chore: ...`, `test: ...`, `docs: ...`
-- **Idioma**: UI e mensagens de erro em pt-BR; código e comentários técnicos podem ser em pt-BR.
-- Minimizar mudanças: não tocar em lógica fora do escopo da Issue.
+- Commits Conventional Commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`.
+- UI e mensagens para usuários em pt-BR; código e comentários técnicos podem usar pt-BR.
+- Não inclua arquivos `.env`, credenciais, tokens ou dados privados no Git.
 
-## Arquitetura (regras que NÃO podem regredir)
+## Regras de arquitetura
 
-- **Envios sempre passam pela fila BullMQ** (`message-queue`). Nunca enviar WhatsApp dentro de request HTTP.
-- **jobId determinístico**: `${campaignId}_${leadId}` — nunca usar `Date.now()` em jobId (quebra idempotência).
-- Conexões Redis **separadas** para Queue / QueueEvents / Worker (ver `backend/src/services/queue.ts`).
-- Sessão WhatsApp: sempre `destroy()` o client ao descartar (evita vazamento de Chromium); locks `Singleton*` devem ser removidos antes de re-inicializar.
-- Reconexão automática com backoff vive em `WhatsappManager` — não criar retry paralelo.
-- Erros transitórios em jobs **não** marcam lead como `ERROR`; só a tentativa final (ver `CampaignRunner`).
-- Leads `QUEUED` sem job na fila = órfãos; `recoverOrphanedLeads()` roda no boot.
+- Envios de WhatsApp passam pela fila BullMQ `message-queue`; nunca envie mensagens diretamente em uma requisição HTTP.
+- Use o `jobId` determinístico `${campaignId}_${leadId}`; não use `Date.now()` como ID.
+- Mantenha conexões Redis separadas para Queue, QueueEvents e Worker (`backend/src/services/queue.ts`).
+- O ciclo de vida das sessões Baileys, o encerramento de sockets e os locks ficam em `WhatsappManager`; não crie um mecanismo paralelo de retry.
+- Falhas transitórias de jobs só marcam o lead como `ERROR` na tentativa final.
+- Leads `QUEUED` sem job são órfãos; o fluxo existente de recuperação deve continuar ativo.
 
-## Observabilidade
+## Observabilidade e ambiente
 
-- **Sentry** configurado no backend e frontend (DSN via `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`).
-
-## Ambiente
-
-- Variáveis documentadas em `backend/.env.example` e `.env.production.example` — nunca commitar `.env` real.
+- Sentry é configurado por `SENTRY_DSN` e `NEXT_PUBLIC_SENTRY_DSN`.
+- Consulte `backend/.env.example` para desenvolvimento e `.env.production.example` para produção. Mantenha os valores reais somente em arquivos locais protegidos.
