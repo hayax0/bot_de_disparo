@@ -1,6 +1,6 @@
 const defaultAppUrl = process.env.NODE_ENV === 'development'
   ? 'http://app.localhost:3000'
-  : 'https://app.abordai.cmpx.tec.br';
+  : 'https://abordai.cmpx.tec.br';
 
 export const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || defaultAppUrl).replace(/\/$/, '');
 
