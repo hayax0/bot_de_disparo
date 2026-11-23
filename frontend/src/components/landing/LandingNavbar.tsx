@@ -4,16 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Menu, X } from "lucide-react";
-import { useAuth } from "@/store/useAuth";
+import { appHref } from "@/lib/appUrl";
 
 export function LandingNavbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { token, hydrate, isHydrated } = useAuth();
-
-  useEffect(() => {
-    hydrate();
-  }, [hydrate]);
-
   // Listener de tecla Escape para fechar o menu mobile acessivelmente
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -29,8 +23,6 @@ export function LandingNavbar() {
     }
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileMenuOpen, handleKeyDown]);
-
-  const isLoggedIn = Boolean(isHydrated && token);
 
   const navLinks = [
     { label: "Como Funciona", href: "#como-funciona" },
@@ -87,33 +79,19 @@ export function LandingNavbar() {
 
           {/* CTAs Desktop */}
           <div className="hidden lg:flex items-center gap-2.5">
-            {!isHydrated ? (
-              <div className="w-28 h-8 rounded-full bg-white/[0.04] animate-pulse" />
-            ) : isLoggedIn ? (
-              <Link
-                href="/dashboard"
-                className="studio-navbar-primary px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
-              >
-                <span>Acessar Plataforma</span>
-                <ArrowRight size={13} />
-              </Link>
-            ) : (
-              <>
-                <Link
-                  href="/login"
-                  className="studio-navbar-secondary px-3.5 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-                >
-                  Entrar
-                </Link>
-                <Link
-                  href="/register"
-                  className="studio-navbar-primary px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
-                >
-                  <span>Criar Conta</span>
-                  <ArrowRight size={13} />
-                </Link>
-              </>
-            )}
+            <Link
+              href={appHref('/login')}
+              className="studio-navbar-secondary px-3.5 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+            >
+              Entrar
+            </Link>
+            <Link
+              href={appHref('/register')}
+              className="studio-navbar-primary px-4 py-1.5 text-xs flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
+            >
+              <span>Criar Conta</span>
+              <ArrowRight size={13} />
+            </Link>
           </div>
 
           {/* Botão Hambúrguer Mobile */}
@@ -144,36 +122,21 @@ export function LandingNavbar() {
               ))}
             </nav>
             <div className="pt-3 border-t border-white/[0.08] flex flex-col gap-2.5">
-              {!isHydrated ? (
-                <div className="w-full h-10 rounded-full bg-white/[0.04] animate-pulse" />
-              ) : isLoggedIn ? (
-                <Link
-                  href="/dashboard"
-                  onClick={handleNavClick}
-                  className="w-full studio-navbar-primary py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-                >
-                  <span>Acessar Plataforma</span>
-                  <ArrowRight size={14} />
-                </Link>
-              ) : (
-                <>
-                  <Link
-                    href="/login"
-                    onClick={handleNavClick}
-                    className="w-full studio-navbar-secondary py-2.5 text-center text-xs focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-                  >
-                    Entrar na Conta
-                  </Link>
-                  <Link
-                    href="/register"
-                    onClick={handleNavClick}
-                    className="w-full studio-navbar-primary py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-                  >
-                    <span>Criar Conta</span>
-                    <ArrowRight size={14} />
-                  </Link>
-                </>
-              )}
+              <Link
+                href={appHref('/login')}
+                onClick={handleNavClick}
+                className="w-full studio-navbar-secondary py-2.5 text-center text-xs focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                Entrar na Conta
+              </Link>
+              <Link
+                href={appHref('/register')}
+                onClick={handleNavClick}
+                className="w-full studio-navbar-primary py-2.5 text-xs text-center flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
+              >
+                <span>Criar Conta</span>
+                <ArrowRight size={14} />
+              </Link>
             </div>
           </div>
         )}

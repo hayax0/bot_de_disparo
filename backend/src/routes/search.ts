@@ -2,7 +2,7 @@ import type { CompanySearchResult } from '@prisma/client';
 import { temWebsiteValido } from '../services/ProposalEngine';
 import { Router, Request, Response } from 'express';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
-import { visibleCompanySearchResults, WebsiteFilter, CompanySearchService } from '../services/CompanySearchService';
+import { visibleCompanySearchResults, WebsiteFilter, CompanySearchService, matchesRequestedLocation } from '../services/CompanySearchService';
 import { IntegrationError } from '../services/ApifyCredentialService';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
@@ -10,6 +10,33 @@ import { z } from 'zod';
 import { getUserCapabilities } from '../config/plans';
 
 const router = Router();
+
+function verifiedMapResults(results: CompanySearchResult[], location: string) {
+  return results.filter(result => {
+    if (result.latitude == null || result.longitude == null) return false;
+    if (result.latitude < -34 || result.latitude > 6 || result.longitude < -75 || result.longitude > -28) return false;
+    return matchesRequestedLocation({
+      city: result.city,
+      address: result.address,
+      neighborhood: result.neighborhood,
+      state: result.state
+    }, location).matches;
+  }).map(result => ({
+    id: result.id,
+    name: result.name,
+    phone: result.phone,
+    website: result.website,
+    hasWebsite: temWebsiteValido(result.website),
+    address: result.address,
+    neighborhood: result.neighborhood,
+    city: result.city,
+    category: result.category,
+    rating: result.rating,
+    reviewsCount: result.reviewsCount,
+    latitude: result.latitude!,
+    longitude: result.longitude!
+  }));
+}
 
 router.use(authenticate);
 router.use(requireActiveSubscription);
@@ -63,8 +90,11 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
     });
 
     const results: CompanySearchResult[] = 'results' in searchResult && Array.isArray(searchResult.results) ? searchResult.results : [];
-    res.status(202).json({ ...searchResult, results: visibleCompanySearchResults(results, (searchResult.websiteFilter || 'ALL') as WebsiteFilter)
-      .map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
+    res.status(202).json({ ...searchResult,
+      results: visibleCompanySearchResults(results, (searchResult.websiteFilter || 'ALL') as WebsiteFilter)
+        .map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })),
+      mapResults: verifiedMapResults(results, searchResult.location || '')
+    });
   } catch (error: any) {
     if (error instanceof IntegrationError) return res.status(error.status).json({ error: error.message });
     if (error.name === 'InsufficientCreditsError') {
@@ -145,7 +175,11 @@ router.get('/:id', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'Busca não encontrada.' });
     }
 
-    res.json({ ...search, results: visibleCompanySearchResults(search.results, (search.websiteFilter || 'ALL') as WebsiteFilter).map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })) });
+    res.json({ ...search,
+      results: visibleCompanySearchResults(search.results, (search.websiteFilter || 'ALL') as WebsiteFilter)
+        .map(result => ({ ...result, hasWebsite: temWebsiteValido(result.website) })),
+      mapResults: verifiedMapResults(search.results, search.location || '')
+    });
   } catch (error: any) {
     console.error('Erro ao buscar detalhes:', error);
     res.status(500).json({ error: 'Erro ao carregar detalhes da busca.' });

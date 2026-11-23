@@ -19,7 +19,7 @@ interface Profile {
 const empty: Profile = { professionalName: '', workMode: 'SELF_EMPLOYED', companyName: '', services: '', targetAudience: '', objective: '' };
 const steps = ['Quem é você', 'Seu trabalho', 'Seu objetivo'];
 
-export function ProfessionalProfilePanel({ userId, name }: { userId: string; name?: string | null }) {
+export function ProfessionalProfilePanel({ userId, name, showSummary = true }: { userId: string; name?: string | null; showSummary?: boolean }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState<Profile>({ ...empty, professionalName: name || '' });
   const [open, setOpen] = useState(false);
@@ -37,7 +37,7 @@ export function ProfessionalProfilePanel({ userId, name }: { userId: string; nam
       setProfile(data.profile);
       setDraft({ ...empty, ...data.profile, professionalName: data.profile?.professionalName || name || '' });
       setOpen(!data.profile?.completedAt && !data.profile?.dismissedAt);
-    }).catch(() => { if (active) setFeedback('Não foi possível carregar seu perfil. Use “Meu negócio” para tentar novamente.'); })
+    }).catch(() => { if (active) setFeedback('Não foi possível carregar seu perfil. Abra as configurações para tentar novamente.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [userId, name]);
@@ -87,7 +87,7 @@ export function ProfessionalProfilePanel({ userId, name }: { userId: string; nam
   const update = (key: keyof Profile, value: string) => setDraft(previous => ({ ...previous, [key]: value }));
 
   return <>
-    <section className="rounded-2xl border border-[var(--studio-line)] bg-[var(--studio-surface)] p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3" aria-label="Meu negócio">
+    {showSummary && <section className="rounded-2xl border border-[var(--studio-line)] bg-[var(--studio-surface)] p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3" aria-label="Meu negócio">
       <div className="flex items-start gap-3">
         <Building2 size={20} className="text-[var(--studio-accent)] mt-1 shrink-0" />
         <div><h2 className="text-sm font-semibold">Meu negócio</h2>
@@ -96,7 +96,7 @@ export function ProfessionalProfilePanel({ userId, name }: { userId: string; nam
         </div>
       </div>
       <button onClick={edit} disabled={loading} className="dash-btn-secondary px-4 py-2 text-xs disabled:opacity-50">{loading ? 'Carregando...' : profile?.completedAt ? 'Editar perfil' : 'Preencher perfil'}</button>
-    </section>
+    </section>}
     <dialog ref={dialog} onCancel={event => { event.preventDefault(); void close(); }} aria-labelledby="professional-title" className="m-auto w-[calc(100%_-_2rem)] max-w-xl max-h-[90dvh] overflow-y-auto rounded-3xl border border-[var(--studio-line)] bg-[var(--studio-surface)] text-[var(--studio-ink)] p-0 backdrop:bg-black/75 backdrop:backdrop-blur-sm">
       <div className="p-6 sm:p-8">
         <div className="flex justify-between gap-3 items-start">

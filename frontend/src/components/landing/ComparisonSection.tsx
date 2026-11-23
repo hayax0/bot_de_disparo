@@ -1,17 +1,18 @@
 import { XCircle, CheckCircle2, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { appHref } from "@/lib/appUrl";
 
 export function ComparisonSection() {
   const comparisonRows = [
     {
       feature: "Execução dos Disparos",
       manual: "Exige ficar horas na frente do PC copiando, colando e enviando um por um",
-      platform: "100% automatizado em nuvem via fila BullMQ com servidor dedicado",
+      platform: "Campanhas organizadas e processadas na nuvem, com acompanhamento pelo painel",
     },
     {
       feature: "Cadência & Intervalos",
       manual: "Envios manuais irregulares ou rajadas rápidas que chamam a atenção do WhatsApp",
-      platform: "Delays aleatórios inteligentes configuráveis (ex: 45s a 120s) simulando ritmo humano",
+      platform: "Intervalos entre envios configuráveis por campanha",
     },
     {
       feature: "Personalização de Mensagem",
@@ -26,7 +27,7 @@ export function ComparisonSection() {
     {
       feature: "Necessidade de Hardware",
       manual: "Seu computador ou telefone precisam ficar ligados e com a tela aberta o tempo todo",
-      platform: "Servidor em nuvem 24/7: você pode fechar o navegador e desligar o PC",
+      platform: "Depois de iniciar, a campanha pode ser acompanhada pelo painel",
     },
     {
       feature: "Acompanhamento em Tempo Real",
@@ -99,7 +100,7 @@ export function ComparisonSection() {
               Mais reuniões e contatos qualificados com uma fração do esforço operacional diário.
             </span>
             <Link
-              href="/register"
+              href={appHref('/register')}
               className="landing-btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-1.5 shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090D] focus-visible:outline-none"
             >
               <span>Criar Conta & Começar</span>

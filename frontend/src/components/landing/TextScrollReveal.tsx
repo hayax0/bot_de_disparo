@@ -6,15 +6,15 @@ export function TextScrollReveal() {
   const pillars = [
     {
       icon: Cloud,
-      tag: "Autonomia 24/7",
-      title: "Execução 100% em Nuvem",
-      desc: "Inicie sua campanha e feche o navegador ou desligue o computador. Os disparos continuam sendo processados na nuvem com estabilidade contínua.",
+      tag: "Acompanhamento",
+      title: "Campanhas na nuvem",
+      desc: "Depois de iniciar sua campanha, acompanhe o processamento e os resultados pelo painel.",
     },
     {
       icon: Timer,
       tag: "Fila Inteligente",
-      title: "Cadência com Ritmo Humano",
-      desc: "Delays aleatórios e pausas naturais entre envios para reproduzir a velocidade de digitação e envio de uma pessoa real.",
+      title: "Intervalos configuráveis",
+      desc: "Defina o intervalo dos envios para organizar o ritmo da sua operação. Isso não garante proteção contra restrições da plataforma de mensagens.",
     },
     {
       icon: MessageSquareCheck,
@@ -42,7 +42,7 @@ export function TextScrollReveal() {
           </h2>
 
           <p className="text-sm text-[var(--studio-muted)] leading-relaxed max-w-2xl mx-auto font-normal">
-            Arquitetura de envio inteligente com fila assíncrona que executa o trabalho repetitivo, respeitando intervalos humanos e liberando seu time para fechar negócios.
+            Organize contatos, prepare abordagens e acompanhe os envios sem perder o contexto da conversa.
           </p>
         </div>
 
@@ -80,7 +80,7 @@ export function TextScrollReveal() {
         <div className="pt-6 border-t border-white/[0.06] flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-[var(--studio-muted)] font-mono">
           <div className="flex items-center gap-2 text-[var(--studio-muted)]">
             <ShieldCheck size={15} className="text-emerald-400 shrink-0" />
-            <span className="font-semibold text-white">Recursos Nativos da Fila:</span>
+            <span className="font-semibold text-white">Recursos da plataforma:</span>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">

@@ -76,7 +76,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-saas_admin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-saas_bot_db}?schema=public
       JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET seguro no .env}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://abordai.cmpx.tec.br}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Defina REDIS_PASSWORD}
@@ -117,6 +117,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://abordai.cmpx.tec.br}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         INTERNAL_API_URL: http://backend:3001
     container_name: saas_bot_frontend

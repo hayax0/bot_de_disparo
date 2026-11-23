@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -17,9 +17,19 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const setAuth = useAuth(state => state.setAuth);
   const router = useRouter();
+
+  useEffect(() => {
+    const notice = sessionStorage.getItem('account-change-notice');
+    if (notice) {
+      sessionStorage.removeItem('account-change-notice');
+      const timeout = window.setTimeout(() => setInfoMessage(notice), 0);
+      return () => window.clearTimeout(timeout);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +76,7 @@ export default function LoginPage() {
       <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/[0.02] blur-[140px] pointer-events-none" />
 
       <div className="w-full max-w-md dash-card rounded-3xl p-6 sm:p-8 relative z-10 backdrop-blur-xl">
+        {infoMessage && <div role="status" className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-200"><CheckCircle2 size={17} className="mt-0.5 shrink-0" />{infoMessage}</div>}
         <div className="flex flex-col items-center mb-8">
           <div className="w-13 h-13 rounded-2xl overflow-hidden mb-4 border border-white/[0.12] bg-[var(--studio-surface)] p-0.5">
             <Image src="/logo-abordai-v1.png" alt="Logo" width={52} height={52} priority className="w-full h-full object-cover rounded-xl" />

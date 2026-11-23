@@ -124,7 +124,7 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       global.fetch = (async (url: any, options: any) => {
         assert.ok(!String(url).includes('token='));
         headers.push(options.headers.Authorization);
-        if (String(url).includes('/datasets/')) return new Response(JSON.stringify([{ title: 'Clínica', phone: '5521999997777', website: 'https://example.com' }, { title: 'Fixo', phone: '552133334444', website: 'https://fixo.com' }, { title: 'Sem site', phone: '5521988886666', website: null } ]));
+        if (String(url).includes('/datasets/')) return new Response(JSON.stringify([{ title: 'Clínica', phone: '5521999997777', website: 'https://example.com', city: 'Rio' }, { title: 'Fixo', phone: '552133334444', website: 'https://fixo.com', city: 'Rio' }, { title: 'Sem site', phone: '5521988886666', website: null, city: 'Rio' } ]));
         if (options.method === 'POST') {
           assert.equal(JSON.parse(options.body).website, 'withWebsite');
           return new Response(JSON.stringify({ data: { id: 'byok-run', defaultDatasetId: 'byok-data' } }));
@@ -141,10 +141,10 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       assert.equal(await testPrisma.creditTransaction.count({ where: { userId: user.id } }), 0);
       assert.equal(await testPrisma.creditReservation.count({ where: { userId: user.id } }), 0);
       setTestPlacesProvider(async () => [
-        { title: 'Site próprio', phone: '5521999990001', website: 'https://empresa.com.br' },
-        { title: 'Só Instagram', phone: '5521999990002', website: 'https://instagram.com/empresa' },
-        { title: 'Sem site', phone: '5521999990003', website: null },
-        { title: 'Fixo', phone: '552133330004', website: null },
+        { title: 'Site próprio', phone: '5521999990001', website: 'https://empresa.com.br', city: 'Rio' },
+        { title: 'Só Instagram', phone: '5521999990002', website: 'https://instagram.com/empresa', city: 'Rio' },
+        { title: 'Sem site', phone: '5521999990003', website: null, city: 'Rio' },
+        { title: 'Fixo', phone: '552133330004', website: null, city: 'Rio' },
       ]);
       const without = await CompanySearchService.initiateSearch({ ...input, idempotencyKey: 'byok-without-site', websiteFilter: 'WITHOUT_WEBSITE' });
       await CompanySearchService.processSearchJob(without.id);
@@ -597,9 +597,9 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
 
     // Ambos os jobs encontram exatamente os mesmos 3 telefones celulares
     const duplicatePlaces = [
-      { title: 'Farmacia 1', phone: '5519999990001', website: 'https://farm1.com' },
-      { title: 'Farmacia 2', phone: '5519999990002', website: 'https://farm2.com' },
-      { title: 'Farmacia 3', phone: '5519999990003', website: 'https://farm3.com' }
+      { title: 'Farmacia 1', phone: '5519999990001', website: 'https://farm1.com', city: 'Campinas' },
+      { title: 'Farmacia 2', phone: '5519999990002', website: 'https://farm2.com', city: 'Campinas' },
+      { title: 'Farmacia 3', phone: '5519999990003', website: 'https://farm3.com', city: 'Campinas' }
     ];
 
     setTestPlacesProvider(async () => duplicatePlaces);
@@ -954,12 +954,13 @@ test('FinancialIntegration Postgres: Suite Real de Transacoes, Concorrencia e Id
       }
     });
 
-    setTestPlacesProvider(async (segment, _location, count) => {
+    setTestPlacesProvider(async (segment, location, count) => {
       const total = count || 10;
       const seed = Math.abs(segment.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % 900 + 100;
       return Array.from({ length: total }, (_, i) => ({
         title: `${segment} ${i + 1}`,
-        phone: `551198${seed}${String(i).padStart(4, '0')}`
+        phone: `551198${seed}${String(i).padStart(4, '0')}`,
+        city: location
       }));
     });
 

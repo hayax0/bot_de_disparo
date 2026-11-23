@@ -15,6 +15,7 @@ export interface UserCapabilities {
 export interface User {
   id: string;
   name?: string | null;
+  avatarUrl?: string | null;
   email: string;
   role?: string | null;
   planId?: string | null;

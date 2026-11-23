@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2, Zap, ShieldCheck, Sparkles } from "lucide-react";
 import { LANDING_PLANS } from "@/lib/constants";
+import { appHref } from "@/lib/appUrl";
 
 export function PricingSection() {
   return (
@@ -90,7 +91,7 @@ export function PricingSection() {
                 {/* Botão de Ação: Criar Conta e Assinar Plano */}
                 <div className="pt-4 space-y-3">
                   <Link
-                    href={`/register?plan=${plan.id}`}
+                    href={appHref(`/register?plan=${plan.id}`)}
                     className={`w-full py-3.5 text-sm font-semibold rounded-xl flex items-center justify-center gap-2 text-center transition-all cursor-pointer ${
                       isPopular
                         ? "dash-btn-primary shadow-lg shadow-emerald-500/20"
@@ -115,7 +116,7 @@ export function PricingSection() {
         <div className="mt-14 max-w-3xl mx-auto p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] text-center">
           <p className="text-xs text-[var(--studio-muted)] leading-relaxed">
             Cada mensagem gerada ou refinada com a Inteligência Artificial consome 1 crédito. Edições manuais são gratuitas.
-            As buscas exigem conexão com um serviço externo, configurada no painel, com custos cobrados separadamente pelo provedor.
+            A busca pode ter cobrança de consumo pelo serviço conectado, separada da assinatura. Confira as condições no painel antes de pesquisar.
             Recargas não aumentam o limite de disparos. Cancelamento sem fidelidade.
           </p>
         </div>

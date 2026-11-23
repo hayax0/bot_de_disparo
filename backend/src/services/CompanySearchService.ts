@@ -1,6 +1,6 @@
 import { ApifyCredentialService, IntegrationError } from './ApifyCredentialService';
 import { temWebsiteValido } from './ProposalEngine';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { ENV } from '../config/env';
@@ -9,15 +9,140 @@ import { ContactPolicyService } from './ContactPolicyService';
 import { companySearchQueue } from './queue';
 
 export interface RawPlaceItem {
+  placeId?: string | null;
   title?: string;
   phone?: string | null;
   website?: string | null;
   address?: string | null;
   neighborhood?: string | null;
   city?: string | null;
+  state?: string | null;
   category?: string | null;
   totalScore?: number | null;
   reviewsCount?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+const BRAZIL_STATE_CODES = new Set('ac al ap am ba ce df es go ma mt ms mg pa pb pr pe pi rj rn rs ro rr sc sp se to'.split(' '));
+const BRAZIL_STATE_NAMES: Record<string, string> = {
+  acre: 'AC', alagoas: 'AL', amapá: 'AP', amazonas: 'AM', bahia: 'BA', ceará: 'CE',
+  'distrito federal': 'DF', 'espírito santo': 'ES', goiás: 'GO', maranhão: 'MA',
+  'mato grosso': 'MT', 'mato grosso do sul': 'MS', 'minas gerais': 'MG', pará: 'PA',
+  paraíba: 'PB', paraná: 'PR', pernambuco: 'PE', piauí: 'PI', 'rio de janeiro': 'RJ',
+  'rio grande do norte': 'RN', 'rio grande do sul': 'RS', rondônia: 'RO', roraima: 'RR',
+  'santa catarina': 'SC', 'são paulo': 'SP', sergipe: 'SE', tocantins: 'TO'
+};
+
+function normalizeGeoText(value: string | null | undefined): string {
+  return (value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
+function stripStateSuffix(value: string): string {
+  const normalized = normalizeGeoText(value).replace(/^state of /, '');
+  return normalized.replace(/\s+(?:ac|al|ap|am|ba|ce|df|es|go|ma|mt|ms|mg|pa|pb|pr|pe|pi|rj|rn|rs|ro|rr|sc|sp|se|to|brasil|brazil)$/, '').trim();
+}
+
+function searchLocationParts(location: string): { city: string; neighborhood: string | null; state: string | null } {
+  const parts = location.split(',').map(part => part.trim()).filter(Boolean);
+  let state: string | null = null;
+  if (parts.length && ['brasil', 'brazil'].includes(normalizeGeoText(parts.at(-1)))) {
+    parts.pop();
+  }
+
+  const last = parts.at(-1) || '';
+  if (/^[a-z]{2}$/i.test(last) && BRAZIL_STATE_CODES.has(last.toLowerCase())) {
+    // Em "Cidade, UF", remova o UF antes de escolher a cidade.
+    state = last.toUpperCase();
+    parts.pop();
+  } else {
+    const stateSuffix = last.match(/(?:^|\s*[-/]\s*)([a-z]{2})$/i);
+    if (stateSuffix && BRAZIL_STATE_CODES.has(stateSuffix[1].toLowerCase())) {
+      state = stateSuffix[1].toUpperCase();
+      const cityWithoutState = last.replace(/\s*[-/]\s*[a-z]{2}$/i, '').trim();
+      if (cityWithoutState) parts[parts.length - 1] = cityWithoutState;
+      else parts.pop();
+    }
+  }
+
+  const city = parts.pop() || location.trim();
+  return { city, neighborhood: parts.length ? parts.join(', ') : null, state };
+}
+
+function addressParts(address: string | null | undefined): string[] {
+  return (address || '').split(',').map(part => part.trim()).filter(Boolean);
+}
+
+function stateCodeFromText(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeGeoText(value).replace(/^state of /, '');
+  for (const [name, code] of Object.entries(BRAZIL_STATE_NAMES)) {
+    if (normalized === normalizeGeoText(name)) return code;
+  }
+  const match = normalized.match(/(?:^|\s)([a-z]{2})$/i);
+  const code = match?.[1]?.toLowerCase();
+  return code && BRAZIL_STATE_CODES.has(code) ? code.toUpperCase() : null;
+}
+
+export function matchesRequestedLocation(place: Pick<RawPlaceItem, 'city' | 'state' | 'address' | 'neighborhood'>, location: string): { matches: boolean; reason?: 'LOCATION_MISMATCH' | 'LOCATION_UNVERIFIED'; city?: string } {
+  const target = searchLocationParts(location);
+  const candidates = [place.city, ...addressParts(place.address)].filter((value): value is string => Boolean(value));
+  const cityMatch = candidates.find(value => stripStateSuffix(value) === normalizeGeoText(target.city));
+  if (place.city && !cityMatch && stripStateSuffix(place.city) !== normalizeGeoText(target.city)) {
+    return { matches: false, reason: 'LOCATION_MISMATCH' };
+  }
+  if (!cityMatch) {
+    return { matches: false, reason: candidates.length ? 'LOCATION_MISMATCH' : 'LOCATION_UNVERIFIED' };
+  }
+
+  if (target.state) {
+    const reportedState = place.state || candidates.map(stateCodeFromText).find(Boolean) || null;
+    if (!reportedState) return { matches: false, reason: 'LOCATION_UNVERIFIED' };
+    const stateCode = stateCodeFromText(reportedState) || reportedState.toUpperCase();
+    if (stateCode !== target.state) return { matches: false, reason: 'LOCATION_MISMATCH' };
+  }
+
+  if (target.neighborhood) {
+    const neighborhoodCandidates = [place.neighborhood, ...addressParts(place.address)].filter((value): value is string => Boolean(value));
+    if (!neighborhoodCandidates.some(value => normalizeGeoText(value) === normalizeGeoText(target.neighborhood))) {
+      return { matches: false, reason: 'LOCATION_MISMATCH' };
+    }
+  }
+
+  return { matches: true, city: place.city?.trim() || target.city };
+}
+
+function readCoordinate(...values: unknown[]): number | null {
+  for (const value of values) {
+    const coordinate = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+    if (Number.isFinite(coordinate)) return coordinate;
+  }
+  return null;
+}
+
+function rawPlaceFromProvider(item: any, segment: string): RawPlaceItem {
+  return {
+    placeId: item.placeId || item.googlePlaceId || item.cid || null,
+    title: item.title || item.name || '',
+    phone: item.phoneUnformatted || item.phone || null,
+    website: item.website || null,
+    address: item.address || item.street || null,
+    neighborhood: item.neighborhood || null,
+    city: item.city || null,
+    state: item.state || item.stateCode || (stateCodeFromText(item.region) ? item.region : null),
+    category: item.categoryName || segment,
+    totalScore: item.totalScore || item.rating || null,
+    reviewsCount: item.reviewsCount || null,
+    latitude: readCoordinate(item.location?.lat, item.location?.latitude, item.gpsCoordinates?.latitude, item.coordinates?.lat, item.latitude, item.lat),
+    longitude: readCoordinate(item.location?.lng, item.location?.lon, item.location?.longitude, item.gpsCoordinates?.longitude, item.coordinates?.lng, item.longitude, item.lon, item.lng)
+  };
+}
+
+function providerKey(place: RawPlaceItem): string {
+  const identity = place.placeId?.trim()
+    || [normalizeGeoText(place.title), normalizeGeoText(place.address), normalizeGeoText(place.phone), place.latitude ?? '', place.longitude ?? ''].join('|');
+  return createHash('sha256').update(identity).digest('hex');
 }
 
 export type WebsiteFilter = 'ALL' | 'WITH_WEBSITE' | 'WITHOUT_WEBSITE';
@@ -37,7 +162,7 @@ export function matchesWebsiteFilter(website: string | null | undefined, filter:
 
 /** Projeção pública: descartes de site ficam na auditoria, nunca na lista entregue. */
 export function visibleCompanySearchResults<T extends { phone: string | null; website?: string | null; discardReason?: string | null }>(results: T[], filter: WebsiteFilter = 'ALL'): T[] {
-  return results.filter(result => result.discardReason !== 'WEBSITE_FILTER'
+  return results.filter(result => !['WEBSITE_FILTER', 'LOCATION_MISMATCH', 'LOCATION_UNVERIFIED', 'PROCESSING'].includes(result.discardReason || '')
     && result.phone && normalizeSearchMobilePhone(result.phone)
     && matchesWebsiteFilter(result.website, filter));
 }
@@ -200,6 +325,8 @@ export class CompanySearchService {
 
         // Recuperação atômica limitada ao estado PENDING com lock consultivo e chave determinística (Item 2)
         let recoveredReservationId: string | null = null;
+        let recoveredReservationAmount: number | null = null;
+        let claimedForProcessing = false;
         let searchToProcess: any = existingSearch;
 
         await prisma.$transaction(async (tx) => {
@@ -211,6 +338,7 @@ export class CompanySearchService {
           });
 
           if (!freshSearch || freshSearch.status !== 'PENDING') {
+            searchToProcess = freshSearch || existingSearch;
             return;
           }
 
@@ -244,19 +372,30 @@ export class CompanySearchService {
             }, tx);
 
             recoveredReservationId = recovered.reservationId;
-            const updated = await tx.companySearch.update({
-              where: { id: freshSearch.id },
-              data: {
-                reservationId: recovered.reservationId,
-                creditsReserved: recovered.reservedAmount
-              },
-              include: { results: true }
-            });
-            searchToProcess = updated;
-          } else {
-            searchToProcess = freshSearch;
+            recoveredReservationAmount = recovered.reservedAmount;
+            recoveredReservationId = recovered.reservationId;
           }
+
+          // O lock sozinho não evita que a próxima chamada também processe a busca
+          // depois que a transação termina. Marcar PROCESSING dentro da transação
+          // garante um único dono da recuperação e evita gravar os mesmos resultados duas vezes.
+          searchToProcess = await tx.companySearch.update({
+            where: { id: freshSearch.id },
+            data: {
+              status: 'PROCESSING',
+              ...(recoveredReservationId ? {
+                reservationId: recoveredReservationId,
+                creditsReserved: recoveredReservationAmount ?? freshSearch.creditsReserved
+              } : {})
+            },
+            include: { results: true }
+          });
+          claimedForProcessing = true;
         }, { timeout: 15000 });
+
+        if (['COMPLETED', 'FAILED', 'CANCELED'].includes(searchToProcess.status)) {
+          return searchToProcess;
+        }
 
         // Enfileiramento coerente com proteção contra falha de fila
         const isTest = process.env.NODE_ENV === 'test';
@@ -288,11 +427,29 @@ export class CompanySearchService {
                 reason: 'Falha ao re-enfileirar busca durante recuperação'
               }).catch(() => {});
             }
+            if (claimedForProcessing) {
+              await prisma.companySearch.update({
+                where: { id: searchToProcess.id },
+                data: { status: 'PENDING' }
+              }).catch(() => {});
+            }
             throw qErr;
           }
         } else {
-          // Em testes automatizados, processa de forma síncrona
-          await this.processSearchJob(searchToProcess.id, { isLastAttempt: true });
+          // Em testes automatizados, só quem marcou PROCESSING executa o job.
+          // Chamadas concorrentes aguardam a mesma busca terminar em vez de duplicar gravações.
+          if (claimedForProcessing) {
+            await this.processSearchJob(searchToProcess.id, { isLastAttempt: true });
+          } else {
+            for (let attempt = 0; attempt < 400; attempt += 1) {
+              const latest = await prisma.companySearch.findUnique({
+                where: { id: searchToProcess.id },
+                include: { results: true }
+              });
+              if (!latest || !['PENDING', 'PROCESSING'].includes(latest.status)) return latest;
+              await new Promise(resolve => setTimeout(resolve, 25));
+            }
+          }
           return await prisma.companySearch.findUnique({
             where: { id: searchToProcess.id },
             include: { results: true }
@@ -437,11 +594,12 @@ export class CompanySearchService {
         segment: segment || '',
         location: location || '',
         requestedCount,
-        existingRunId: apifyRunId
+        existingRunId: apifyRunId,
+        onPartialResults: places => this.persistLiveSearchResults(searchId, workspaceId, location || '', places)
       });
 
       // 2. Classificação rigorosa, sanitização e deduplicação no workspace (inclui resultados já entregues)
-      const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, targetCampaignId || undefined, (searchRecord.websiteFilter || 'ALL') as WebsiteFilter);
+      const classifiedResults = await this.classifyAndDeduplicate(rawPlaces, workspaceId, location || '', targetCampaignId || undefined, (searchRecord.websiteFilter || 'ALL') as WebsiteFilter);
 
       const usableCount = classifiedResults.filter(r => r.isUsable).length;
       const discardedCount = classifiedResults.length - usableCount;
@@ -452,6 +610,8 @@ export class CompanySearchService {
       // 3. Transação atômica ÚNICA: garante entrega exclusiva no workspace, salva resultados, vincula leads, liquida carteira e conclui
       await prisma.$transaction(async (tx) => {
         const createdResults: any[] = [];
+        // Troca os registros provisórios do mapa pelos resultados finais em uma única transação.
+        await tx.companySearchResult.deleteMany({ where: { searchId: searchRecord.id } });
 
         for (const item of classifiedResults) {
           let isUsable = item.isUsable;
@@ -497,9 +657,13 @@ export class CompanySearchService {
               address: item.address || null,
               neighborhood: item.neighborhood || null,
               city: item.city || null,
+              state: item.state || null,
               category: item.category || segment,
               rating: item.rating || null,
               reviewsCount: item.reviewsCount || null,
+              latitude: item.latitude ?? null,
+              longitude: item.longitude ?? null,
+              providerKey: item.providerKey || null,
               isUsable,
               discardReason: discardReason || null
             }
@@ -600,6 +764,43 @@ export class CompanySearchService {
     }
   }
 
+  /** Grava pontos provisórios somente quando cidade, coordenadas e país passam pela validação. */
+  private static async persistLiveSearchResults(searchId: string, workspaceId: string, location: string, places: RawPlaceItem[]) {
+    for (const place of places) {
+      const geo = matchesRequestedLocation(place, location);
+      const latitude = place.latitude;
+      const longitude = place.longitude;
+      if (!geo.matches || latitude == null || longitude == null) continue;
+      // O ator já consulta o Brasil; esta segunda barreira impede pontos de coordenadas fora do país.
+      if (latitude < -34 || latitude > 6 || longitude < -75 || longitude > -28) continue;
+
+      const key = providerKey(place);
+      const data = {
+        workspaceId,
+        name: (place.title || '').trim() || 'Empresa sem nome',
+        phone: place.phone || null,
+        website: sanitizeCompanyWebsite(place.website),
+        address: place.address || null,
+        neighborhood: place.neighborhood || null,
+        city: geo.city || place.city || null,
+        state: place.state || null,
+        category: place.category || null,
+        rating: place.totalScore ?? null,
+        reviewsCount: place.reviewsCount ?? null,
+        latitude,
+        longitude,
+        providerKey: key,
+        isUsable: false,
+        discardReason: 'PROCESSING'
+      };
+      await prisma.companySearchResult.upsert({
+        where: { searchId_providerKey: { searchId, providerKey: key } },
+        create: { searchId, ...data },
+        update: data
+      });
+    }
+  }
+
   /**
    * Adiciona empresas selecionadas de uma busca a uma campanha existente.
    * Revalida elegibilidade, opt-out, histórico de disparos e deduplicação no workspace.
@@ -696,6 +897,7 @@ export class CompanySearchService {
   private static async classifyAndDeduplicate(
     rawPlaces: RawPlaceItem[],
     workspaceId: string,
+    location: string,
     targetCampaignId?: string,
     websiteFilter: WebsiteFilter = 'ALL'
   ) {
@@ -707,9 +909,13 @@ export class CompanySearchService {
       address?: string | null;
       neighborhood?: string | null;
       city?: string | null;
+      state?: string | null;
       category?: string | null;
       rating?: number | null;
       reviewsCount?: number | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      providerKey?: string;
       isUsable: boolean;
       discardReason?: string | null;
     }> = [];
@@ -718,18 +924,53 @@ export class CompanySearchService {
       const name = (place.title || '').trim() || 'Empresa sem nome';
       const rawPhone = (place.phone || '').trim();
       const sanitizedWebsite = sanitizeCompanyWebsite(place.website);
+      const localMatch = matchesRequestedLocation(place, location);
+      const coordinatesOutsideBrazil = place.latitude != null && place.longitude != null
+        && (place.latitude < -34 || place.latitude > 6 || place.longitude < -75 || place.longitude > -28);
 
-      if (!rawPhone) {
+      if (!localMatch.matches || coordinatesOutsideBrazil) {
         classified.push({
           name,
-          phone: null,
+          phone: rawPhone || null,
           website: sanitizedWebsite,
           address: place.address || null,
           neighborhood: place.neighborhood || null,
           city: place.city || null,
+          state: place.state || null,
           category: place.category || null,
           rating: place.totalScore || null,
           reviewsCount: place.reviewsCount || null,
+          latitude: place.latitude ?? null,
+          longitude: place.longitude ?? null,
+          providerKey: providerKey(place),
+          isUsable: false,
+          discardReason: coordinatesOutsideBrazil ? 'LOCATION_MISMATCH' : localMatch.reason ?? 'LOCATION_UNVERIFIED'
+        });
+        continue;
+      }
+
+      const verifiedCity = localMatch.city || place.city || null;
+      const geoFields = {
+        address: place.address || null,
+        neighborhood: place.neighborhood || null,
+        city: verifiedCity,
+        state: place.state || null,
+        category: place.category || null,
+        rating: place.totalScore || null,
+        reviewsCount: place.reviewsCount || null,
+        latitude: place.latitude ?? null,
+        longitude: place.longitude ?? null,
+        providerKey: providerKey(place)
+      };
+      const pushClassified = (result: Omit<(typeof classified)[number], keyof typeof geoFields>) => {
+        classified.push({ ...geoFields, ...result });
+      };
+
+      if (!rawPhone) {
+        pushClassified({
+          name,
+          phone: null,
+          website: sanitizedWebsite,
           isUsable: false,
           discardReason: 'NO_PHONE'
         });
@@ -740,16 +981,10 @@ export class CompanySearchService {
 
       // Validação estrita de celular: descarta fixos e números mal formatados
       if (!normalizedPhone) {
-        classified.push({
+        pushClassified({
           name,
           phone: rawPhone,
           website: sanitizedWebsite,
-          address: place.address || null,
-          neighborhood: place.neighborhood || null,
-          city: place.city || null,
-          category: place.category || null,
-          rating: place.totalScore || null,
-          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'INVALID_PHONE'
         });
@@ -757,23 +992,17 @@ export class CompanySearchService {
       }
 
       if (!matchesWebsiteFilter(sanitizedWebsite, websiteFilter)) {
-        classified.push({ name, phone: normalizedPhone, website: sanitizedWebsite,
+        pushClassified({ name, phone: normalizedPhone, website: sanitizedWebsite,
           isUsable: false, discardReason: 'WEBSITE_FILTER' });
         continue;
       }
 
       // 1. Deduplicação no lote atual
       if (seenPhonesInBatch.has(normalizedPhone)) {
-        classified.push({
+        pushClassified({
           name,
           phone: normalizedPhone,
           website: sanitizedWebsite,
-          address: place.address || null,
-          neighborhood: place.neighborhood || null,
-          city: place.city || null,
-          category: place.category || null,
-          rating: place.totalScore || null,
-          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'DUPLICATE'
         });
@@ -784,16 +1013,10 @@ export class CompanySearchService {
       // 2. Consulta à Blacklist (Opt-out e bloqueios LGPD)
       const isBlacklisted = await ContactPolicyService.isBlacklisted(normalizedPhone, workspaceId);
       if (isBlacklisted) {
-        classified.push({
+        pushClassified({
           name,
           phone: normalizedPhone,
           website: sanitizedWebsite,
-          address: place.address || null,
-          neighborhood: place.neighborhood || null,
-          city: place.city || null,
-          category: place.category || null,
-          rating: place.totalScore || null,
-          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'BLACKLISTED'
         });
@@ -810,16 +1033,10 @@ export class CompanySearchService {
         }
       });
       if (alreadyInHistory) {
-        classified.push({
+        pushClassified({
           name,
           phone: normalizedPhone,
           website: sanitizedWebsite,
-          address: place.address || null,
-          neighborhood: place.neighborhood || null,
-          city: place.city || null,
-          category: place.category || null,
-          rating: place.totalScore || null,
-          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'ALREADY_IN_WORKSPACE'
         });
@@ -834,16 +1051,10 @@ export class CompanySearchService {
         }
       });
       if (alreadyInWorkspace) {
-        classified.push({
+        pushClassified({
           name,
           phone: normalizedPhone,
           website: sanitizedWebsite,
-          address: place.address || null,
-          neighborhood: place.neighborhood || null,
-          city: place.city || null,
-          category: place.category || null,
-          rating: place.totalScore || null,
-          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'ALREADY_IN_WORKSPACE'
         });
@@ -862,16 +1073,10 @@ export class CompanySearchService {
         }
       });
       if (alreadyDelivered) {
-        classified.push({
+        pushClassified({
           name,
           phone: normalizedPhone,
           website: sanitizedWebsite,
-          address: place.address || null,
-          neighborhood: place.neighborhood || null,
-          city: place.city || null,
-          category: place.category || null,
-          rating: place.totalScore || null,
-          reviewsCount: place.reviewsCount || null,
           isUsable: false,
           discardReason: 'ALREADY_DELIVERED'
         });
@@ -879,16 +1084,10 @@ export class CompanySearchService {
       }
 
       // 6. Empresa qualificada e aproveitável!
-      classified.push({
+      pushClassified({
         name,
         phone: normalizedPhone,
         website: sanitizedWebsite,
-        address: place.address || null,
-        neighborhood: place.neighborhood || null,
-        city: place.city || null,
-        category: place.category || null,
-        rating: place.totalScore || null,
-        reviewsCount: place.reviewsCount || null,
         isUsable: true,
         discardReason: null
       });
@@ -944,8 +1143,9 @@ export class CompanySearchService {
     location: string;
     requestedCount: number;
     existingRunId?: string | null;
+    onPartialResults?: (places: RawPlaceItem[]) => Promise<void>;
   }): Promise<RawPlaceItem[]> {
-    const { searchId, segment, location, requestedCount, existingRunId } = params;
+    const { searchId, segment, location, requestedCount, existingRunId, onPartialResults } = params;
 
     // Se houver um provider mock configurado para testes unitários isolados
     if (process.env.NODE_ENV === 'test' && testPlacesProvider) {
@@ -982,7 +1182,7 @@ export class CompanySearchService {
 
     // 2. Se não existe runId, reconcilia antes de disparar nova execução paga (Item 1)
     if (!runId) {
-      const searchString = `${segment} em ${location}`;
+      const searchString = `${segment} em ${location}, Brasil`;
 
       // Checa se já existe um run recente na Apify vinculado inequivocamente a esta busca específica (searchId)
       try {
@@ -1110,6 +1310,7 @@ export class CompanySearchService {
     const startTime = Date.now();
     const maxWaitMs = 120000; // Máximo 2 minutos
     let status = 'RUNNING';
+    let lastDatasetReadAt = 0;
 
     while (Date.now() - startTime < maxWaitMs) {
       const pollRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
@@ -1131,6 +1332,25 @@ export class CompanySearchService {
 
       if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
         throw new Error(`Execução externa na Apify terminou sem sucesso (status: ${status}).`);
+      }
+
+      // A Apify publica itens no dataset antes de concluir o run. Lê em intervalos para alimentar o mapa.
+      if (defaultDatasetId && onPartialResults && Date.now() - lastDatasetReadAt >= 7000) {
+        lastDatasetReadAt = Date.now();
+        try {
+          const progressRes = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?clean=true`, {
+            headers: { Authorization: `Bearer ${apifyToken}` }, signal: AbortSignal.timeout(15000)
+          });
+          if (progressRes.ok) {
+            const progressItems: any = await progressRes.json();
+            if (Array.isArray(progressItems)) {
+              const places = progressItems.map(item => rawPlaceFromProvider(item, segment));
+              await onPartialResults(places);
+            }
+          }
+        } catch (progressError: any) {
+          console.warn('[APIFY LIVE MAP] Não foi possível atualizar os pontos parciais:', progressError?.message);
+        }
       }
 
       await new Promise(resolve => setTimeout(resolve, 3000));
@@ -1166,16 +1386,9 @@ export class CompanySearchService {
       return [];
     }
 
-    return items.map(item => ({
-      title: item.title || item.name || '',
-      phone: item.phoneUnformatted || item.phone || null,
-      website: item.website || null, // Nunca usar item.url do Google Maps
-      address: item.address || item.street || null,
-      neighborhood: item.neighborhood || null,
-      city: item.city || location,
-      category: item.categoryName || segment,
-      totalScore: item.totalScore || item.rating || null,
-      reviewsCount: item.reviewsCount || null
-    }));
+    const places = items.map(item => rawPlaceFromProvider(item, segment));
+    const uniquePlaces = [...new Map(places.map(place => [providerKey(place), place])).values()];
+    if (onPartialResults) await onPartialResults(uniquePlaces);
+    return uniquePlaces;
   }
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useGSAP } from '@gsap/react';
+import gsap from 'gsap';
 import { useAuth } from '@/store/useAuth';
 import { useRouter } from 'next/navigation';
 import { CommercialContactEditor, COMMERCIAL_STAGES, type CommercialRecord } from '@/components/dashboard/CommercialContactEditor';
@@ -11,6 +13,7 @@ import { CommercialResults } from '@/components/dashboard/CommercialResults';
 import { CampaignSendReview } from '@/components/dashboard/CampaignSendReview';
 import { FirstCampaignGuide } from '@/components/dashboard/FirstCampaignGuide';
 import { ProfessionalProfilePanel } from '@/components/dashboard/ProfessionalProfilePanel';
+import { AccountSettingsPanel } from '@/components/dashboard/AccountSettingsPanel';
 import { CopyPresets } from '@/components/dashboard/CopyPresets';
 import { OperationOverview } from '@/components/dashboard/OperationOverview';
 import { WhatsappInbox } from '@/components/dashboard/WhatsappInbox';
@@ -46,7 +49,6 @@ import {
   AlertCircle,
   Users,
   Zap,
-  Layers,
   Activity,
   Crown,
   CreditCard,
@@ -58,15 +60,17 @@ import {
   Lock,
   Building2,
   Edit2,
+  Settings,
   Sparkles,
   FileCheck
 } from 'lucide-react';
 import { LANDING_PLANS } from '@/lib/constants';
-import { AdminTab } from '@/components/dashboard/AdminTab';
 import { AiWallet } from '@/components/dashboard/AiWallet';
 import { PlansAndCredits } from '@/components/dashboard/PlansAndCredits';
 import { CompanySearchTab, type SearchCampaignSelection } from '@/components/dashboard/CompanySearchTab';
 import { AiGenerateModal, LeadMessageModal } from '@/components/dashboard/AiCampaignAssistant';
+
+gsap.registerPlugin(useGSAP);
 
 interface Campaign {
   id: string;
@@ -260,7 +264,22 @@ export default function Dashboard() {
   }, [hydrate]);
   
   // Abas do Dashboard
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'admin' | 'results' | 'opportunities' | 'templates' | 'whatsapp'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'search' | 'history' | 'billing' | 'results' | 'opportunities' | 'templates' | 'whatsapp' | 'settings'>('campaigns');
+  const dashboardMainRef = useRef<HTMLElement>(null);
+
+  useGSAP(() => {
+    if (!dashboardMainRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const sections = dashboardMainRef.current.querySelectorAll('[data-dashboard-reveal]');
+    if (!sections.length) return;
+    gsap.fromTo(sections, { autoAlpha: 0, y: 12 }, {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.38,
+      stagger: 0.045,
+      ease: 'power2.out',
+      clearProps: 'transform,opacity,visibility',
+    });
+  }, { scope: dashboardMainRef, dependencies: [activeTab], revertOnUpdate: true });
 
   // Histórico Permanente de Disparos por Workspace
   const [historyItems, setHistoryItems] = useState<DispatchHistoryItem[]>([]);
@@ -360,12 +379,6 @@ export default function Dashboard() {
   const LEADS_PER_PAGE = 25;
   const [leadPage, setLeadPage] = useState(1);
 
-  // Workspace / Empresa ({minhaEmpresa})
-  const [workspaceName, setWorkspaceName] = useState<string>('');
-  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
-  const [editingWorkspaceName, setEditingWorkspaceName] = useState('');
-  const [savingWorkspace, setSavingWorkspace] = useState(false);
-  
   // Modal de Confirmação de Exclusão
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
 
@@ -485,49 +498,6 @@ export default function Dashboard() {
   }, [addToast]);
 
 
-  // Carregar dados da empresa/workspace
-  const fetchWorkspace = useCallback(async () => {
-    try {
-      const res = await api.get('/auth/workspace');
-      if (res.data?.workspace?.name) {
-        setWorkspaceName(res.data.workspace.name);
-      }
-    } catch (err) {
-      console.warn('Falha ao carregar workspace:', err);
-    }
-  }, []);
-
-  const handleUpdateWorkspace = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = editingWorkspaceName.trim();
-    if (clean.length < 2 || clean.length > 100) {
-      addToast('error', 'O nome da empresa deve ter entre 2 e 100 caracteres.');
-      return;
-    }
-    setSavingWorkspace(true);
-    try {
-      const res = await api.patch('/auth/workspace', { name: clean });
-      const updated = res.data.workspace.name;
-      setWorkspaceName(updated);
-      if (user) {
-        useAuth.getState().setAuth(token, {
-          ...user,
-          workspace: { id: res.data.workspace.id, name: updated }
-        });
-      }
-      addToast('success', 'Nome da empresa salvo com sucesso! As próximas mensagens usarão esse nome na variável {minhaEmpresa}.');
-      setIsWorkspaceModalOpen(false);
-    } catch (err: unknown) {
-      let msg = 'Erro ao atualizar dados da empresa.';
-      if (axios.isAxiosError(err) && err.response?.data?.error) {
-        msg = err.response.data.error;
-      }
-      addToast('error', msg);
-    } finally {
-      setSavingWorkspace(false);
-    }
-  };
-
   // Carregar campanhas + métricas reais calculadas em lote direto no backend
   const fetchCampaigns = useCallback(async () => {
     if (isFetchingCampaignsRef.current) return;
@@ -572,8 +542,7 @@ export default function Dashboard() {
         await Promise.all([
           fetchStatus(),
           fetchCampaigns(),
-          fetchHistory(1, ''),
-          fetchWorkspace()
+          fetchHistory(1, '')
         ]);
       }
     };
@@ -582,7 +551,7 @@ export default function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, fetchWorkspace, router]);
+  }, [isHydrated, token, fetchStatus, fetchCampaigns, fetchHistory, router]);
 
   // Polling adaptativo contínuo de campanhas: 5s se houver campanha RUNNING ou STARTING, 20s em repouso
   // Pausa com aba oculta e atualiza imediatamente ao voltar
@@ -1354,34 +1323,8 @@ export default function Dashboard() {
             </div>
             <div>
               <span className="font-semibold text-sm tracking-tight text-white block">Abordai</span>
-              <span className="text-[10px] text-emerald-400 font-mono tracking-wider">PLATAFORMA SAAS</span>
+              <span className="text-[10px] text-emerald-400 font-mono tracking-wider">PROSPECÇÃO PELO WHATSAPP</span>
             </div>
-          </div>
-
-          {/* Card da Empresa / Workspace ({minhaEmpresa}) */}
-          <div className="mb-5 p-2.5 rounded-2xl bg-white/[0.02] border border-white/[0.08] flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 overflow-hidden min-w-0">
-              <div className="w-7 h-7 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-                <Building2 size={13} />
-              </div>
-              <div className="overflow-hidden min-w-0">
-                <span className="text-[9px] text-[var(--studio-muted)] uppercase tracking-wider font-mono block">EMPRESA ({`{minhaEmpresa}`})</span>
-                <p className="text-xs font-semibold text-[var(--studio-ink)] truncate" title={workspaceName || 'Minha Empresa'}>
-                  {workspaceName || 'Minha Empresa'}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingWorkspaceName(workspaceName || '');
-                setIsWorkspaceModalOpen(true);
-              }}
-              className="p-1.5 text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.06] rounded-xl transition-colors cursor-pointer shrink-0 focus-visible:outline-none"
-              title="Editar nome da empresa"
-            >
-              <Edit2 size={13} />
-            </button>
           </div>
 
           {/* Navegação */}
@@ -1422,9 +1365,6 @@ export default function Dashboard() {
                   <Building2 size={15} className={activeTab === 'search' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
                   <span>Buscar Empresas</span>
                 </div>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-                  Apify
-                </span>
               </button>
             )}
 
@@ -1484,17 +1424,13 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('admin');
                   setIsMobileMenuOpen(false);
+                  router.push('/dashboard/admin');
                 }}
-                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                  activeTab === 'admin'
-                    ? 'bg-white/[0.08] border border-white/[0.12] text-white shadow-sm font-semibold'
-                    : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'
-                }`}
+                className="w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs font-medium transition-all cursor-pointer text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <div className="flex items-center gap-3">
-                  <ShieldCheck size={15} className={activeTab === 'admin' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
+                  <ShieldCheck size={15} />
                   <span>Painel Admin</span>
                 </div>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
@@ -1509,7 +1445,7 @@ export default function Dashboard() {
                 className="w-full px-3 py-2.5 rounded-xl text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03] transition-colors flex items-center gap-3 text-xs font-medium text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
               >
                 <BookOpen size={15} className="text-[var(--studio-muted)]" />
-                <span>Tutorial Apify</span>
+                <span>Configurar busca</span>
               </button>
             )}
           </nav>
@@ -1517,10 +1453,22 @@ export default function Dashboard() {
 
         {/* Perfil & Logout */}
         <div className="pt-4 border-t border-white/[0.08] space-y-3">
+          <button
+            type="button"
+            onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
+            aria-current={activeTab === 'settings' ? 'page' : undefined}
+            className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${activeTab === 'settings' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'}`}
+          >
+            <Settings size={15} />
+            <span>Configurações do perfil</span>
+          </button>
           <div className="px-2">
             <span className="text-[10px] text-[var(--studio-muted)] uppercase tracking-widest font-mono block mb-1">CONTA</span>
             <div className="flex items-center justify-between gap-1">
-              <p className="text-xs font-semibold text-[var(--studio-ink)] truncate">{user?.name || user?.email || 'Carregando...'}</p>
+              <div className="flex min-w-0 items-center gap-2">
+                {user?.avatarUrl ? <Image src={user.avatarUrl} alt="" width={26} height={26} unoptimized className="h-6 w-6 shrink-0 rounded-full object-cover" /> : <span aria-hidden="true" className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.05] text-[9px] font-semibold text-[var(--studio-accent)]">{(user?.name || user?.email || 'A').slice(0, 1).toUpperCase()}</span>}
+                <p className="truncate text-xs font-semibold text-[var(--studio-ink)]">{user?.name || user?.email || 'Carregando...'}</p>
+              </div>
               {!user ? (
                 <div className="h-4 w-12 bg-white/[0.06] rounded animate-pulse shrink-0" />
               ) : user.role === 'ADMIN' ? (
@@ -1566,12 +1514,12 @@ export default function Dashboard() {
       </aside>
 
       {/* Conteúdo Principal */}
-      <main className="studio-dashboard-main min-w-0 flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
+      <main ref={dashboardMainRef} className="studio-dashboard-main min-w-0 flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 relative z-10">
         
         {sendReview && <CampaignSendReview key={`${sendReview.id}-${sendReview.retryFailed}`} campaignId={sendReview.id} retryFailed={sendReview.retryFailed} connected={waStatus?.status === 'CONNECTED'}
           onReady={() => setHasReviewedMessages(true)} onClose={() => setSendReview(null)}
           onStarted={message => { const id = sendReview.id; setSendReview(null); addToast('success', message); fetchCampaigns(); if (selectedCampaignId === id) openCampaignDetails(id); }} />}
-        {user && <ProfessionalProfilePanel key={user.id} userId={user.id} name={user.name} />}
+        {user && activeTab !== 'settings' && <ProfessionalProfilePanel key={user.id} userId={user.id} name={user.name} showSummary={false} />}
 
         {/* Banner de Regularização de Conta Necessária */}
         {verificationRequiredMessage && (
@@ -1620,8 +1568,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Top Header com Botão de Ação */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {activeTab === 'campaigns' && <>
+        {/* Cabeçalho e conexão do WhatsApp aparecem somente na visão principal */}
+        <div data-dashboard-reveal className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white">Seu centro de operação</h1>
             <div className="flex items-center gap-2 flex-wrap mt-1">
@@ -1644,11 +1593,7 @@ export default function Dashboard() {
             {!isLegacyUser && (
               <button 
                 onClick={() => setActiveTab('billing')}
-                className={`px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer rounded-xl transition-all focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                  activeTab === 'billing'
-                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold'
-                    : 'dash-btn-secondary text-[var(--studio-muted)] hover:text-white'
-                }`}
+                className="dash-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer rounded-xl transition-all text-[var(--studio-muted)] hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
                 title="Acessar carteira de IA, planos e recargas"
               >
                 <Sparkles size={14} className="text-emerald-400" />
@@ -1683,7 +1628,7 @@ export default function Dashboard() {
         </div>
 
         {/* Status do WhatsApp Minimalista com LED */}
-        <section id="whatsapp-connection" className="dash-card rounded-2xl p-5 relative overflow-hidden">
+        <section data-dashboard-reveal id="whatsapp-connection" className="dash-card rounded-2xl p-5 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${
@@ -1697,7 +1642,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-semibold text-sm sm:text-base text-white">{activeTab === 'whatsapp' ? 'Seu WhatsApp' : 'WhatsApp de Disparo'}</h2>
+                  <h2 className="font-semibold text-sm sm:text-base text-white">WhatsApp de Disparo</h2>
                   <span className="relative flex h-2 w-2">
                     {waStatus?.status === 'CONNECTED' && (
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1710,7 +1655,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-xs text-[var(--studio-muted)] mt-0.5 font-normal">
                   {waStatus?.status === 'CONNECTED' 
-                    ? activeTab === 'whatsapp' ? 'Seu número está pronto para receber e responder mensagens' : 'Conexão ativa e estável na nuvem com simulação de ritmo humano'
+                    ? 'Conexão ativa e estável na nuvem com simulação de ritmo humano'
                     : waStatus?.status === 'QRCODE' 
                     ? 'Aguardando leitura do QR Code no aplicativo' 
                     : 'Nenhum número pareado no momento'}
@@ -1886,124 +1831,42 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+        </>}
 
-        {/* Navegação por Abas: Campanhas x Histórico x Admin */}
-        <div className="studio-dashboard-tabs flex items-center gap-2 border-b border-white/[0.08] pb-1" role="navigation" aria-label="Seções do painel" tabIndex={0}>
-          <button
-            type="button"
-            onClick={() => setActiveTab('campaigns')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-              activeTab === 'campaigns'
-                ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
-                : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'
-            }`}
-          >
-            <Layers size={14} className={activeTab === 'campaigns' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
-            <span>Minhas Campanhas</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-white/[0.08] text-[var(--studio-muted)] font-mono tabular-nums">
-              {campaigns.length}
-            </span>
-          </button>
-
-          {canUseSearch && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('search')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                activeTab === 'search'
-                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
-                  : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'
-              }`}
-            >
-              <Building2 size={14} className={activeTab === 'search' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
-              <span>Buscar Empresas</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
-                Apify
-              </span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('history');
-              fetchHistory(1, historySearch);
-            }}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-              activeTab === 'history'
-                ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
-                : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'
-            }`}
-          >
-            <History size={14} className={activeTab === 'history' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
-            <span>Histórico de Contatos</span>
-            {historyStats.totalCompanies > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono tabular-nums">
-                {historyStats.totalCompanies}
-              </span>
-            )}
-          </button>
-
-          <button type="button" onClick={() => setActiveTab('results')} className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium ${activeTab === 'results' ? 'bg-white/[0.08] text-[var(--studio-accent)]' : 'text-[var(--studio-muted)] hover:bg-white/[0.03]'}`}><Activity size={14} />Resultados comerciais</button>
-
-          {!isLegacyUser && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('billing')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                activeTab === 'billing'
-                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
-                  : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'
-              }`}
-            >
-              <Sparkles size={14} className={activeTab === 'billing' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
-              <span>Plano & Créditos</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-mono">
-                IA
-              </span>
-            </button>
-          )}
-
-          {user?.role === 'ADMIN' && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('admin')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                activeTab === 'admin'
-                  ? 'bg-white/[0.08] text-white border border-white/[0.12] shadow-sm font-semibold'
-                  : 'text-[var(--studio-muted)] hover:text-white hover:bg-white/[0.03]'
-              }`}
-            >
-              <ShieldCheck size={14} className={activeTab === 'admin' ? 'text-emerald-400' : 'text-[var(--studio-muted)]'} />
-              <span>Painel Admin</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-bold">
-                ADMIN
-              </span>
-            </button>
-          )}
-        </div>
-
-        {activeTab === 'whatsapp' && <WhatsappInbox connected={waStatus?.status === 'CONNECTED'} onCampaign={id => { void openCampaignDetails(id); }} />}
-        {activeTab === 'opportunities' && <CommercialOpportunities onOpenCampaign={id => { void openCampaignDetails(id); }} />}
-        {activeTab === 'templates' && <MessageTemplates />}
-        {activeTab === 'results' && <CommercialResults onOpenCampaign={id => { void openCampaignDetails(id); }} />}
+        {activeTab === 'whatsapp' && <div data-dashboard-reveal><WhatsappInbox connected={waStatus?.status === 'CONNECTED'} onCampaign={id => { void openCampaignDetails(id); }} /></div>}
+        {activeTab === 'opportunities' && <div data-dashboard-reveal><CommercialOpportunities onOpenCampaign={id => { void openCampaignDetails(id); }} /></div>}
+        {activeTab === 'templates' && <div data-dashboard-reveal><MessageTemplates /></div>}
+        {activeTab === 'results' && <div data-dashboard-reveal><CommercialResults onOpenCampaign={id => { void openCampaignDetails(id); }} /></div>}
+        {activeTab === 'settings' && user && <div className="space-y-5">
+          <section data-dashboard-reveal className="dash-card rounded-2xl p-5 sm:p-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"><Settings size={18} /></div>
+              <div><p className="studio-eyebrow">PREFERÊNCIAS DA CONTA</p><h2 className="mt-1 text-lg font-semibold text-white">Configurações do perfil</h2><p className="mt-1 text-sm text-[var(--studio-muted)]">Gerencie seus dados de acesso, sua foto e a segurança da conta.</p></div>
+            </div>
+          </section>
+          <AccountSettingsPanel />
+          <div data-dashboard-reveal className="space-y-3">
+            <div className="px-1"><p className="studio-eyebrow">PERSONALIZAÇÃO DA IA</p><h3 className="mt-1 text-base font-semibold text-white">Seu perfil profissional</h3><p className="mt-1 text-sm text-[var(--studio-muted)]">Esse contexto orienta as mensagens que a IA prepara para os seus leads.</p></div>
+            <ProfessionalProfilePanel key={user.id} userId={user.id} name={user.name} showSummary />
+          </div>
+        </div>}
         {activeTab === 'campaigns' && (
           <>
-            {user && <FirstCampaignGuide userId={user.id} loaded={!isLoading && !syncError}
+            {user && <div data-dashboard-reveal><FirstCampaignGuide userId={user.id} loaded={!isLoading && !syncError}
               connected={waStatus?.status === 'CONNECTED'} hasContacts={totalLeadsGlobal > 0}
               reviewed={hasReviewedMessages} sent={Object.values(statsMap).some(s => s.sent + (s.delivered || 0) + (s.read || 0) + s.replied > 0)} canSearch={canUseSearch}
               onConnect={() => { document.getElementById('whatsapp-connection')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
               onSearch={() => setActiveTab('search')} onCreate={() => openNewCampaignModal()}
-              onReview={() => { const campaign = campaigns.find(c => !['RUNNING', 'STARTING', 'PAUSING'].includes(c.status) && (statsMap[c.id]?.pending || 0) + (statsMap[c.id]?.queued || 0) > 0); if (campaign) handleStart(campaign.id); else if (!campaigns.length) openNewCampaignModal(); else { setCampaignFilter('ALL'); setCampaignQuery(''); addToast('info', 'Use Ver Leads para acompanhar sua campanha. Não há lote pendente disponível para revisão.'); } }} />}
-            <OperationOverview campaigns={campaigns.length} running={campaigns.filter(c => c.status === 'RUNNING').length}
+              onReview={() => { const campaign = campaigns.find(c => !['RUNNING', 'STARTING', 'PAUSING'].includes(c.status) && (statsMap[c.id]?.pending || 0) + (statsMap[c.id]?.queued || 0) > 0); if (campaign) handleStart(campaign.id); else if (!campaigns.length) openNewCampaignModal(); else { setCampaignFilter('ALL'); setCampaignQuery(''); addToast('info', 'Use Ver Leads para acompanhar sua campanha. Não há lote pendente disponível para revisão.'); } }} /></div>}
+            <div data-dashboard-reveal><OperationOverview campaigns={campaigns.length} running={campaigns.filter(c => c.status === 'RUNNING').length}
               paused={campaigns.filter(c => c.status === 'PAUSED').length} leads={totalLeadsGlobal}
               sent={campaigns.map(c => statsMap[c.id]).filter(Boolean).reduce((sum, s) => sum + s.sent + (s.delivered || 0) + (s.read || 0) + s.replied, 0)}
               pending={campaigns.map(c => statsMap[c.id]).filter(Boolean).reduce((sum, s) => sum + s.pending + s.queued + (s.sending || 0), 0)}
               loaded={!isLoading && !syncError} loading={isLoading} connected={waStatus?.status === 'CONNECTED'} canSearch={canUseSearch}
-              onSearch={() => setActiveTab('search')} onCreate={() => openNewCampaignModal()} />
+              onSearch={() => setActiveTab('search')} onCreate={() => openNewCampaignModal()} /></div>
 
             {/* Lista de Campanhas */}
-            <section className="space-y-3.5">
+            <section data-dashboard-reveal className="space-y-3.5">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold tracking-wide text-[var(--studio-ink)]">Minhas Campanhas</h2>
                 <span className="text-xs text-[var(--studio-muted)] font-mono tabular-nums">{campaigns.length} total</span>
@@ -2043,7 +1906,7 @@ export default function Dashboard() {
                   <h3 className="text-base font-semibold text-white mb-1">Nenhuma campanha criada ainda</h3>
                   <p className="text-xs text-[var(--studio-muted)] max-w-sm mb-6 leading-relaxed">
                     {canUseUpload
-                      ? 'Extraia seus leads no Google Maps Scraper (Apify), crie sua campanha e comece a disparar no automático.'
+                    ? 'Encontre empresas na busca integrada, crie sua campanha e acompanhe os envios pelo painel.'
                       : 'Encontre empresas pelo segmento e localização diretamente na plataforma, crie sua campanha e comece a disparar.'}
                   </p>
                   <button 
@@ -2194,7 +2057,7 @@ export default function Dashboard() {
 
     {/* VISÃO: HISTÓRICO DE EMPRESAS CONTATADAS */}
     {activeTab === 'history' && (
-      <div className="space-y-6 animate-in fade-in">
+      <div data-dashboard-reveal className="space-y-6 animate-in fade-in">
         {/* KPIs do Histórico */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
           <div className="dash-card p-4">
@@ -2442,16 +2305,8 @@ export default function Dashboard() {
       </div>
     )}
 
-    {activeTab === 'admin' && user?.role === 'ADMIN' && (
-      <AdminTab
-        userRole={user?.role}
-        currentUserId={user?.id}
-        addToast={addToast}
-      />
-    )}
-
     {activeTab === 'billing' && !isLegacyUser && (
-      <div className="space-y-6 animate-in fade-in duration-200">
+      <div data-dashboard-reveal className="space-y-6 animate-in fade-in duration-200">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
           <div>
             <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-white flex items-center gap-2">
@@ -2576,7 +2431,7 @@ export default function Dashboard() {
                   />
                   
                   <p className="text-[10px] text-[var(--studio-muted)] font-mono">
-                    Compatível com exportações do Apify Google Maps Scraper (.JSON) e planilhas .CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
+                    Compatível com listas JSON e planilhas CSV (com delimitador vírgula, ponto-e-vírgula ou tabulação).
                   </p>
 
                   {/* Carregando Prévia */}
@@ -3708,71 +3563,6 @@ export default function Dashboard() {
         );
       })()}
 
-      {/* Modal: Editar Nome da Empresa ({minhaEmpresa}) */}
-      {isWorkspaceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="dash-card studio-dialog w-full max-w-md flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
-            <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                  <Building2 size={16} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Nome da Empresa</h3>
-                  <p className="text-[11px] text-[var(--studio-muted)]">Variável {`{minhaEmpresa}`} nos disparos</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsWorkspaceModalOpen(false)}
-                className="text-[var(--studio-muted)] hover:text-white p-1.5 rounded-xl hover:bg-white/[0.06] active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateWorkspace} className="p-5 space-y-4">
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--studio-muted)] uppercase tracking-wider mb-1.5">
-                  Nome da sua Empresa ou Agência
-                </label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  maxLength={100}
-                  value={editingWorkspaceName}
-                  onChange={e => setEditingWorkspaceName(e.target.value)}
-                  className="block w-full px-3.5 py-2.5 dash-input rounded-xl text-sm"
-                  placeholder="Ex: Agência Alta Conversão"
-                />
-                <p className="text-[10px] text-[var(--studio-muted)] mt-1.5 font-mono">Mínimo de 2 e máximo de 100 caracteres.</p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-[var(--studio-muted)] leading-relaxed">
-                💡 <b>Como funciona:</b> A alteração será usada nas <b>próximas mensagens geradas</b> pela plataforma (inclusive de campanhas já em andamento). Mensagens que já foram enviadas pelo WhatsApp permanecem com o conteúdo original.
-              </div>
-
-              <div className="flex items-center justify-end gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsWorkspaceModalOpen(false)}
-                  className="dash-btn-secondary px-4 py-2 rounded-xl text-xs cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingWorkspace || !editingWorkspaceName.trim()}
-                  className="dash-btn-primary px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                >
-                  {savingWorkspace ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
-                  <span>{savingWorkspace ? 'Salvando...' : 'Salvar Alterações'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
     </div>
   );
