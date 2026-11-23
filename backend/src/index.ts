@@ -1,9 +1,11 @@
 // Sentry precisa ser o PRIMEIRO import para instrumentar tudo corretamente
 import { Sentry } from './lib/sentry';
 import profileRoutes from './routes/profile';
+import accountRoutes from './routes/account';
 import templatesRoutes from './routes/templates';
 import { AiFollowupService } from './services/AiFollowupService';
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import crypto from 'crypto';
@@ -86,6 +88,13 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
+app.use('/uploads/avatars', express.static(path.resolve(process.cwd(), 'uploads', 'avatars'), {
+  dotfiles: 'deny',
+  index: false,
+  maxAge: '7d',
+  immutable: true,
+}));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/campaigns', campaignsRoutes);
@@ -97,6 +106,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/account', accountRoutes);
 app.use('/api/templates', templatesRoutes);
 
 // Health check — Liveness probe (processo está vivo e respondendo)

@@ -104,7 +104,10 @@ test('CompanySearchService: resposta vazia conclui com zero resultados e zero cr
 
   mockMethod(t, prisma, '$transaction', async (fn: any) => {
     const tx = {
-      companySearchResult: { createMany: async () => ({ count: 0 }) },
+      companySearchResult: {
+        createMany: async () => ({ count: 0 }),
+        deleteMany: async () => ({ count: 0 })
+      },
       companySearch: {
         update: async ({ data }: any) => {
           Object.assign(searchRecord, data);
@@ -230,10 +233,10 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
   mockMethod(t, prisma.companySearchResult, 'findFirst', async () => null);
 
   const places = [
-    { title: 'Padaria Antiga (histórico)', phone: '11999990001', website: 'https://site1.com' },
-    { title: 'Padaria Outra Campanha', phone: '11999990002', website: null },
-    { title: 'Padaria Telefone Fixo', phone: '1133334444', website: null }, // Fixo descartado
-    { title: 'Padaria Nova e Celular Válido', phone: '11999990003', website: 'https://site3.com' },
+    { title: 'Padaria Antiga (histórico)', phone: '11999990001', website: 'https://site1.com', city: 'Campinas', neighborhood: 'Centro' },
+    { title: 'Padaria Outra Campanha', phone: '11999990002', website: null, city: 'Campinas', neighborhood: 'Centro' },
+    { title: 'Padaria Telefone Fixo', phone: '1133334444', website: null, city: 'Campinas', neighborhood: 'Centro' }, // Fixo descartado
+    { title: 'Padaria Nova e Celular Válido', phone: '11999990003', website: 'https://site3.com', city: 'Campinas', neighborhood: 'Centro' },
   ];
 
   setTestPlacesProvider(async () => places);
@@ -247,6 +250,7 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
         create: async () => ({ id: 'deliv-1' })
       },
       companySearchResult: {
+        deleteMany: async () => ({ count: 0 }),
         create: async ({ data }: any) => {
           resultsSaved.push(data);
           return { id: `res-${resultsSaved.length}`, ...data };
@@ -266,7 +270,7 @@ test('CompanySearchService: deduplica contra o workspace histórico e descarta n
     userId: 'u-1',
     workspaceId: 'w-1',
     segment: 'Padarias',
-    location: 'Centro',
+    location: 'Centro, Campinas',
     requestedCount: 10
   });
 

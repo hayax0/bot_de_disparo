@@ -45,11 +45,13 @@ export function ApifyConnection({ onConnectionChange }: { onConnectionChange: (r
       <p className="mt-3 text-amber-200">A Apify pode cobrar pela extração mesmo se descartarmos empresas sem telefone ou repetidas. Remover a chave aqui não revoga o token na Apify. Para revogá-lo, use o painel da Apify.</p>
       <a className="block mt-2 underline" href="https://docs.apify.com/integrations/api" target="_blank" rel="noopener noreferrer">Guia oficial de tokens e permissões</a>
     </details>
-    <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); void update(); }}>
+    <form className="space-y-3" onSubmit={event => { event.preventDefault(); void update(); }}>
       <label htmlFor="apify-key" className="sr-only">Chave API da Apify</label>
-      <input id="apify-key" type="password" autoComplete="new-password" value={token} onChange={event => setToken(event.target.value)} placeholder={account ? 'Nova chave para substituir a atual' : 'Cole sua chave API Apify'} className="min-w-0 flex-1 bg-white/5 border border-white/10 rounded-lg p-3 text-white" />
-      <button disabled={busy || !token.trim()} className="dash-btn-primary px-4 py-2 disabled:opacity-40">{busy ? 'Aguarde…' : 'Validar e salvar'}</button>
-      {account && <button type="button" disabled={busy} onClick={() => void update(true)} className="dash-btn-secondary px-4 py-2">Remover chave</button>}
+      <input id="apify-key" type="password" autoComplete="new-password" value={token} onChange={event => setToken(event.target.value)} placeholder={account ? 'Nova chave para substituir a atual' : 'Cole sua chave API Apify'} className="block w-full min-w-0 rounded-xl border border-white/10 bg-white/5 p-3 text-white" />
+      <div className="flex flex-wrap items-center gap-2">
+        <button disabled={busy || !token.trim()} className="dash-btn-primary min-h-11 px-4 py-2 disabled:opacity-40">{busy ? 'Aguarde…' : 'Validar e salvar'}</button>
+        {account && <button type="button" disabled={busy} onClick={() => void update(true)} className="dash-btn-secondary min-h-11 px-4 py-2">Remover chave</button>}
+      </div>
     </form>
     <p role="status" className="text-sm text-[var(--studio-muted)]">{message}</p>
   </section>;

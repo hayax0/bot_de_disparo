@@ -244,6 +244,63 @@ export class EmailService {
       return { success: false };
     }
   }
+
+  static async sendEmailChangeCode(params: { email: string; code: string; name?: string | null }): Promise<EmailSendResult> {
+    const client = getResendClient();
+    if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
+    const greeting = params.name ? `Olá, <strong>${escapeHtml(params.name)}</strong>.` : 'Olá.';
+    const htmlContent = `
+      <h2>Confirme seu novo e-mail</h2>
+      <p>${greeting} Você pediu para atualizar o e-mail da sua conta Abordai.</p>
+      <p>Use este código no painel para confirmar o novo endereço:</p>
+      <div style="background-color:#0A0D14;border:1px solid rgba(16,185,129,.3);border-radius:12px;padding:24px 16px;margin:24px 0;text-align:center;">
+        <div style="font-size:11px;font-weight:600;color:#34d399;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">Código de confirmação</div>
+        <div style="font-size:32px;font-weight:800;color:#ffffff;letter-spacing:8px;font-family:monospace;">${params.code}</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:10px;">Válido por 10 minutos. Não compartilhe este código.</div>
+      </div>
+      <p>Seu endereço atual continua ativo até a confirmação.</p>
+      <p style="font-size:13px;color:#94a3b8;">Se você não solicitou a alteração, ignore esta mensagem e mantenha sua conta como está.</p>
+    `;
+    try {
+      const response = await client.emails.send({
+        from: ENV.RESEND_FROM_EMAIL,
+        to: params.email,
+        replyTo: ENV.RESEND_REPLY_TO,
+        subject: 'Confirme seu novo e-mail — Abordai',
+        text: `Seu código para alterar o e-mail do Abordai é ${params.code}. Ele expira em 10 minutos. Seu endereço atual permanece ativo até a confirmação.`,
+        html: getBaseEmailTemplate(htmlContent, 'Confirme o novo e-mail da sua conta Abordai.'),
+      });
+      return { success: !response.error, id: response.data?.id, error: response.error?.message };
+    } catch {
+      return { success: false, error: 'Falha ao enviar e-mail de confirmação.' };
+    }
+  }
+
+  static async sendEmailChangedNotice(params: { oldEmail: string; newEmail: string; name?: string | null }): Promise<EmailSendResult> {
+    const client = getResendClient();
+    if (!client) return { success: false, error: 'RESEND_API_KEY não configurada' };
+    const greeting = params.name ? `Olá, <strong>${escapeHtml(params.name)}</strong>.` : 'Olá.';
+    const newEmail = escapeHtml(params.newEmail);
+    const htmlContent = `
+      <h2>O e-mail da sua conta foi alterado</h2>
+      <p>${greeting} O endereço de acesso ao Abordai foi atualizado para <strong>${newEmail}</strong>.</p>
+      <p>Se você não fez essa alteração, entre em contato com o suporte imediatamente.</p>
+    `;
+    try {
+      const response = await client.emails.send({
+        from: ENV.RESEND_FROM_EMAIL,
+        to: params.oldEmail,
+        replyTo: ENV.RESEND_REPLY_TO,
+        subject: 'E-mail da conta atualizado — Abordai',
+        text: `O e-mail da sua conta Abordai foi atualizado para ${params.newEmail}. Se você não fez essa alteração, contate o suporte.`,
+        html: getBaseEmailTemplate(htmlContent, 'Seu e-mail de acesso ao Abordai foi atualizado.'),
+      });
+      return { success: !response.error, id: response.data?.id, error: response.error?.message };
+    } catch {
+      return { success: false, error: 'Falha ao enviar aviso de alteração.' };
+    }
+  }
+
   /**
    * Envia o e-mail de Convite para Assinatura imediatamente após o cadastro na plataforma
    */

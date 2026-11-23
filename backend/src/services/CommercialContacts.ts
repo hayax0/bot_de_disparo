@@ -10,7 +10,18 @@ export const commercialDateSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[
 export const commercialInputSchema = z.object({
   stage: z.enum(commercialStages), notes: z.string().trim().max(4000),
   meetingBooked: z.boolean(), nextContactAt: commercialDateSchema.nullable().optional(), version: z.number().int().min(0),
-}).strict();
+  saleAmount: z.string().regex(/^(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?$/, 'Informe um valor de venda válido.').nullable().optional(),
+  saleDate: commercialDateSchema.nullable().optional(),
+}).strict().superRefine((input, context) => {
+  const hasAmount = input.saleAmount !== undefined;
+  const hasDate = input.saleDate !== undefined;
+  if (hasAmount !== hasDate || (hasAmount && hasDate && Boolean(input.saleAmount) !== Boolean(input.saleDate))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['saleAmount'], message: 'Informe o valor e a data da venda juntos.' });
+  }
+  if (input.saleAmount && Number(input.saleAmount) <= 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['saleAmount'], message: 'O valor da venda deve ser maior que zero.' });
+  }
+});
 export const commercialFilterSchema = z.object({
   stage: z.enum(['ALL', ...commercialStages]).default('ALL'),
   meeting: z.enum(['ALL', 'YES', 'NO']).default('ALL'),
@@ -23,6 +34,11 @@ export const commercialListSchema = z.object({
   today: commercialDateSchema.default(() => new Date().toISOString().slice(0, 10)),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+}).strict();
+export const commercialSalesSchema = z.object({
+  from: commercialDateSchema,
+  to: commercialDateSchema,
+  granularity: z.enum(['day', 'week', 'month']).default('day'),
 }).strict();
 export class CommercialError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -38,9 +54,14 @@ export function commercialPhoneSql(column: Prisma.Sql) {
   const digits = Prisma.sql`regexp_replace(regexp_replace(${column}, '[^0-9]', '', 'g'), '^0+', '')`;
   return Prisma.sql`CASE WHEN left(${column}, 5) = 'anon_' OR length(${digits}) NOT BETWEEN 10 AND 15 THEN NULL WHEN length(${digits}) IN (10, 11) THEN '55' || ${digits} ELSE ${digits} END`;
 }
-export const emptyCommercial = () => ({ stage: 'UNCLASSIFIED' as const, notes: '', meetingBooked: false, nextContactAt: null, version: 0, updatedAt: null });
+export const emptyCommercial = () => ({ stage: 'UNCLASSIFIED' as const, notes: '', meetingBooked: false, nextContactAt: null, saleAmount: null, saleDate: null, version: 0, updatedAt: null });
 export function presentCommercial(record: CommercialContact) {
-  return { ...record, nextContactAt: record.nextContactAt?.toISOString().slice(0, 10) ?? null };
+  return {
+    ...record,
+    nextContactAt: record.nextContactAt?.toISOString().slice(0, 10) ?? null,
+    saleAmount: record.saleAmount?.toFixed(2) ?? null,
+    saleDate: record.saleDate?.toISOString().slice(0, 10) ?? null,
+  };
 }
 export async function lockCommercialContact(tx: Prisma.TransactionClient, workspaceId: string, phone: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`commercial:${workspaceId}:${phone}`}))`;
@@ -66,12 +87,73 @@ export async function updateCommercial(db: PrismaClient, workspaceId: string, ca
     const key = { workspaceId_phone: { workspaceId, phone } };
     const current = await tx.commercialContact.findUnique({ where: key });
     if ((current?.version || 0) !== input.version) throw new CommercialError('Este contato foi atualizado em outra janela. Seu rascunho foi preservado; carregue a versão atual antes de editar novamente.', 409);
-    const data = { stage: input.stage, notes: input.notes, meetingBooked: input.meetingBooked, ...(input.nextContactAt !== undefined ? { nextContactAt: input.nextContactAt ? new Date(`${input.nextContactAt}T00:00:00.000Z`) : null } : {}) };
+    const data = {
+      stage: input.stage, notes: input.notes, meetingBooked: input.meetingBooked,
+      ...(input.nextContactAt !== undefined ? { nextContactAt: input.nextContactAt ? new Date(`${input.nextContactAt}T00:00:00.000Z`) : null } : {}),
+      ...(input.saleAmount !== undefined ? { saleAmount: input.saleAmount ? new Prisma.Decimal(input.saleAmount) : null } : {}),
+      ...(input.saleDate !== undefined ? { saleDate: input.saleDate ? new Date(`${input.saleDate}T00:00:00.000Z`) : null } : {}),
+    };
     return current
       ? tx.commercialContact.update({ where: key, data: { ...data, version: { increment: 1 } } })
       : tx.commercialContact.create({ data: { ...data, workspaceId, phone } });
   });
   return presentCommercial(record);
+}
+
+function commercialDateOffset(value: string, offsetDays: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+export async function commercialSales(db: PrismaClient, workspaceId: string, query: z.infer<typeof commercialSalesSchema>) {
+  if (query.from > query.to) throw new CommercialError('A data inicial deve ser anterior à data final.', 400);
+  const spanDays = Math.floor((Date.parse(`${query.to}T00:00:00.000Z`) - Date.parse(`${query.from}T00:00:00.000Z`)) / 86_400_000) + 1;
+  if (spanDays > 366) throw new CommercialError('Escolha um período de até 366 dias.', 400);
+
+  const previousFrom = commercialDateOffset(query.from, -spanDays);
+  const previousTo = commercialDateOffset(query.from, -1);
+  const [series, previousRows] = await Promise.all([
+    db.$queryRaw<Array<{ period: string; sales: number; revenue: string }>>(Prisma.sql`
+      SELECT to_char(date_trunc(${query.granularity}, cc."saleDate"::timestamp), 'YYYY-MM-DD') AS period,
+        count(*)::int AS sales, COALESCE(SUM(cc."saleAmount"), 0)::text AS revenue
+      FROM "CommercialContact" cc
+      WHERE cc."workspaceId" = ${workspaceId} AND cc."saleAmount" IS NOT NULL AND cc."saleDate" IS NOT NULL
+        AND cc."saleDate" BETWEEN ${query.from}::date AND ${query.to}::date
+      GROUP BY 1 ORDER BY 1`),
+    db.$queryRaw<Array<{ sales: number; revenue: string }>>(Prisma.sql`
+      SELECT count(*)::int AS sales, COALESCE(SUM(cc."saleAmount"), 0)::text AS revenue
+      FROM "CommercialContact" cc
+      WHERE cc."workspaceId" = ${workspaceId} AND cc."saleAmount" IS NOT NULL AND cc."saleDate" IS NOT NULL
+        AND cc."saleDate" BETWEEN ${previousFrom}::date AND ${previousTo}::date`),
+  ]);
+  const previous = previousRows[0] || { sales: 0, revenue: '0.00' };
+  const currentRevenue = series.reduce((total, point) => total.plus(point.revenue), new Prisma.Decimal(0));
+  const currentSales = series.reduce((total, point) => total + point.sales, 0);
+  const previousRevenue = new Prisma.Decimal(previous.revenue);
+  const percentChange = (current: Prisma.Decimal, prior: Prisma.Decimal) => prior.isZero()
+    ? null
+    : Number(current.minus(prior).div(prior).mul(100).toFixed(1));
+
+  return {
+    from: query.from,
+    to: query.to,
+    granularity: query.granularity,
+    series,
+    summary: {
+      revenue: currentRevenue.toFixed(2),
+      sales: currentSales,
+      averageTicket: currentSales ? currentRevenue.div(currentSales).toFixed(2) : '0.00',
+    },
+    comparison: {
+      previousRevenue: previousRevenue.toFixed(2),
+      previousSales: previous.sales,
+      revenuePercent: percentChange(currentRevenue, previousRevenue),
+      salesPercent: previous.sales ? Number(((currentSales - previous.sales) / previous.sales * 100).toFixed(1)) : null,
+      from: previousFrom,
+      to: previousTo,
+    },
+  };
 }
 export async function commercialForPhones(db: PrismaClient, workspaceId: string, phones: string[]) {
   const keys = [...new Set(phones.map(commercialPhone).filter((phone): phone is string => Boolean(phone)))];
@@ -142,7 +224,7 @@ export async function listCommercialContacts(db: PrismaClient, workspaceId: stri
   ), contacts AS (
     SELECT r.*, COALESCE(cc.stage::text, 'UNCLASSIFIED') AS stage,
       COALESCE(cc.notes, '') AS notes, COALESCE(cc."meetingBooked", false) AS "meetingBooked",
-      cc."nextContactAt", COALESCE(cc.version, 0) AS version, cc."updatedAt"
+      cc."nextContactAt", cc."saleAmount", cc."saleDate", COALESCE(cc.version, 0) AS version, cc."updatedAt"
     FROM representatives r LEFT JOIN "CommercialContact" cc ON cc."workspaceId" = ${workspaceId} AND cc.phone = r.phone
   )`;
   const filters = Prisma.sql`
@@ -160,14 +242,14 @@ export async function listCommercialContacts(db: PrismaClient, workspaceId: stri
         count(*) FILTER (WHERE "nextContactAt" < ${today}::date)::int AS overdue,
         count("nextContactAt")::int AS scheduled FROM contacts`);
     const [total] = await tx.$queryRaw<Array<{ total: number }>>(Prisma.sql`${contacts} SELECT count(*)::int AS total FROM contacts ${filters}`);
-    const rows = await tx.$queryRaw<Array<{ campaignId: string; campaignName: string; leadId: string; title: string; phone: string; stage: typeof commercialStages[number]; notes: string; meetingBooked: boolean; nextContactAt: Date | null; version: number; updatedAt: Date | null }>>(Prisma.sql`${contacts}
+    const rows = await tx.$queryRaw<Array<{ campaignId: string; campaignName: string; leadId: string; title: string; phone: string; stage: typeof commercialStages[number]; notes: string; meetingBooked: boolean; nextContactAt: Date | null; saleAmount: Prisma.Decimal | null; saleDate: Date | null; version: number; updatedAt: Date | null }>>(Prisma.sql`${contacts}
       SELECT * FROM contacts ${filters}
       ORDER BY CASE WHEN "nextContactAt" < ${today}::date THEN 0 WHEN "nextContactAt" = ${today}::date THEN 1 WHEN "nextContactAt" > ${today}::date THEN 2 ELSE 3 END,
         "nextContactAt" ASC NULLS LAST, lower(title), "leadId"
       LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit}`);
     return {
       contacts: rows.map(row => ({ campaignId: row.campaignId, campaignName: row.campaignName, leadId: row.leadId, title: row.title, phone: row.phone,
-        commercial: { stage: row.stage, notes: row.notes, meetingBooked: row.meetingBooked, nextContactAt: row.nextContactAt?.toISOString().slice(0, 10) ?? null, version: row.version, updatedAt: row.updatedAt } })),
+        commercial: { stage: row.stage, notes: row.notes, meetingBooked: row.meetingBooked, nextContactAt: row.nextContactAt?.toISOString().slice(0, 10) ?? null, saleAmount: row.saleAmount?.toFixed(2) ?? null, saleDate: row.saleDate?.toISOString().slice(0, 10) ?? null, version: row.version, updatedAt: row.updatedAt } })),
       total: total.total, page: query.page, pageSize: query.limit, counts,
     };
   }, { isolationLevel: 'RepeatableRead' });

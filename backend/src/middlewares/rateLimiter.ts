@@ -85,3 +85,9 @@ export const whatsappInboxWriteLimiter = createStandardLimiter({
   max: 30,
   keyGenerator: (req: Request) => req.user!.workspaceId,
 });
+
+export const accountSettingsLimiter = createStandardLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  keyGenerator: (req: Request) => req.user?.userId || req.ip || req.socket.remoteAddress || 'unknown-user',
+});

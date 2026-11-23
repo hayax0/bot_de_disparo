@@ -9,7 +9,7 @@ interface FaqItem {
 }
 
 const FAQ_ITEMS: FaqItem[] = [
-  { question: "Como encontro empresas na plataforma?", answer: "Escolha um segmento e uma localização para encontrar empresas. Antes da primeira busca, o painel guia você na conexão com o serviço externo utilizado para consultar os dados. Esse serviço exige uma conta própria e pode ter custos separados da assinatura." },
+  { question: "Como encontro empresas na plataforma?", answer: "Escolha um segmento, uma localização, a quantidade e se quer empresas com ou sem site. Antes da primeira consulta, o painel orienta a configuração da busca. O serviço conectado pode ter cobrança própria, separada da assinatura." },
   { question: "Onde uso os créditos de IA?", answer: "Cada mensagem gerada ou refinada com IA usa 1 crédito. Escrever e editar manualmente não consome créditos. A franquia renova a cada ciclo pago e não acumula; créditos comprados à parte não expiram e podem ser usados com a assinatura ativa." },
   { question: "Preciso deixar o computador ligado?", answer: "Não. Depois de conectar seu WhatsApp e iniciar a campanha, os envios rodam na nuvem. Você acompanha o andamento pelo painel." },
   { question: "Os intervalos evitam bloqueios no WhatsApp?", answer: "Os intervalos permitem controlar o ritmo dos envios, mas não garantem proteção contra bloqueios. Use a plataforma respeitando as regras do WhatsApp e as preferências dos destinatários." },

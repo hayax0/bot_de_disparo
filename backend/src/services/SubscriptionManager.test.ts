@@ -75,7 +75,7 @@ test('calculateSubscriptionPeriod: prioriza data exata de next_payment_at da Cak
   const fixedFuture = new Date('2026-11-20T14:30:00Z');
   const result = calculateSubscriptionPeriod({
     next_payment_at: fixedFuture.toISOString()
-  });
+  }, new Date('2026-11-01T00:00:00Z'));
 
   assert.equal(result.expiresAt.toISOString(), fixedFuture.toISOString());
 });

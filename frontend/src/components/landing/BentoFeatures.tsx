@@ -1,6 +1,6 @@
 import {
   Clock,
-  History,
+  CalendarClock,
   QrCode,
   ShieldCheck,
   Bot,
@@ -20,10 +20,10 @@ export function BentoFeatures() {
             <span>Recursos Nativos da Plataforma</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-            Tecnologia de ponta: IA, busca ativa e envios humanos
+            Busca, IA e acompanhamento comercial em um só lugar
           </h2>
           <p className="text-xs sm:text-sm text-[var(--studio-muted)]">
-            Uma esteira completa para você prospectar empresas, gerar copies únicas e fechar novos contratos todos os dias.
+            Encontre contatos, prepare mensagens, organize campanhas e acompanhe as conversas em um só fluxo.
           </p>
         </div>
 
@@ -45,7 +45,7 @@ export function BentoFeatures() {
                 Abordagens Persuasivas Sob Medida por Nicho
               </h3>
               <p className="text-xs sm:text-sm text-[var(--studio-muted)] leading-relaxed max-w-xl font-normal">
-                Nosso assistente de IA analisa o nicho do lead, dados da empresa e a presença de site para redigir uma mensagem consultiva irresistível para cada contato. Sem textos genéricos ou frios.
+                A IA considera o nicho, os dados disponíveis da empresa e o contexto do seu perfil para sugerir uma abordagem curta. Você revisa e edita antes do envio.
               </p>
             </div>
 
@@ -65,21 +65,21 @@ export function BentoFeatures() {
             </div>
           </div>
 
-          {/* Card 2: Busca Google Maps (Span 4) */}
+          {/* Card 2: Busca de empresas (Span 4) */}
           <div className="md:col-span-4 bg-[#0D1018] rounded-2xl p-6 sm:p-7 flex flex-col justify-between border border-white/[0.08] hover:border-white/[0.16] transition-colors group">
             <div className="space-y-3">
               <div className="p-2 rounded-xl bg-white/[0.04] text-emerald-400 border border-white/[0.08] w-fit">
                 <MapPin size={20} />
               </div>
               <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                Busca de Empresas no Google Maps
+                Busca de Empresas por Região
               </h3>
               <p className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
-                Encontre empresas locais por segmento e cidade e organize os contatos nas suas campanhas. A configuração do serviço de busca é guiada dentro do painel.
+                Encontre empresas por segmento e localização, filtre pela presença de site e revise os contatos antes de adicioná-los a uma campanha.
               </p>
             </div>
             <div className="mt-6 p-3 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-[var(--studio-muted)] font-mono">
-              ✓ Leads frescos e verificados no Maps
+              ✓ Telefones fixos e contatos inválidos são descartados
             </div>
           </div>
 
@@ -90,33 +90,33 @@ export function BentoFeatures() {
                 <Clock size={18} />
               </div>
               <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                Cadência Humana Anti-Bloqueio
+                Intervalos Configuráveis
               </h3>
               <p className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
-                Delays aleatórios inteligentes entre cada mensagem (45s a 120s), simulando a digitação humana natural e protegendo o seu número contra bloqueios.
+                Defina o intervalo entre envios conforme sua operação. Os intervalos ajudam a organizar o ritmo, mas não garantem proteção contra restrições do WhatsApp.
               </p>
             </div>
             <div className="mt-6 p-3 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-emerald-400 flex items-center gap-1.5 font-mono">
               <ShieldCheck size={14} />
-              <span>Proteção e ritmo natural de envios</span>
+              <span>Controle sobre o ritmo dos envios</span>
             </div>
           </div>
 
-          {/* Card 4: Histórico Permanente (Span 4) */}
+          {/* Card 4: CRM comercial (Span 4) */}
           <div className="md:col-span-4 bg-[#0D1018] rounded-2xl p-6 sm:p-7 flex flex-col justify-between border border-white/[0.08] hover:border-white/[0.16] transition-colors group">
             <div className="space-y-3">
               <div className="p-2 rounded-xl bg-white/[0.04] text-[var(--studio-muted)] border border-white/[0.08] w-fit">
-                <History size={18} />
+                <CalendarClock size={18} />
               </div>
               <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                Histórico Permanente & Anti-Recontato
+                CRM para o próximo passo
               </h3>
               <p className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
-                Registro histórico persistente por Workspace. Evite abordar contatos que já receberam mensagem anteriormente, mantendo sua comunicação limpa e profissional.
+                Classifique conversas, registre notas e programe retornos para manter cada oportunidade em movimento.
               </p>
             </div>
             <div className="mt-6 p-3 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-[var(--studio-muted)] font-mono">
-              ✓ Filtro inteligente anti-recontato
+              ✓ Etapas comerciais e lembretes
             </div>
           </div>
 
@@ -127,14 +127,14 @@ export function BentoFeatures() {
                 <QrCode size={18} />
               </div>
               <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                Conexão QR Code em 5 Segundos
+                Conecte seu WhatsApp por QR Code
               </h3>
               <p className="text-xs text-[var(--studio-muted)] leading-relaxed font-normal">
-                Escaneie o QR Code com o WhatsApp do seu celular como no WhatsApp Web. Execução contínua 24/7 em nuvem com reconexão automática resiliente.
+                Faça a conexão pelo celular e acompanhe o status no painel. Campanhas iniciadas são processadas na nuvem, sem manter esta página aberta.
               </p>
             </div>
             <div className="mt-6 p-3 rounded-xl bg-black/40 border border-white/[0.05] text-[11px] text-emerald-400 font-mono">
-              ✓ Nuvem ativa sem precisar deixar PC ligado
+              ✓ Acompanhe o andamento pelo painel
             </div>
           </div>
         </div>

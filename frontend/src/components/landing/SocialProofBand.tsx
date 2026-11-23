@@ -4,23 +4,23 @@ export function SocialProofBand() {
   const trustPillars = [
     {
       icon: Cloud,
-      title: "Execução 100% em Nuvem",
-      desc: "Suas campanhas continuam rodando 24/7 sem exigir que seu computador ou celular fiquem ligados.",
+      title: "Campanhas na nuvem",
+      desc: "Depois de iniciar uma campanha, acompanhe o processamento pelo painel.",
     },
     {
       icon: Layers,
-      title: "Fila Inteligente BullMQ",
-      desc: "Processamento sequencial assíncrono com Redis, garantindo ordem exata e alta estabilidade.",
+      title: "Mensagens com contexto",
+      desc: "Use o perfil profissional e os dados disponíveis do lead para preparar abordagens com IA.",
     },
     {
       icon: Clock,
-      title: "Cadência e Delays Naturais",
-      desc: "Intervalos configuráveis entre cada disparo para simular o comportamento de um operador humano.",
+      title: "Ritmo configurável",
+      desc: "Escolha os intervalos entre envios e acompanhe as etapas da campanha.",
     },
     {
       icon: History,
-      title: "Memória por Workspace",
-      desc: "Histórico consolidado que previne contatar a mesma empresa repetidas vezes.",
+      title: "Histórico de contatos",
+      desc: "Consulte contatos abordados e envios anteriores para organizar o acompanhamento.",
     },
   ];
 

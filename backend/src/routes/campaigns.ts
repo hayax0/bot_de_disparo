@@ -8,7 +8,7 @@ import { messageQueue } from '../services/queue';
 import { temWebsiteValido, gerarPreviaMensagem, validarTemplateMensagem } from '../services/ProposalEngine';
 import { authenticate, requireActiveSubscription } from '../middlewares/auth';
 import { WhatsappManager } from '../services/WhatsappManager';
-import { commercialInputSchema, commercialFilterSchema, commercialListSchema, listCommercialContacts, commercialLeadFilter, commercialForPhones, commercialPhone, emptyCommercial, readCommercial, updateCommercial, commercialMetrics, CommercialError } from '../services/CommercialContacts';
+import { commercialInputSchema, commercialFilterSchema, commercialListSchema, commercialSalesSchema, listCommercialContacts, commercialLeadFilter, commercialForPhones, commercialPhone, emptyCommercial, readCommercial, updateCommercial, commercialMetrics, commercialSales, CommercialError } from '../services/CommercialContacts';
 import { createSendReview, CampaignReviewError } from '../services/CampaignSendReview';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
 import { validateBody, createCampaignSchema } from '../lib/validation';
@@ -161,6 +161,15 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
 });
 
 // Organização comercial é manual e independente do estado de envio/assinatura.
+router.get('/commercial-sales', async (req, res): Promise<any> => {
+  const query = commercialSalesSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Confira o período e a forma de agrupamento das vendas.' });
+  try { res.json(await commercialSales(prisma, req.user!.workspaceId, query.data)); }
+  catch (error) {
+    if (error instanceof CommercialError) return res.status(error.status).json({ error: error.message });
+    return res.status(500).json({ error: 'Não foi possível carregar o gráfico de vendas.' });
+  }
+});
 router.get('/commercial-contacts', async (req, res): Promise<any> => {
   const query = commercialListSchema.safeParse(req.query);
   if (!query.success) return res.status(400).json({ error: 'Confira os filtros, a data e a paginação dos contatos.' });
@@ -177,7 +186,7 @@ router.get('/:id/leads/:leadId/commercial', async (req, res): Promise<any> => {
 });
 router.put('/:id/leads/:leadId/commercial', async (req, res): Promise<any> => {
   const input = commercialInputSchema.safeParse(req.body);
-  if (!input.success) return res.status(400).json({ error: 'Confira a classificação, a reunião, a data de retorno válida (AAAA-MM-DD) e as anotações (máximo 4.000 caracteres).' });
+  if (!input.success) return res.status(400).json({ error: 'Confira a classificação, a reunião, os dados da venda, a data de retorno válida (AAAA-MM-DD) e as anotações (máximo 4.000 caracteres).' });
   try { res.json({ commercial: await updateCommercial(prisma, req.user!.workspaceId, req.params.id as string, req.params.leadId as string, input.data) }); }
   catch (error) { if (error instanceof CommercialError) return res.status(error.status).json({ error: error.message }); res.status(500).json({ error: 'Não foi possível salvar o acompanhamento.' }); }
 });

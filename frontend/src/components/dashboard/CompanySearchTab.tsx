@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import { ApifyConnection } from "./ApifyConnection";
+import { SearchLiveMap, type SearchMapPoint } from "./SearchLiveMap";
 import { api } from "@/lib/api";
 import {
   Search,
@@ -59,6 +60,18 @@ interface CampaignOption {
   status: string;
 }
 
+function readableSearchFailure(errorMessage?: string | null) {
+  const message = errorMessage?.trim();
+  if (!message) return 'Não foi possível concluir esta busca. Você pode tentar novamente.';
+  if (
+    message.length > 260 ||
+    /Invalid `prisma\.|Unknown argument|invocation|node_modules|\/Users\//i.test(message)
+  ) {
+    return 'Esta tentativa falhou por um erro técnico de uma execução anterior. Inicie uma nova busca para tentar novamente.';
+  }
+  return message;
+}
+
 export interface SearchCampaignSelection {
   searchId: string;
   resultIds: string[];
@@ -112,6 +125,9 @@ export function CompanySearchTab({
   const [currentSearch, setCurrentSearch] = useState<{
     id: string;
     query: string;
+    segment?: string;
+    location?: string;
+    requestedCount?: number;
     status: string;
     errorMessage?: string | null;
     websiteFilter?: string;
@@ -120,6 +136,7 @@ export function CompanySearchTab({
     discardedCount: number;
     creditsConsumed: number;
     results: CompanySearchResultItem[];
+    mapResults?: SearchMapPoint[];
   } | null>(null);
 
   // Seleção e Adição à Campanha
@@ -164,7 +181,7 @@ export function CompanySearchTab({
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (searchInFlight.current) return;
-    if (!apifyReady) { addToast('error', 'Conecte sua conta Apify antes de buscar.'); return; }
+    if (!apifyReady) { addToast('error', 'Configure a conexão de busca antes de pesquisar.'); return; }
     if (!segment.trim() || !location.trim()) {
       addToast('error', 'Informe o segmento e a localização desejada.');
       return;
@@ -187,7 +204,7 @@ export function CompanySearchTab({
       if (searchData.status === 'COMPLETED') {
         searchData = (await api.get(`/search/${searchData.id}`)).data;
       }
-      setCurrentSearch({ ...searchData, results: searchData.results || [] });
+      setCurrentSearch({ ...searchData, results: searchData.results || [], mapResults: searchData.mapResults || [] });
 
       // Se a busca estiver sendo processada em background pelo worker da fila
       if (searchData.status === 'PENDING' || searchData.status === 'PROCESSING') {
@@ -202,7 +219,7 @@ export function CompanySearchTab({
           try {
             const pollRes = await api.get(`/search/${searchData.id}`);
             searchData = pollRes.data;
-            setCurrentSearch({ ...searchData, results: searchData.results || [] });
+            setCurrentSearch({ ...searchData, results: searchData.results || [], mapResults: searchData.mapResults || [] });
             if (['COMPLETED', 'FAILED', 'CANCELED'].includes(searchData.status)) {
               break;
             }
@@ -214,7 +231,7 @@ export function CompanySearchTab({
         }
       }
 
-      setCurrentSearch({ ...searchData, results: searchData.results || [] });
+      setCurrentSearch({ ...searchData, results: searchData.results || [], mapResults: searchData.mapResults || [] });
 
       // Pré-seleciona todos os aproveitáveis automaticamente
       const usableIds = new Set<string>(
@@ -232,10 +249,7 @@ export function CompanySearchTab({
       }
 
       if (searchData.status === 'COMPLETED') {
-        addToast(
-          'success',
-          `Busca concluída! ${searchData.usableCount || 0} empresas aproveitáveis encontradas (consumo na conta Apify).`
-        );
+        addToast('success', `Busca concluída! ${searchData.usableCount || 0} empresas aproveitáveis encontradas.`);
         // Gera nova chave para a próxima busca distinta
         setSearchIdempotencyKey(`search_cli_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
       }
@@ -249,7 +263,7 @@ export function CompanySearchTab({
         msg = err.response?.data?.error || msg;
       }
       if (code === 'INSUFFICIENT_CREDITS') {
-        addToast('error', 'Verifique o saldo e as permissões da sua conta Apify.');
+        addToast('error', 'Verifique o saldo e as permissões da sua conexão de busca.');
       } else {
         addToast('error', msg);
       }
@@ -262,7 +276,7 @@ export function CompanySearchTab({
   const handleOpenHistoricalSearch = async (id: string) => {
     try {
       const res = await api.get(`/search/${id}`);
-      setCurrentSearch({ ...res.data, results: res.data.results || [] });
+      setCurrentSearch({ ...res.data, results: res.data.results || [], mapResults: res.data.mapResults || [] });
       const usableIds = new Set<string>(
         (res.data.results || [])
           .filter((item: CompanySearchResultItem) => item.isUsable)
@@ -338,37 +352,43 @@ export function CompanySearchTab({
   };
 
   return (
-    <div className="space-y-6">
+    <div data-dashboard-reveal className="grid grid-cols-1 xl:grid-cols-[minmax(18rem,0.82fr)_minmax(0,1.18fr)] xl:items-start gap-5">
       {/* Cabeçalho da Seção */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="xl:col-span-full flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-white/[0.07]">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <Building2 className="text-emerald-400" size={20} />
-            <span>Busca de Empresas & Prospecção Integrada</span>
+          <p className="studio-eyebrow">INTELIGÊNCIA COMERCIAL</p>
+          <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight flex items-center gap-2 mt-1">
+            <Building2 className="text-emerald-400" size={23} />
+            <span>Encontre seu próximo cliente</span>
           </h2>
-          <p className="text-xs text-[var(--studio-muted)] mt-0.5">
-            Localize empresas com dados enriquecidos (nome, WhatsApp comercial, endereço e site) diretamente dentro da plataforma.
+          <p className="text-sm text-[var(--studio-muted)] mt-2 max-w-2xl">
+            Defina o público e a região. Revise os contatos encontrados e escolha quais entram na sua próxima campanha.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-2 text-xs text-[var(--studio-muted)]">
-            <Coins size={14} className="text-emerald-400" />
-            <span>Busca pela sua conta Apify</span>
-          </div>
+        <div className="shrink-0 px-3 py-2 rounded-xl bg-emerald-500/[0.08] border border-emerald-500/20 flex items-center gap-2 text-xs text-emerald-200">
+          <Coins size={14} className="text-emerald-400" />
+          <span>Sem consumo de créditos de IA</span>
         </div>
       </div>
 
-      <ApifyConnection onConnectionChange={setApifyReady} />
-      <section aria-label="Sugestões pelo seu perfil" className="dash-card p-5 space-y-4">
+      <details open={!apifyReady} className="xl:col-start-1 xl:row-start-2 dash-card rounded-2xl border border-white/[0.08] p-4 group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-white marker:hidden">
+          <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${apifyReady ? 'bg-emerald-400' : 'bg-amber-400'}`} /><span>Conexão de busca</span></span>
+          <span className="text-xs text-[var(--studio-muted)]">{apifyReady ? 'Conectada · gerenciar' : 'Configurar'}</span>
+        </summary>
+        <div className="pt-4"><ApifyConnection onConnectionChange={setApifyReady} /></div>
+      </details>
+
+      <section aria-label="Sugestões pelo seu perfil" className="xl:col-start-1 xl:row-start-3 dash-card p-5 space-y-4">
         <div><span className="studio-eyebrow">UM PONTO DE PARTIDA PARA PROSPECTAR</span><h3 className="text-lg font-semibold mt-1">Seu serviço. Um público que faz sentido.</h3><p className="text-xs text-[var(--studio-muted)] mt-2">Sugestões gratuitas por regras do seu perfil, sem chamada à IA. Aplicar apenas preenche os campos; você escolhe a cidade e confirma a busca.</p></div>
-        {suggestionsLoading ? <p role="status" className="text-xs text-[var(--studio-muted)]">Carregando sugestões…</p> : suggestionsError ? <p role="status" className="text-xs text-amber-300">Sugestões indisponíveis agora. Você pode buscar normalmente preenchendo os campos abaixo.</p> : !profileCompleted ? <p className="text-xs text-[var(--studio-muted)]">Preencha “Meu negócio” no início do painel com seu serviço e público para receber sugestões.</p> : <div className="grid md:grid-cols-3 gap-3">{suggestions.map(suggestion => <article key={suggestion.id} className="p-4 rounded-2xl border border-[var(--studio-line)] bg-[var(--studio-bg)] flex flex-col gap-3"><h4 className="text-sm font-semibold break-words">{suggestion.segment}</h4><p className="text-xs text-[var(--studio-muted)] flex-1">{suggestion.reason}</p><p className="text-xs text-[var(--studio-accent)]">{websiteFilterLabel(suggestion.websiteFilter)}</p><button type="button" disabled={isSearching} className="dash-btn-secondary px-3 py-2 text-xs" onClick={() => { setSegment(suggestion.segment); setWebsiteFilter(suggestion.websiteFilter); setSearchIdempotencyKey(crypto.randomUUID()); setAppliedSuggestion(`Sugestão aplicada: ${suggestion.segment}. Confira os filtros, informe a localização e clique em Buscar Empresas quando quiser.`); }}>Aplicar à busca</button></article>)}</div>}
+        {suggestionsLoading ? <p role="status" className="text-xs text-[var(--studio-muted)]">Carregando sugestões…</p> : suggestionsError ? <p role="status" className="text-xs text-amber-300">Sugestões indisponíveis agora. Você pode buscar normalmente preenchendo os campos abaixo.</p> : !profileCompleted ? <p className="text-xs text-[var(--studio-muted)]">Preencha “Meu negócio” em Configurações para receber sugestões.</p> : <div className="grid grid-cols-1 gap-3">{suggestions.map(suggestion => <article key={suggestion.id} className="p-4 rounded-2xl border border-[var(--studio-line)] bg-[var(--studio-bg)] flex flex-col gap-3"><h4 className="text-sm font-semibold break-words">{suggestion.segment}</h4><p className="text-xs text-[var(--studio-muted)] flex-1">{suggestion.reason}</p><p className="text-xs text-[var(--studio-accent)]">{websiteFilterLabel(suggestion.websiteFilter)}</p><button type="button" disabled={isSearching} className="dash-btn-secondary px-3 py-2 text-xs" onClick={() => { setSegment(suggestion.segment); setWebsiteFilter(suggestion.websiteFilter); setSearchIdempotencyKey(crypto.randomUUID()); setAppliedSuggestion(`Sugestão aplicada: ${suggestion.segment}. Confira os filtros, informe a localização e clique em Buscar Empresas quando quiser.`); }}>Aplicar à busca</button></article>)}</div>}
         {appliedSuggestion && <p role="status" className="text-xs text-[var(--studio-accent)]">{appliedSuggestion}</p>}
       </section>
       {/* Formulário de Busca */}
-      <div className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-4">
+      <div className="xl:col-start-1 xl:row-start-4 dash-card p-5 rounded-2xl border border-white/[0.08] space-y-4">
         <form onSubmit={handleSearch} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-4">
             {/* Segmento */}
             <div className="space-y-1.5">
               <label className="block text-[11px] font-semibold text-[var(--studio-muted)] uppercase tracking-wider">
@@ -398,13 +418,14 @@ export function CompanySearchTab({
                 <input
                   type="text"
                   required
-                  placeholder="Ex: São Paulo, SP ou Moema"
+                  placeholder="Ex.: Rio de Janeiro, RJ ou Moema, São Paulo, SP"
                   disabled={isSearching}
                   value={location}
                   onChange={(e) => { setLocation(e.target.value); setSearchIdempotencyKey(crypto.randomUUID()); }}
                   className="w-full pl-9 pr-3.5 py-2.5 dash-input rounded-xl text-xs text-white placeholder-slate-500"
                 />
               </div>
+              <p className="text-[10px] leading-relaxed text-[var(--studio-muted)]">Informe cidade e UF para evitar municípios homônimos. Para bairro, use “Bairro, Cidade, UF”.</p>
             </div>
 
             {/* Quantidade */}
@@ -433,15 +454,17 @@ export function CompanySearchTab({
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="search-website-filter" className="block text-xs font-semibold text-[var(--studio-muted)]">Presença de site</label>
-            <select id="search-website-filter" value={websiteFilter} disabled={isSearching}
-              onChange={e => { setWebsiteFilter(e.target.value); setSearchIdempotencyKey(crypto.randomUUID()); }}
-              className="dash-input w-full sm:max-w-xs rounded-xl px-3 py-2.5 text-sm">
-              <option value="ALL">Todas as empresas</option>
-              <option value="WITH_WEBSITE">Com site próprio</option>
-              <option value="WITHOUT_WEBSITE">Sem site próprio</option>
-            </select>
-            <p className="text-xs text-[var(--studio-muted)]">Apenas celulares brasileiros com 9 dígitos. Telefones fixos são descartados; isso não confirma que o número tenha WhatsApp. Redes sociais não contam como site próprio. A quantidade final pode ser menor após os filtros.</p>
+            <span className="block text-xs font-semibold text-[var(--studio-muted)]">Presença de site</span>
+            <div role="group" aria-label="Filtrar empresas pela presença de site" className="grid grid-cols-1 gap-2">
+              {[['ALL', 'Qualquer empresa'], ['WITH_WEBSITE', 'Com site próprio'], ['WITHOUT_WEBSITE', 'Sem site próprio']].map(([value, label]) => (
+                <button key={value} type="button" disabled={isSearching} aria-pressed={websiteFilter === value}
+                  onClick={() => { setWebsiteFilter(value); setSearchIdempotencyKey(crypto.randomUUID()); }}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-left text-xs transition-colors disabled:opacity-50 ${websiteFilter === value ? 'border-emerald-400/50 bg-emerald-500/[0.09] text-emerald-200' : 'border-white/[0.08] bg-white/[0.02] text-[var(--studio-muted)] hover:bg-white/[0.05]'}`}>
+                  <span>{label}</span><span className={`h-3 w-3 rounded-full border ${websiteFilter === value ? 'border-emerald-300 bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.4)]' : 'border-white/20'}`} />
+                </button>
+              ))}
+            </div>
+            <p className="text-xs leading-relaxed text-[var(--studio-muted)]">Sites de redes sociais não contam como site próprio. Telefones fixos e contatos inválidos são descartados; a busca não confirma que o número tenha WhatsApp.</p>
           </div>
 
           {/* Rodapé do Formulário: Estimativa e Botão */}
@@ -449,7 +472,7 @@ export function CompanySearchTab({
             <div className="flex items-center gap-2 text-[11px] text-[var(--studio-muted)]">
               <HelpCircle size={13} className="text-emerald-400 shrink-0" />
               <span>
-                Até <strong>{requestedCount} empresas</strong>. A Apify cobra o consumo na sua conta, inclusive resultados descartados. <strong>Não utiliza créditos de IA.</strong>
+                Até <strong>{requestedCount} empresas</strong>. A busca pode ter cobrança pelo serviço conectado, inclusive por dados descartados. <strong>Não utiliza créditos de IA.</strong>
               </span>
             </div>
 
@@ -466,7 +489,7 @@ export function CompanySearchTab({
               ) : (
                 <>
                   <Search size={14} />
-                  <span>Buscar Empresas ({requestedCount})</span>
+                  <span>Buscar leads</span>
                 </>
               )}
             </button>
@@ -474,20 +497,48 @@ export function CompanySearchTab({
         </form>
       </div>
 
+      <section aria-label="Resultados da busca" className="xl:col-start-2 xl:row-start-2 xl:row-span-3 min-h-[420px] rounded-3xl border border-white/[0.08] bg-[radial-gradient(ellipse_at_70%_12%,rgba(16,185,129,0.10),transparent_42%),linear-gradient(145deg,rgba(13,22,18,0.96),rgba(9,12,12,0.98))] p-4 sm:p-5 overflow-hidden">
       {/* Exibição dos Resultados da Busca Atual */}
+      <SearchLiveMap
+        key={currentSearch?.id || 'search-preview-map'}
+        points={currentSearch?.mapResults || []}
+        isSearching={isSearching || currentSearch?.status === 'PENDING' || currentSearch?.status === 'PROCESSING'}
+        location={currentSearch?.location || location}
+        segment={currentSearch?.segment || segment}
+      />
+      {!currentSearch && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
+          <p className="text-sm font-semibold text-white">Seu mapa de prospecção</p>
+          <p className="mt-1 text-xs text-[var(--studio-muted)]">As empresas da Apify serão exibidas aqui, uma a uma, após confirmação da cidade e das coordenadas.</p>
+        </div>
+      )}
       {currentSearch && currentSearch.status !== 'COMPLETED' && (
         <div role="status" className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-3">
           <h3 className="font-semibold text-white">{currentSearch.query}</h3>
           <p className="text-sm text-[var(--studio-muted)]">
             {currentSearch.status === 'FAILED'
-              ? `Busca falhou. ${currentSearch.errorMessage || 'Não foi possível concluir a consulta.'}`
-              : currentSearch.status === 'CANCELED'
+              ? `Busca falhou. ${readableSearchFailure(currentSearch.errorMessage)}`
+            : currentSearch.status === 'CANCELED'
                 ? 'Busca cancelada.'
-                : 'Busca em processamento. Os resultados ainda não estão prontos.'}
+                : `${currentSearch.mapResults?.length || 0} empresa(s) local(is) já apareceram no mapa. Validando os próximos resultados.`}
           </p>
-          <button type="button" onClick={() => handleOpenHistoricalSearch(currentSearch.id)} className="text-sm text-emerald-400">
-            Atualizar andamento
-          </button>
+          {currentSearch.status === 'FAILED' ? (
+            <button type="button" onClick={() => {
+              setSegment(currentSearch.segment || '');
+              setLocation(currentSearch.location || '');
+              setRequestedCount(currentSearch.requestedCount || 20);
+              setWebsiteFilter(currentSearch.websiteFilter || 'ALL');
+              setSearchIdempotencyKey(crypto.randomUUID());
+              setSelectedIds(new Set());
+              setCurrentSearch(null);
+            }} className="text-sm text-emerald-400">
+              Preparar nova tentativa
+            </button>
+          ) : (
+            <button type="button" onClick={() => handleOpenHistoricalSearch(currentSearch.id)} className="text-sm text-emerald-400">
+              Atualizar andamento
+            </button>
+          )}
         </div>
       )}
 
@@ -501,7 +552,7 @@ export function CompanySearchTab({
               <h3 className="text-sm font-semibold text-white mt-0.5">
                 {currentSearch.query}
               </h3>
-              <p className="text-xs text-[var(--studio-muted)] mt-1">{websiteFilterLabel(currentSearch.websiteFilter)} · Somente celulares</p>
+              <p className="text-xs text-[var(--studio-muted)] mt-1">{websiteFilterLabel(currentSearch.websiteFilter)} · cidade confirmada · somente celulares</p>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -696,10 +747,11 @@ export function CompanySearchTab({
           </div>
         </div>
       )}
+      </section>
 
       {/* Histórico das Últimas Buscas */}
       {history.length > 0 && (
-        <div className="dash-card p-5 rounded-2xl border border-white/[0.08] space-y-3">
+        <div className="xl:col-span-full dash-card p-5 rounded-2xl border border-white/[0.08] space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-semibold text-[var(--studio-muted)] uppercase tracking-wider flex items-center gap-2">
               <Layers size={13} className="text-emerald-400" />
