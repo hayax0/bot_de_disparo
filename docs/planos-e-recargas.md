@@ -1,37 +1,34 @@
-# Planos e recargas — integração comercial oficial
+# Planos e recargas
 
-Catálogo oficial integrado em 02/10/2026, issue #25.
+> Referência revisada em 23/11/2026. Os valores abaixo são os valores configurados em `backend/src/config/plans.ts`; confira a oferta externa Cakto antes de divulgar preço ou disponibilidade.
 
-| ID interno | Nome | Mensalidade | Disparos/ciclo | Créditos IA/ciclo | WhatsApp | Oferta Cakto | Checkout Oficial |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| START | Essencial | R$ 27,99 | 1.000 | 50 | 1 | 1165260 | `https://pay.cakto.com.br/3ejxmar_1165260` |
-| PRO | Profissional | R$ 55,99 | 3.000 | 150 | 1 | 1165278 | `https://pay.cakto.com.br/9gwgit3_1165278` |
-| SCALE | Premium | R$ 95,99 | 6.000 | 300 | 1 | 1165304 | `https://pay.cakto.com.br/33zk2g2_1165304` |
+## Planos configurados
 
-| ID interno | Nome | Créditos comprados | Pagamento único | Oferta Cakto | Checkout Oficial |
-| --- | --- | --- | --- | --- | --- |
-| PACKAGE_SMALL | 100 créditos | 100 | R$ 9,99 | 1165355 | `https://pay.cakto.com.br/zmvfpjf_1165355` |
-| PACKAGE_MEDIUM | 300 créditos | 300 | R$ 24,99 | 1165367 | `https://pay.cakto.com.br/dqywaqn_1165367` |
-| PACKAGE_LARGE | 700 créditos | 700 | R$ 49,99 | 1165374 | `https://pay.cakto.com.br/cbd2uec_1165374` |
+| ID | Plano | Preço mensal | Disparos por ciclo | Créditos de IA por ciclo | Conexões WhatsApp |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `START` | Essencial | R$ 27,99 | 1.000 | 50 | 1 |
+| `PRO` | Profissional | R$ 55,99 | 3.000 | 150 | 1 |
+| `SCALE` | Premium | R$ 95,99 | 6.000 | 300 | 1 |
 
-`backend/src/config/plans.ts` é a fonte oficial do catálogo. O painel consulta GET /api/integrations/plans com autenticação e gera checkout via POST /api/integrations/checkout.
+## Recargas configuradas
 
-## Regras de Negócio Implementadas
+| ID | Créditos | Valor único |
+| --- | ---: | ---: |
+| `PACKAGE_SMALL` | 100 | R$ 9,99 |
+| `PACKAGE_MEDIUM` | 300 | R$ 24,99 |
+| `PACKAGE_LARGE` | 700 | R$ 49,99 |
 
-1. **Planos Comerciais (`START`, `PRO`, `SCALE`)**:
-   - Compra aprovada atualiza `planId`, `monthlyDispatchQuota`, define `subscriptionStatus: 'ACTIVE'` e validade do ciclo.
-   - Concede a franquia de créditos mensais de IA do plano (`CreditWalletService.grantMonthlyCredits`).
-   - Reseta os disparos utilizados no ciclo (`QuotaService.resetCycleDispatches`).
-   - Renovação recorrente (`subscription_renewed`) estende a validade, reseta a franquia de disparos e concede novos créditos mensais.
+## Como o checkout funciona
 
-2. **Pacotes de Recarga (`PACKAGE_SMALL`, `PACKAGE_MEDIUM`, `PACKAGE_LARGE`)**:
-   - Concede créditos extras via `CreditWalletService.grantPurchasedCredits`.
-   - Créditos de recarga **não expiram** e são debitados somente após o término dos créditos mensais.
-   - Recargas não alteram a franquia mensal de disparos nem a expiração da assinatura.
-   - Registra a transação com idempotência em `CreditPurchaseOrder`.
+A API autenticada de integrações retorna o catálogo e a URL Cakto configurada para o plano ou pacote escolhido. Isso apenas encaminha ao checkout externo; não confirma que a oferta esteja publicada/ativa nem que o pagamento foi concluído. A assinatura ou recarga é atualizada após o webhook Cakto validado e processado.
 
-3. **Compatibilidade e Legado**:
-   - `LEGACY_DAVI`: condições antigas mantidas (sem franquia de IA e sem restrições de disparo).
-   - Administradores (`ADMIN`): acesso vitalício e IA ilimitada garantidos pelo papel de sistema.
-   - Apify pessoal: buscas de empresas continuam cobradas pelo provedor na conta do usuário, sem consumir créditos de IA da plataforma.
+Antes de anunciar um preço, confira a configuração em `backend/src/config/plans.ts` e a oferta correspondente no painel Cakto. Os IDs internos e identificadores externos são mantidos para correlacionar os eventos de pagamento.
 
+## Regras de saldo e cotas
+
+- Créditos mensais de IA são concedidos no ciclo de assinatura e não acumulam para o ciclo seguinte.
+- Créditos comprados em recargas não expiram e são consumidos depois do saldo mensal.
+- As recargas não aumentam a franquia mensal de disparos.
+- Elegibilidade, saldo e status da assinatura são validados pelo backend antes do uso.
+- Usuários com papel `ADMIN` têm os benefícios ilimitados definidos pelo sistema enquanto mantiverem esse papel. Contas legadas e exceções de disparo têm regras específicas; isso não é acesso vitalício geral.
+- Buscas novas de empresas são cobradas pela conta pessoal do usuário na Apify e não pela carteira de IA da plataforma.

@@ -1,81 +1,62 @@
-# Guia Completo de Deploy em Produção — SaaS Bot
+# Deploy de produção
 
-Este documento fornece as instruções para subir a aplicação em qualquer servidor Linux (Ubuntu/Debian/AWS/DigitalOcean/Hetzner) de forma automatizada com Docker.
+Este guia descreve o procedimento Docker do Abordai na VPS. O endereço público configurado é `https://abordai.cmpx.tec.br`; frontend e API usam a mesma origem, e a API fica em `/api`. O estado atual de uma VPS deve ser conferido antes de qualquer alteração.
 
----
+## Pré-requisitos
 
-## 📋 Pré-requisitos no Servidor
-- **Docker** e **Docker Compose** instalados.
-- Domínio apontado para o IP do seu servidor (ex: `app.seusite.com` e `api.seusite.com`).
+- Docker Engine e Docker Compose instalados no servidor.
+- Repositório clonado no diretório de instalação, por exemplo `/opt/saas-bot`.
+- DNS e HTTPS configurados no Nginx conforme `infra/nginx/abordai.conf`.
+- Arquivo `.env` de produção preenchido com valores secretos e específicos do ambiente.
 
----
+## Primeira instalação
 
-## 🚀 Passo a Passo de Deploy
-
-### 1. Clonar o repositório no servidor
 ```bash
 git clone https://github.com/hayax0/bot_de_disparo.git /opt/saas-bot
 cd /opt/saas-bot
-```
-
-### 2. Configurar o arquivo de variáveis de ambiente
-```bash
 cp .env.production.example .env
-nano .env
 ```
-Preencha as variáveis com senhas fortes:
-- `POSTGRES_PASSWORD`: Senha do banco PostgreSQL
-- `JWT_SECRET`: Chave secreta de autenticação (gerada com `openssl rand -base64 32`)
-- `CORS_ORIGIN`: URL pública do frontend (ex: `https://app.seusite.com`)
-- `NEXT_PUBLIC_API_URL`: URL pública da API (ex: `https://api.seusite.com/api`)
 
-### 3. Construir as imagens e iniciar os serviços de dados
+Edite `.env` no servidor. Gere `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET` e `CRON_SECRET` com valores aleatórios fortes. Configure `CAKTO_WEBHOOK_SECRET` com o mesmo segredo do webhook configurado no painel Cakto. Guarde `INTEGRATION_ENCRYPTION_KEY` em segurança: ela protege as credenciais pessoais de integração armazenadas no banco; perdê-la pode impedir a leitura dessas credenciais.
+
+Mantenha `CORS_ORIGIN`, `PLATFORM_URL` e `NEXT_PUBLIC_APP_URL` no domínio canônico e `NEXT_PUBLIC_API_URL=/api`, como no arquivo de exemplo. `APIFY_API_TOKEN` é uma variável de compatibilidade para execuções históricas; novas buscas usam a credencial Apify pessoal conectada pelo usuário. `GEMINI_API_KEY`, Resend, Turnstile e Sentry são configurados conforme os recursos que o ambiente usa. Não copie segredos para issues, PRs ou logs.
+
+Construa os serviços, suba banco e Redis, aplique as migrações e só então inicie a aplicação:
+
 ```bash
 docker compose -f docker-compose.production.yml build backend frontend
 docker compose -f docker-compose.production.yml up -d postgres redis
-```
-
-### 4. Executar as migrações do banco de dados (Prisma)
-```bash
 docker compose -f docker-compose.production.yml run --rm --no-deps backend npm run migrate:deploy
 docker compose -f docker-compose.production.yml up -d --no-build backend frontend
+docker compose -f docker-compose.production.yml ps
 ```
 
----
+Confira os logs dos serviços e o endpoint de saúde `https://abordai.cmpx.tec.br/api/health` após a inicialização.
 
-## 🔒 Persistência e Segurança
-- **Sessão do WhatsApp (Baileys):** Mapeada em volume local (`./backend/.baileys_auth`). Preserve esta pasta ao atualizar ou fazer backup.
-- **Banco de Dados & Redis:** Executam em rede interna privada (`internal_network`), não expondo portas diretamente para a internet pública.
+## Atualização
 
----
+Faça deploy apenas depois do merge do PR em `main`, conforme `AGENTS.md`. Antes de atualizar, confira se o diretório de produção está na branch esperada e sem alterações locais. Gere e valide um backup do PostgreSQL com `bash scripts/backup-db.sh` e preserve arquivos de ambiente, uploads e sessão do WhatsApp.
 
-## 🔄 Atualização de Versão (Rollout)
-Para atualizar o sistema sem perder sessões ou dados:
 ```bash
 cd /opt/saas-bot
-git pull origin main
+bash scripts/backup-db.sh
+git status --short --branch
+git pull --ff-only origin main
 docker compose -f docker-compose.production.yml build backend frontend
 docker compose -f docker-compose.production.yml run --rm --no-deps backend npm run migrate:deploy
 docker compose -f docker-compose.production.yml up -d --no-build backend frontend
+docker compose -f docker-compose.production.yml ps
 ```
 
-Execute cada etapa apenas se a anterior terminar com sucesso. A migration roda na imagem nova, antes de substituir a aplicação em execução. O Prisma CLI é uma dependência de produção para permitir esse comando.
+Se uma etapa falhar, pare e investigue antes de continuar. Não use `docker compose down -v`: isso pode remover volumes de dados.
 
-Para a atualização de segurança de setembro de 2026, consulte [CORRECOES-1-A-11.md](CORRECOES-1-A-11.md), especialmente a configuração do webhook e do envio de códigos de confirmação.
+## Persistência e rede
 
----
+O Compose mantém volumes para PostgreSQL e Redis e monta `backend/.baileys_auth` e `backend/uploads`. Faça backup desses dados conforme a política operacional do servidor. PostgreSQL e Redis não publicam portas no host; os serviços conversam pela rede bridge do Compose. A configuração Nginx e o firewall do host são gerenciados fora do Compose.
 
-## 🧪 Comandos Úteis
+## Integrações externas
 
-- **Ver logs em tempo real:**
-  ```bash
-  docker compose -f docker-compose.production.yml logs -f
-  ```
-- **Ver logs apenas do backend:**
-  ```bash
-  docker compose -f docker-compose.production.yml logs -f backend
-  ```
-- **Rodar testes automatizados:**
-  ```bash
-  cd backend && npm test
-  ```
+- Configure o webhook Cakto para a rota `/api/webhooks/cakto` e use o segredo correspondente em `.env`.
+- Cada usuário conecta sua própria conta Apify na plataforma; a busca é executada pelo Actor configurado no backend e pode gerar cobrança na conta Apify.
+- O mapa de busca usa Leaflet com tiles OpenStreetMap. A chave da API Google Maps não é necessária para esse mapa.
+- Configure domínio, remetente e chaves de e-mail no Resend antes de depender de envio transacional.
