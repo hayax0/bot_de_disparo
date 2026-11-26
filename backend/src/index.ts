@@ -44,6 +44,7 @@ import searchRoutes from './routes/search';
 import integrationRoutes from './routes/integrations';
 import { campaignWorker, recoverOrphanedLeads, backfillDispatchHistory } from './services/CampaignRunner';
 import { recoverInboxReplies } from './services/WhatsappInboxWorker';
+import { recoverScheduledCampaigns } from './services/CampaignScheduleService';
 import { messageQueue, queueEvents, aiGenerationQueue, aiGenerationQueueEvents } from './services/queue';
 import { WhatsappManager } from './services/WhatsappManager';
 import { startCompanySearchWorker, companySearchWorker } from './workers/companySearchWorker';
@@ -220,6 +221,8 @@ const server = app.listen(ENV.PORT, async () => {
   WhatsappManager.startWatchdog(60000);
   // Recupera leads QUEUED sem job na fila (após reinício do servidor/Redis)
   await recoverOrphanedLeads();
+  // A tabela Campaign é a fonte de verdade; reconstitui o job de início agendado.
+  await recoverScheduledCampaigns(prisma, messageQueue);
   await recoverInboxReplies().catch(() => console.error('[WHATSAPP INBOX] Falha ao recuperar respostas pendentes.'));
   campaignWorker.run().catch(err => {
     console.error('[WORKER] Consumo da fila interrompido:', err);
@@ -249,6 +252,16 @@ const followupRecoveryTimer = setInterval(async () => {
 }, 60_000);
 followupRecoveryTimer.unref();
 
+let recoveringScheduledCampaigns = false;
+const scheduledCampaignRecoveryTimer = setInterval(async () => {
+  if (recoveringScheduledCampaigns) return;
+  recoveringScheduledCampaigns = true;
+  try { await recoverScheduledCampaigns(prisma, messageQueue); }
+  catch (error) { Sentry.captureException(error); }
+  finally { recoveringScheduledCampaigns = false; }
+}, 30_000);
+scheduledCampaignRecoveryTimer.unref();
+
 // ── Graceful shutdown ─────────────────────────────────────────────
 // Fecha tudo na ordem correta para não corromper a sessão do WhatsApp
 // (lock do Chromium) nem deixar jobs do BullMQ em estado inconsistente.
@@ -257,6 +270,7 @@ async function gracefulShutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(followupRecoveryTimer);
+  clearInterval(scheduledCampaignRecoveryTimer);
   console.log(`[SHUTDOWN] Recebido ${signal}. Encerrando com segurança...`);
 
   const forceExit = setTimeout(() => {

@@ -38,7 +38,7 @@ function readToken(token: string, campaignId: string, workspaceId: string, retry
 async function load(db: Pick<PrismaClient, 'campaign' | 'lead'>, id: string, workspaceId: string, retryFailed: boolean) {
   const campaign = await db.campaign.findFirst({ where: { id, workspaceId }, include: { workspace: { include: { user: { select: { name: true } } } } } });
   if (!campaign) throw new CampaignReviewError('Campanha não encontrada.', 404);
-  if (['RUNNING', 'STARTING', 'PAUSING'].includes(campaign.status)) throw new CampaignReviewError('Pause a campanha antes de revisar outro lote.');
+  if (['RUNNING', 'STARTING', 'PAUSING', 'SCHEDULED'].includes(campaign.status)) throw new CampaignReviewError('Pause ou cancele o agendamento antes de revisar outro lote.');
   const leads = await db.lead.findMany({ where: { campaignId: id, ...eligibleForReview(retryFailed) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: BATCH_LIMIT });
   return { campaign, leads };
 }
@@ -67,7 +67,7 @@ export async function claimReviewedBatch(db: PrismaClient, id: string, workspace
     const selected = rows.filter(row => ids.includes(row.id));
     if (selected.length !== ids.length || selected.some(row => !row.message)) throw new CampaignReviewError('Seleção inválida ou mensagem vazia. Revise os contatos antes de enviar.');
     const batchId = randomUUID();
-    const claimed = await tx.campaign.updateMany({ where: { id, workspaceId, status: { notIn: ['RUNNING', 'STARTING', 'PAUSING'] } }, data: { status: 'STARTING', activeSendBatchId: batchId } });
+    const claimed = await tx.campaign.updateMany({ where: { id, workspaceId, status: { notIn: ['RUNNING', 'STARTING', 'PAUSING', 'SCHEDULED'] } }, data: { status: 'STARTING', activeSendBatchId: batchId, scheduledAt: null, scheduleError: null } });
     if (!claimed.count) throw new CampaignReviewError('Esta campanha já está em execução ou iniciando.');
     // Jobs de um lote anterior não podem manter contatos não selecionados como QUEUED.
     await tx.lead.updateMany({ where: { campaignId: id, status: 'QUEUED', sendStartedAt: null, id: { notIn: ids } }, data: { status: 'PENDING' } });

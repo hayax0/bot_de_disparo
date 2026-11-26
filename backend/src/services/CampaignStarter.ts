@@ -7,11 +7,47 @@ export class CampaignStartError extends Error {
   constructor(message: string, public status = 500) { super(message); }
 }
 
+export async function queueCampaignLeads(
+  queue: Queue,
+  campaign: { delayMin: number; delayMax: number },
+  campaignId: string,
+  workspaceId: string,
+  leads: Array<{ id: string }>,
+  batchId?: string,
+) {
+  let delay = 1000;
+  const jobs = leads.map((lead, index) => {
+    if (index > 0) delay += (campaign.delayMin + Math.random() * (campaign.delayMax - campaign.delayMin)) * 1000;
+    const job = {
+      name: 'send-message',
+      data: { leadId: lead.id, campaignId, workspaceId, ...(batchId ? { batchId } : {}) },
+      opts: { jobId: `${campaignId}_${lead.id}`, delay: Math.round(delay), attempts: 3,
+        backoff: { type: 'exponential' as const, delay: 5000 }, removeOnComplete: true, removeOnFail: false },
+    };
+    if ((index + 1) % 8 === 0) delay += 600000 + Math.random() * 300000;
+    return job;
+  });
+
+  for (let offset = 0; offset < jobs.length; offset += 200) {
+    const results = await Promise.allSettled(jobs.slice(offset, offset + 200).map(async job => {
+      const existing = await queue.getJob(job.opts.jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === 'active') throw new Error('Um envio anterior ainda está finalizando.');
+        await existing.remove();
+      }
+      return queue.add(job.name, job.data, job.opts);
+    }));
+    if (results.some(result => result.status === 'rejected')) throw new Error('Falha ao preparar a fila.');
+  }
+  return jobs.length;
+}
+
 // STARTING impede o worker de enviar enquanto o lote ainda está sendo preparado.
 export async function startCampaign(db: PrismaClient, queue: Queue, id: string, workspaceId: string, retryFailed = false, review?: SendReviewConfirmation) {
   const campaign = await db.campaign.findFirst({ where: { id, workspaceId } });
   if (!campaign) throw new CampaignStartError('Campanha não encontrada.', 404);
-  if (['RUNNING', 'STARTING', 'PAUSING'].includes(campaign.status)) throw new CampaignStartError('Esta campanha já está em execução ou iniciando.', 409);
+  if (['RUNNING', 'STARTING', 'PAUSING', 'SCHEDULED'].includes(campaign.status)) throw new CampaignStartError('Esta campanha já está em execução, iniciando ou agendada.', 409);
   const session = await db.whatsappSession.findUnique({ where: { workspaceId } });
   if (session?.status !== 'CONNECTED') throw new CampaignStartError('O WhatsApp não está conectado. Conecte seu aparelho antes de iniciar os envios.', 400);
 
@@ -38,32 +74,10 @@ export async function startCampaign(db: PrismaClient, queue: Queue, id: string, 
   const ids = leads.map(lead => lead.id);
   try {
     if (!review) await db.lead.updateMany({ where: { id: { in: ids }, ...eligible }, data: { status: 'QUEUED', errorMessage: null, attempts: 0 } });
-    let delay = 1000;
-    const jobs = leads.map((lead, index) => {
-      if (index > 0) delay += (campaign.delayMin + Math.random() * (campaign.delayMax - campaign.delayMin)) * 1000;
-      const job = {
-        name: 'send-message', data: { leadId: lead.id, campaignId: id, workspaceId, ...(batchId ? { batchId } : {}) },
-        opts: { jobId: `${id}_${lead.id}`, delay: Math.round(delay), attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: true, removeOnFail: false },
-      };
-      if ((index + 1) % 8 === 0) delay += 600000 + Math.random() * 300000;
-      return job;
-    });
-    for (let offset = 0; offset < jobs.length; offset += 200) {
-      const results = await Promise.allSettled(jobs.slice(offset, offset + 200).map(async job => {
-        const existing = await queue.getJob(job.opts.jobId);
-        if (existing) {
-          const state = await existing.getState();
-          if (state === 'active') throw new Error('Um envio anterior ainda está finalizando.');
-          await existing.remove(); // Reaplica a cadência também aos jobs de uma preparação interrompida.
-        }
-        return queue.add(job.name, job.data, job.opts);
-      }));
-      if (results.some(result => result.status === 'rejected')) throw new Error('Falha ao preparar a fila.');
-    }
+    const jobsQueued = await queueCampaignLeads(queue, campaign, id, workspaceId, leads, batchId);
     const started = await db.campaign.updateMany({ where: { id, status: 'STARTING', ...(batchId ? { activeSendBatchId: batchId } : {}) }, data: { status: 'RUNNING' } });
     if (!started.count) throw new Error('Preparação interrompida.');
-    return { message: 'Campanha iniciada com sucesso!', jobsQueued: jobs.length };
+    return { message: 'Campanha iniciada com sucesso!', jobsQueued };
   } catch {
     // Enquanto STARTING/PAUSED, nenhum job deste lote pode enviar mensagens.
     await db.campaign.updateMany({ where: { id, status: 'STARTING', ...(batchId ? { activeSendBatchId: batchId } : {}) }, data: { status: 'PAUSED' } });
