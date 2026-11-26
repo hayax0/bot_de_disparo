@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, Send, X } from 'lucide-react';
+import { CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, Send, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 type ReviewLead = { id: string; title: string; phone: string; message: string; status: string; hasWebsite: boolean; aiGenerated: boolean };
 type Review = { campaignName: string; token: string; expiresAt: number; eligibleCount: number; batchLimit: number; leads: ReviewLead[] };
+function localDateTimeValue(date = new Date()) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
 export function CampaignSendReview({ campaignId, retryFailed, connected, onClose, onStarted, onReady }: {
   campaignId: string; retryFailed: boolean; connected: boolean; onClose: () => void; onStarted: (message: string) => void; onReady: () => void;
 }) {
@@ -20,6 +23,8 @@ export function CampaignSendReview({ campaignId, retryFailed, connected, onClose
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [stale, setStale] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const callbacks = useRef({ onReady, onStarted });
   const inFlight = useRef(false);
@@ -50,10 +55,22 @@ export function CampaignSendReview({ campaignId, retryFailed, connected, onClose
     finally { inFlight.current = false; setBusy(false); }
   };
   const start = async () => {
-    if (!connected || !review || !selected?.size || !confirmed || stale || editing || inFlight.current) return;
+    if ((!scheduleMode && !connected) || !review || !selected?.size || !confirmed || stale || editing || inFlight.current) return;
+    if (scheduleMode && (!scheduledAt || new Date(scheduledAt).getTime() <= Date.now())) {
+      setError('Escolha um horário futuro para agendar os envios.');
+      return;
+    }
     inFlight.current = true; setBusy(true); setError('');
     try {
-      const { data } = await api.post(`/campaigns/${campaignId}/${retryFailed ? 'retry-failed' : 'start'}`, { token: review.token, leadIds: [...selected] });
+      const { data } = scheduleMode
+        ? await api.post(`/campaigns/${campaignId}/schedule`, {
+          token: review.token,
+          leadIds: [...selected],
+          retryFailed,
+          scheduledAt: new Date(scheduledAt).toISOString(),
+          scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo',
+        })
+        : await api.post(`/campaigns/${campaignId}/${retryFailed ? 'retry-failed' : 'start'}`, { token: review.token, leadIds: [...selected] });
       callbacks.current.onStarted(data.message || 'Campanha iniciada.');
     } catch (cause) {
       if (axios.isAxiosError(cause) && cause.response?.status === 409) { setStale(true); setConfirmed(false); }
@@ -75,11 +92,23 @@ export function CampaignSendReview({ campaignId, retryFailed, connected, onClose
           {editing === lead.id ? <><textarea autoFocus aria-label={`Mensagem para ${lead.title}`} value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} rows={4} className="dash-input w-full p-3 text-sm" /><div className="flex gap-3"><button type="button" disabled={busy || !draft.trim()} onClick={save} className="dash-btn-primary px-4 py-2 text-xs">Salvar e atualizar revisão</button><button type="button" disabled={busy} onClick={() => setEditing(null)} className="dash-btn-secondary px-4 py-2 text-xs">Cancelar edição</button></div></> : <><p className="whitespace-pre-wrap break-words text-sm leading-relaxed bg-[var(--studio-bg)] rounded-xl p-3">{lead.message || 'Sem mensagem. Edite antes de selecionar este contato.'}</p>{lead.status === 'PENDING' && <button type="button" disabled={busy || Boolean(editing)} className="text-xs text-[var(--studio-accent)]" onClick={() => { setEditing(lead.id); setDraft(lead.message); setConfirmed(false); }}>Editar mensagem gratuitamente</button>}</>}
         </article>)}</div>
         {review.leads.length > 10 && <nav aria-label="Páginas da revisão" className="flex justify-between items-center text-xs"><button type="button" aria-label="Página anterior da revisão" disabled={page === 0 || busy || Boolean(editing)} onClick={() => setPage(page - 1)} className="dash-btn-secondary p-2 disabled:opacity-30"><ChevronLeft size={16} /></button><span>Página {page + 1} de {Math.ceil(review.leads.length / 10)}</span><button type="button" aria-label="Próxima página da revisão" disabled={(page + 1) * 10 >= review.leads.length || busy || Boolean(editing)} onClick={() => setPage(page + 1)} className="dash-btn-secondary p-2 disabled:opacity-30"><ChevronRight size={16} /></button></nav>}
-        {review.leads.length > 0 && <label className="flex items-start gap-3 text-sm border-t border-[var(--studio-line)] pt-4"><input type="checkbox" checked={confirmed} disabled={busy || Boolean(editing) || stale} onChange={event => setConfirmed(event.target.checked)} className="mt-1 accent-[var(--studio-accent)]" /><span>Revisei as mensagens e quero enviar somente aos {selected?.size || 0} contatos selecionados.<small className="block text-[var(--studio-muted)] mt-1">Os não selecionados continuam pendentes. O envio só começa após a confirmação abaixo.</small></span></label>}
+        {review.leads.length > 0 && <>
+          <section className="rounded-2xl border border-[var(--studio-line)] p-4 space-y-3">
+            <button type="button" disabled={busy || Boolean(editing)} aria-expanded={scheduleMode} onClick={() => { setScheduleMode(value => !value); setConfirmed(false); setError(''); }} className="flex items-center gap-2 text-sm font-medium text-[var(--studio-accent)]">
+              <CalendarClock size={17} />{scheduleMode ? 'Voltar para envio imediato' : 'Agendar para outro horário'}
+            </button>
+            {scheduleMode && <div className="space-y-2">
+              <label htmlFor="campaign-scheduled-at" className="block text-xs text-[var(--studio-muted)]">Data e hora no seu fuso horário</label>
+              <input id="campaign-scheduled-at" type="datetime-local" min={localDateTimeValue()} value={scheduledAt} onChange={event => { setScheduledAt(event.target.value); setConfirmed(false); setError(''); }} className="dash-input w-full p-3 text-sm" />
+              <p className="text-xs text-[var(--studio-muted)]">No horário escolhido, vamos conferir a conexão do WhatsApp, sua assinatura e a franquia antes de iniciar. Se algo impedir o início, a campanha ficará pausada com o motivo.</p>
+            </div>}
+          </section>
+          <label className="flex items-start gap-3 text-sm border-t border-[var(--studio-line)] pt-4"><input type="checkbox" checked={confirmed} disabled={busy || Boolean(editing) || stale} onChange={event => setConfirmed(event.target.checked)} className="mt-1 accent-[var(--studio-accent)]" /><span>Revisei as mensagens e {scheduleMode ? 'quero agendar' : 'quero enviar agora'} somente aos {selected?.size || 0} contatos selecionados.<small className="block text-[var(--studio-muted)] mt-1">Os não selecionados continuam pendentes. {scheduleMode ? 'Os envios começam no horário confirmado acima.' : 'O envio só começa após a confirmação abaixo.'}</small></span></label>
+        </>}
       </>}
-      {!connected && <p role="status" className="text-sm text-amber-300">Você pode revisar agora. Para iniciar os envios, volte ao painel e conecte o WhatsApp.</p>}
+      {!connected && !scheduleMode && <p role="status" className="text-sm text-amber-300">Você pode revisar agora. Para iniciar os envios, volte ao painel e conecte o WhatsApp. Se preferir, agende para depois: a conexão será conferida no horário escolhido.</p>}
       {error && <p role="alert" className="text-sm text-amber-300">{error}</p>}
-      <footer className="flex flex-wrap justify-end gap-3 border-t border-[var(--studio-line)] pt-4"><button type="button" disabled={busy} onClick={onClose} className="dash-btn-secondary px-4 py-2.5 text-sm">Voltar à campanha</button><button type="button" disabled={busy || loading || Boolean(editing)} onClick={() => { setLoading(true); setConfirmed(false); void load(); }} className="dash-btn-secondary px-4 py-2.5 text-sm">Atualizar revisão</button><button type="button" disabled={!connected || busy || loading || stale || !confirmed || !selected?.size || Boolean(editing)} onClick={start} className="dash-btn-primary px-5 py-2.5 text-sm flex gap-2 items-center disabled:opacity-40">{busy ? <RefreshCw className="animate-spin" size={16} /> : <Send size={16} />}Confirmar e iniciar envios</button></footer>
+      <footer className="flex flex-wrap justify-end gap-3 border-t border-[var(--studio-line)] pt-4"><button type="button" disabled={busy} onClick={onClose} className="dash-btn-secondary px-4 py-2.5 text-sm">Voltar à campanha</button><button type="button" disabled={busy || loading || Boolean(editing)} onClick={() => { setLoading(true); setConfirmed(false); void load(); }} className="dash-btn-secondary px-4 py-2.5 text-sm">Atualizar revisão</button><button type="button" disabled={(!scheduleMode && !connected) || (scheduleMode && !scheduledAt) || busy || loading || stale || !confirmed || !selected?.size || Boolean(editing)} onClick={start} className="dash-btn-primary px-5 py-2.5 text-sm flex gap-2 items-center disabled:opacity-40">{busy ? <RefreshCw className="animate-spin" size={16} /> : scheduleMode ? <CalendarClock size={16} /> : <Send size={16} />}{scheduleMode ? 'Confirmar agendamento' : 'Confirmar e iniciar envios'}</button></footer>
       {!loading && !error && review && <p className="flex gap-2 items-center text-xs text-[var(--studio-muted)]"><CheckCircle2 size={14} />Revisão válida por 15 minutos. Alterações posteriores exigem uma nova conferência.</p>}
     </div>
   </dialog>;

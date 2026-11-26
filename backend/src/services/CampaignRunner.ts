@@ -9,6 +9,7 @@ import { QuotaService } from './QuotaService';
 import { inboxReplyJob, recordInboxMessage, trackInboxCampaign } from './WhatsappInbox';
 import { commercialPhone } from './CommercialContacts';
 import { failInboxReply, processInboxReply } from './WhatsappInboxWorker';
+import { runScheduledCampaignStartJob, SCHEDULED_CAMPAIGN_START_JOB } from './CampaignScheduleService';
 
 // Helper para verificar se a campanha concluiu todos os leads
 async function checkCampaignCompletion(campaignId: string) {
@@ -48,6 +49,7 @@ async function pauseDisconnectedCampaign(campaignId: string, batchId?: string) {
 // Job processor com isolamento, idempotência e auditoria
 export const campaignWorker = new Worker('message-queue', async (job: Job, token?: string) => {
   if (job.name === inboxReplyJob) return processInboxReply(job.data.inboxMessageId);
+  if (job.name === SCHEDULED_CAMPAIGN_START_JOB) return runScheduledCampaignStartJob(prisma, messageQueue, job, token);
   const { leadId, campaignId, workspaceId, batchId } = job.data;
 
   // 1. Recarregar campanha e lead
@@ -371,7 +373,8 @@ campaignWorker.on('failed', async (job, err) => {
 export async function recoverOrphanedLeads() {
   try {
     // Preparações interrompidas não devem ficar bloqueadas após reinício.
-    await prisma.campaign.updateMany({ where: { status: { in: ['STARTING', 'PAUSING'] } }, data: { status: 'PAUSED' } });
+    // Campanhas com scheduledAt são recuperadas pelo CampaignScheduleService.
+    await prisma.campaign.updateMany({ where: { status: { in: ['STARTING', 'PAUSING'] }, scheduledAt: null }, data: { status: 'PAUSED' } });
     const runningCampaigns = await prisma.campaign.findMany({
       where: { status: { in: ['RUNNING', 'PAUSED'] } },
       select: { id: true, name: true, activeSendBatchId: true }

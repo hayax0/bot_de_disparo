@@ -11,6 +11,7 @@ import { WhatsappManager } from '../services/WhatsappManager';
 import { commercialInputSchema, commercialFilterSchema, commercialListSchema, commercialSalesSchema, listCommercialContacts, commercialLeadFilter, commercialForPhones, commercialPhone, emptyCommercial, readCommercial, updateCommercial, commercialMetrics, commercialSales, CommercialError } from '../services/CommercialContacts';
 import { createSendReview, CampaignReviewError } from '../services/CampaignSendReview';
 import { CampaignStartError, startCampaign } from '../services/CampaignStarter';
+import { CampaignScheduleError, cancelScheduledCampaign, rescheduleCampaign, scheduleCampaign } from '../services/CampaignScheduleService';
 import { validateBody, createCampaignSchema } from '../lib/validation';
 import { LeadImportService } from '../services/LeadImportService';
 import { isLegacyPlan, getUserCapabilities } from '../config/plans';
@@ -638,12 +639,65 @@ const reviewConfirmationSchema = z.object({
   token: z.string().min(20).max(2000),
   leadIds: z.array(z.string().min(1).max(100)).min(1).max(500),
 }).strict();
+const scheduleCampaignSchema = reviewConfirmationSchema.extend({
+  scheduledAt: z.string().datetime(),
+  scheduleTimezone: z.string().min(1).max(80),
+  retryFailed: z.boolean().optional().default(false),
+}).strict();
+const updateCampaignScheduleSchema = z.object({
+  scheduledAt: z.string().datetime(),
+  scheduleTimezone: z.string().min(1).max(80),
+}).strict();
 router.post('/:id/send-review', requireActiveSubscription, async (req, res): Promise<any> => {
   if (req.body?.retryFailed !== undefined && typeof req.body.retryFailed !== 'boolean') return res.status(400).json({ error: 'Modo de revisão inválido.' });
   try { res.json(await createSendReview(prisma, req.params.id as string, req.user!.workspaceId, req.body?.retryFailed === true)); }
   catch (error) {
     if (error instanceof CampaignReviewError) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Não foi possível preparar a revisão. Tente novamente.' });
+  }
+});
+
+router.post('/:id/schedule', requireActiveSubscription, async (req, res): Promise<any> => {
+  const body = scheduleCampaignSchema.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Revise os contatos e informe uma data e hora válidas para o agendamento.' });
+  try {
+    const result = await scheduleCampaign(
+      prisma, messageQueue, req.params.id as string, req.user!.workspaceId,
+      new Date(body.data.scheduledAt), body.data.scheduleTimezone,
+      { token: body.data.token, leadIds: body.data.leadIds },
+      body.data.retryFailed,
+    );
+    return res.status(202).json(result);
+  } catch (error) {
+    if (error instanceof CampaignScheduleError || error instanceof CampaignReviewError) return res.status(error.status).json({ error: error.message });
+    console.error('Erro ao agendar campanha:', error);
+    return res.status(500).json({ error: 'Não foi possível agendar a campanha. Atualize a revisão e tente novamente.' });
+  }
+});
+
+router.put('/:id/schedule', requireActiveSubscription, async (req, res): Promise<any> => {
+  const body = updateCampaignScheduleSchema.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Informe uma data e hora futuras válidas para o agendamento.' });
+  try {
+    const result = await rescheduleCampaign(
+      prisma, messageQueue, req.params.id as string, req.user!.workspaceId,
+      new Date(body.data.scheduledAt), body.data.scheduleTimezone,
+    );
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof CampaignScheduleError) return res.status(error.status).json({ error: error.message });
+    console.error('Erro ao alterar agendamento:', error);
+    return res.status(500).json({ error: 'Não foi possível alterar o horário da campanha.' });
+  }
+});
+
+router.delete('/:id/schedule', async (req, res): Promise<any> => {
+  try {
+    return res.json(await cancelScheduledCampaign(prisma, messageQueue, req.params.id as string, req.user!.workspaceId));
+  } catch (error) {
+    if (error instanceof CampaignScheduleError) return res.status(error.status).json({ error: error.message });
+    console.error('Erro ao cancelar agendamento:', error);
+    return res.status(500).json({ error: 'Não foi possível cancelar o agendamento.' });
   }
 });
 
@@ -670,6 +724,10 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
   try {
     const campaign = await prisma.campaign.findFirst({ where: { id, workspaceId } });
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
+
+    if (campaign.status === 'SCHEDULED') {
+      return res.json(await cancelScheduledCampaign(prisma, messageQueue, id, workspaceId));
+    }
 
     const paused = await prisma.campaign.updateMany({ where: { id, status: { notIn: ['STARTING', 'PAUSING'] } }, data: { status: 'PAUSING' } });
     if (!paused.count) return res.status(409).json({ error: 'Aguarde a preparação da campanha antes de pausar.' });
@@ -698,6 +756,7 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<any> => {
     console.log(`[PAUSE] Campanha ${id}: ${removedJobs} jobs removidos da fila, ${reverted.count} leads voltaram a PENDING.`);
     res.json({ message: 'Campanha pausada.', removedJobs, leadsReverted: reverted.count });
   } catch (error) {
+    if (error instanceof CampaignScheduleError) return res.status(error.status).json({ error: error.message });
     console.error('Erro ao pausar campanha:', error);
     res.status(500).json({ error: 'Erro ao pausar campanha.' });
   }

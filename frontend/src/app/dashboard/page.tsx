@@ -34,6 +34,7 @@ import {
   CheckCircle2,
   ShieldCheck,
   Clock,
+  CalendarClock,
   BookOpen,
   Info,
   X,
@@ -83,6 +84,9 @@ interface Campaign {
   delayMin: number;
   delayMax: number;
   createdAt: string;
+  scheduledAt?: string | null;
+  scheduleTimezone?: string;
+  scheduleError?: string | null;
   _count?: {
     leads: number;
   };
@@ -202,6 +206,12 @@ function formatEta(seconds: number): string {
   return `~${h}h ${m}min`;
 }
 
+function toDateTimeLocal(date: string): string {
+  const value = new Date(date);
+  if (Number.isNaN(value.getTime())) return '';
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 // Formata telefone brasileiro para exibição amigável
 function formatPhone(phone: string): string {
   if (!phone) return '—';
@@ -257,6 +267,8 @@ export default function Dashboard() {
   const [sendReview, setSendReview] = useState<{ id: string; retryFailed: boolean } | null>(null);
   const [hasReviewedMessages, setHasReviewedMessages] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [rescheduleDraft, setRescheduleDraft] = useState('');
 
   // Inicializar hidratação segura do Zustand client-side
   useEffect(() => {
@@ -559,7 +571,7 @@ export default function Dashboard() {
     if (!isHydrated || !token) return;
 
     const hasActiveCampaign = campaigns.some(
-      c => ['RUNNING', 'STARTING', 'PAUSING'].includes(c.status)
+      c => ['RUNNING', 'STARTING', 'PAUSING', 'SCHEDULED'].includes(c.status)
     );
     const intervalMs = hasActiveCampaign ? 5000 : 20000;
 
@@ -1195,6 +1207,43 @@ export default function Dashboard() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleReschedule = async (id: string) => {
+    if (!rescheduleDraft || actionLoading) return;
+    const scheduledAt = new Date(rescheduleDraft);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      addToast('error', 'Informe uma data e hora válidas.');
+      return;
+    }
+    setActionLoading(id);
+    try {
+      const { data } = await api.put(`/campaigns/${id}/schedule`, {
+        scheduledAt: scheduledAt.toISOString(),
+        scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo',
+      });
+      addToast('success', data.message || 'Horário do agendamento atualizado.');
+      setRescheduleId(null);
+      setRescheduleDraft('');
+      await fetchCampaigns();
+    } catch (error) {
+      const message = axios.isAxiosError(error) ? error.response?.data?.error : null;
+      addToast('error', message || 'Não foi possível alterar o horário.');
+    } finally { setActionLoading(null); }
+  };
+
+  const handleCancelSchedule = async (id: string) => {
+    if (actionLoading) return;
+    setActionLoading(id);
+    try {
+      const { data } = await api.delete(`/campaigns/${id}/schedule`);
+      addToast('info', data.message || 'Agendamento cancelado.');
+      if (rescheduleId === id) { setRescheduleId(null); setRescheduleDraft(''); }
+      await fetchCampaigns();
+    } catch (error) {
+      const message = axios.isAxiosError(error) ? error.response?.data?.error : null;
+      addToast('error', message || 'Não foi possível cancelar o agendamento.');
+    } finally { setActionLoading(null); }
   };
 
   const confirmDelete = async () => {
@@ -1857,7 +1906,7 @@ export default function Dashboard() {
               reviewed={hasReviewedMessages} sent={Object.values(statsMap).some(s => s.sent + (s.delivered || 0) + (s.read || 0) + s.replied > 0)} canSearch={canUseSearch}
               onConnect={() => { document.getElementById('whatsapp-connection')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
               onSearch={() => setActiveTab('search')} onCreate={() => openNewCampaignModal()}
-              onReview={() => { const campaign = campaigns.find(c => !['RUNNING', 'STARTING', 'PAUSING'].includes(c.status) && (statsMap[c.id]?.pending || 0) + (statsMap[c.id]?.queued || 0) > 0); if (campaign) handleStart(campaign.id); else if (!campaigns.length) openNewCampaignModal(); else { setCampaignFilter('ALL'); setCampaignQuery(''); addToast('info', 'Use Ver Leads para acompanhar sua campanha. Não há lote pendente disponível para revisão.'); } }} /></div>}
+              onReview={() => { const campaign = campaigns.find(c => !['RUNNING', 'STARTING', 'PAUSING', 'SCHEDULED'].includes(c.status) && (statsMap[c.id]?.pending || 0) + (statsMap[c.id]?.queued || 0) > 0); if (campaign) handleStart(campaign.id); else if (!campaigns.length) openNewCampaignModal(); else { setCampaignFilter('ALL'); setCampaignQuery(''); addToast('info', 'Use Ver Leads para acompanhar sua campanha. Não há lote pendente disponível para revisão.'); } }} /></div>}
             <div data-dashboard-reveal><OperationOverview campaigns={campaigns.length} running={campaigns.filter(c => c.status === 'RUNNING').length}
               paused={campaigns.filter(c => c.status === 'PAUSED').length} leads={totalLeadsGlobal}
               sent={campaigns.map(c => statsMap[c.id]).filter(Boolean).reduce((sum, s) => sum + s.sent + (s.delivered || 0) + (s.read || 0) + s.replied, 0)}
@@ -1875,7 +1924,7 @@ export default function Dashboard() {
               <div className="campaign-tools">
                 <label><Search size={16} /><input aria-label="Buscar campanhas" placeholder="Buscar uma campanha…" value={campaignQuery} onChange={e => setCampaignQuery(e.target.value)} /></label>
                 <select aria-label="Filtrar campanhas por status" value={campaignFilter} onChange={e => setCampaignFilter(e.target.value)}>
-                  <option value="ALL">Todas as campanhas</option><option value="RUNNING">Em execução</option><option value="PAUSED">Pausadas</option><option value="COMPLETED">Concluídas</option><option value="STARTING">Preparando</option>
+                  <option value="ALL">Todas as campanhas</option><option value="RUNNING">Em execução</option><option value="SCHEDULED">Agendadas</option><option value="PAUSED">Pausadas</option><option value="COMPLETED">Concluídas</option><option value="STARTING">Preparando</option>
                 </select>
               </div>
               {!isLoading && campaigns.length > 0 && filteredCampaigns.length === 0 && <div className="dash-card rounded-2xl p-8 text-center text-[var(--studio-muted)]"><p>Nenhuma campanha encontrada com esse filtro.</p><button type="button" className="text-emerald-300 mt-3" onClick={() => { setCampaignQuery(''); setCampaignFilter('ALL'); }}>Limpar filtros</button></div>}
@@ -1930,13 +1979,26 @@ export default function Dashboard() {
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider ${
                             camp.status === 'RUNNING' 
                               ? 'dash-badge-emerald animate-pulse' 
+                              : camp.status === 'SCHEDULED'
+                              ? 'border border-sky-400/25 bg-sky-400/10 text-sky-200'
                               : camp.status === 'COMPLETED'
                               ? 'bg-white/[0.06] text-[var(--studio-ink)] border border-white/[0.12]'
                               : 'dash-badge-neutral'
                           }`}>
-                            {camp.status === 'PAUSING' ? 'PAUSANDO' : camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
+                            {camp.status === 'SCHEDULED' && <CalendarClock size={12} />}{camp.status === 'PAUSING' ? 'PAUSANDO' : camp.status === 'STARTING' ? 'PREPARANDO' : camp.status === 'RUNNING' ? 'EM EXECUÇÃO' : camp.status === 'SCHEDULED' ? 'AGENDADA' : camp.status === 'COMPLETED' ? 'CONCLUÍDA' : 'PAUSADA'}
                           </span>
                         </div>
+
+                        {camp.status === 'SCHEDULED' && camp.scheduledAt && <div className="flex items-start gap-2 text-xs text-sky-200">
+                          <CalendarClock size={14} className="mt-0.5 shrink-0" />
+                          <span>Início previsto para <b>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeStyle: 'short', timeZone: camp.scheduleTimezone || undefined }).format(new Date(camp.scheduledAt))}</b> ({camp.scheduleTimezone || 'fuso local'})</span>
+                        </div>}
+                        {camp.scheduleError && <p role="status" className="text-xs text-amber-300">Agendamento: {camp.scheduleError}</p>}
+                        {rescheduleId === camp.id && camp.status === 'SCHEDULED' && <div className="flex flex-wrap items-end gap-2 rounded-xl border border-sky-400/20 bg-sky-400/[0.04] p-3">
+                          <label className="min-w-[210px] flex-1 space-y-1 text-xs text-[var(--studio-muted)]"><span>Novo horário no seu fuso</span><input type="datetime-local" min={toDateTimeLocal(new Date().toISOString())} value={rescheduleDraft} onChange={event => setRescheduleDraft(event.target.value)} className="dash-input w-full p-2.5 text-sm" /></label>
+                          <button type="button" onClick={() => void handleReschedule(camp.id)} disabled={!rescheduleDraft || actionLoading === camp.id} className="dash-btn-primary px-3 py-2 text-xs disabled:opacity-40">{actionLoading === camp.id ? 'Salvando…' : 'Salvar horário'}</button>
+                          <button type="button" onClick={() => { setRescheduleId(null); setRescheduleDraft(''); }} disabled={actionLoading === camp.id} className="dash-btn-secondary px-3 py-2 text-xs">Cancelar edição</button>
+                        </div>}
 
                         <div className="flex items-center gap-4 text-xs text-[var(--studio-muted)] flex-wrap">
                           <span className="flex items-center gap-1.5">
@@ -1991,13 +2053,16 @@ export default function Dashboard() {
                         <p className="text-xs text-amber-400">Reconecte o WhatsApp e clique em continuar. Os envios já feitos serão preservados.</p>
                       )}
                       <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        {!['RUNNING', 'STARTING', 'PAUSING'].includes(camp.status) && (statsMap[camp.id]?.error || 0) > 0 && (
+                        {!['RUNNING', 'STARTING', 'PAUSING', 'SCHEDULED'].includes(camp.status) && (statsMap[camp.id]?.error || 0) > 0 && (
                           <button onClick={() => handleStart(camp.id, true)} disabled={actionLoading === camp.id}
                             title="Repete erros sem envio iniciado. Envios sem confirmação precisam de conferência na conversa."
                             className="dash-btn-secondary px-3 py-2 rounded-xl text-xs disabled:opacity-40">Tentar falhas</button>
                         )}
 
-                        {camp.status === 'RUNNING' ? (
+                        {camp.status === 'SCHEDULED' ? <>
+                          <button type="button" onClick={() => { setRescheduleId(current => current === camp.id ? null : camp.id); setRescheduleDraft(camp.scheduledAt ? toDateTimeLocal(camp.scheduledAt) : ''); }} disabled={actionLoading === camp.id} className="dash-btn-secondary px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-40"><CalendarClock size={14} />Alterar horário</button>
+                          <button type="button" onClick={() => void handleCancelSchedule(camp.id)} disabled={actionLoading === camp.id} className="dash-btn-secondary px-3 py-2 rounded-xl text-xs text-amber-300 disabled:opacity-40">{actionLoading === camp.id ? 'Cancelando…' : 'Cancelar agendamento'}</button>
+                        </> : camp.status === 'RUNNING' ? (
                           <button
                             onClick={() => handlePause(camp.id)}
                             disabled={actionLoading === camp.id}
@@ -2027,7 +2092,7 @@ export default function Dashboard() {
 
                         <button 
                           onClick={() => setCampaignToDelete(camp)}
-                          disabled={['STARTING', 'PAUSING'].includes(camp.status)}
+                          disabled={['STARTING', 'PAUSING', 'SCHEDULED'].includes(camp.status)}
                           className="p-2.5 rounded-xl text-[var(--studio-muted)] hover:text-red-400 hover:bg-red-500/10 active:scale-[0.98] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none"
                           title="Excluir Campanha"
                         >

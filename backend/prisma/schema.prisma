@@ -231,6 +231,8 @@ model Campaign {
   scheduleEndMinute   Int      @default(1200) // 20:00 (minutos desde 00:00)
   scheduleDays        String   @default("1,2,3,4,5,6") // Dias da semana: 0=Dom, 1=Seg..6=Sab
   scheduleTimezone    String   @default("America/Sao_Paulo")
+  scheduledAt         DateTime?
+  scheduleError       String?  @db.Text
   recontactAfterDays  Int      @default(30)
   activeSendBatchId   String?
   aiOfferDescription  String?  @db.Text
